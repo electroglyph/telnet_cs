@@ -1,108 +1,144 @@
 ﻿namespace telnet_cs.Tests
 {
-  using System;
-  using System.Threading;
-  using System.Threading.Tasks;
-  using FluentAssertions;
-  using Xunit;
-  using telnet_cs.Client;
-  using telnet_cs.Protocol;
+    using System;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using FluentAssertions;
+    using Xunit;
+    using telnet_cs.Client;
+    using telnet_cs.IO;
+    using telnet_cs.Protocol;
 
-  public class NawsRefreshTests
-  {
-    private static byte[] NawsFrame(int width, int height) => new byte[]
+    public class NawsRefreshTests
     {
+        private static byte[] NawsFrame(int width, int height) => new byte[]
+        {
       255, 250, 31, 0, (byte)(width >> 8), (byte)width, (byte)(height >> 8), (byte)height, 255, 240,
-    };
+        };
 
-    private static async Task<string> ReadClientOnceAsync(Client client)
-    {
-      return await client.ReadAsync(TimeSpan.FromMilliseconds(100));
-    }
+        private static async Task<string> ReadClientOnceAsync(Client client)
+        {
+            return await client.ReadAsync(TimeSpan.FromMilliseconds(100));
+        }
 
-    [Fact]
-    public async Task RefreshWindowSize_AfterNegotiation_SendsChangedSize()
-    {
-      using (GlobalStateGuard.SkipProactive(true))
-      {
-        using var stream = new ScriptedStream();
-        using var client = new Client(stream, new CancellationToken());
-        client.Settings.WindowWidth = 100;
-        client.Settings.WindowHeight = 30;
-        stream.Enqueue(255, 253, 31);
-        (await ReadClientOnceAsync(client)).Should().BeEmpty();
-        stream.ByteWrites.Should().HaveCount(2);
-        stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 31 });
-        stream.ByteWrites[1].Should().Equal(NawsFrame(100, 30));
-        client.Settings.WindowWidth = 120;
-        client.Settings.WindowHeight = 40;
-        await client.RefreshWindowSizeAsync();
-        stream.ByteWrites.Should().HaveCount(3);
-        stream.ByteWrites[2].Should().Equal(NawsFrame(120, 40));
-      }
-    }
+        [Fact]
+        public async Task RefreshWindowSize_AfterNegotiation_SendsChangedSize()
+        {
+            using (GlobalStateGuard.SkipProactive(true))
+            {
+                using var stream = new ScriptedStream();
+                using var client = new Client(stream, new CancellationToken());
+                client.Settings.WindowWidth = 100;
+                client.Settings.WindowHeight = 30;
+                stream.Enqueue(255, 253, 31);
+                (await ReadClientOnceAsync(client)).Should().BeEmpty();
+                stream.ByteWrites.Should().HaveCount(2);
+                stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 31 });
+                stream.ByteWrites[1].Should().Equal(NawsFrame(100, 30));
+                client.Settings.WindowWidth = 120;
+                client.Settings.WindowHeight = 40;
+                await client.RefreshWindowSizeAsync();
+                stream.ByteWrites.Should().HaveCount(3);
+                stream.ByteWrites[2].Should().Equal(NawsFrame(120, 40));
+            }
+        }
 
-    [Fact]
-    public async Task RefreshWindowSize_Unchanged_DoesNotResend()
-    {
-      using (GlobalStateGuard.SkipProactive(true))
-      {
-        using var stream = new ScriptedStream();
-        using var client = new Client(stream, new CancellationToken());
-        client.Settings.WindowWidth = 100;
-        client.Settings.WindowHeight = 30;
-        stream.Enqueue(255, 253, 31);
-        (await ReadClientOnceAsync(client)).Should().BeEmpty();
-        stream.ByteWrites.Should().HaveCount(2);
-        await client.RefreshWindowSizeAsync();
-        stream.ByteWrites.Should().HaveCount(2);
-      }
-    }
+        [Fact]
+        public async Task RefreshWindowSize_Unchanged_DoesNotResend()
+        {
+            using (GlobalStateGuard.SkipProactive(true))
+            {
+                using var stream = new ScriptedStream();
+                using var client = new Client(stream, new CancellationToken());
+                client.Settings.WindowWidth = 100;
+                client.Settings.WindowHeight = 30;
+                stream.Enqueue(255, 253, 31);
+                (await ReadClientOnceAsync(client)).Should().BeEmpty();
+                stream.ByteWrites.Should().HaveCount(2);
+                await client.RefreshWindowSizeAsync();
+                stream.ByteWrites.Should().HaveCount(2);
+            }
+        }
 
-    [Fact]
-    public async Task RefreshWindowSize_WhenNeverNegotiated_SendsNothing()
-    {
-      using (GlobalStateGuard.SkipProactive(true))
-      {
-        using var stream = new ScriptedStream();
-        using var client = new Client(stream, new CancellationToken());
-        client.Settings.WindowWidth = 100;
-        client.Settings.WindowHeight = 30;
-        await client.RefreshWindowSizeAsync();
-        stream.ByteWrites.Should().BeEmpty();
-      }
-    }
+        [Fact]
+        public async Task RefreshWindowSize_WhenNeverNegotiated_SendsNothing()
+        {
+            using (GlobalStateGuard.SkipProactive(true))
+            {
+                using var stream = new ScriptedStream();
+                using var client = new Client(stream, new CancellationToken());
+                client.Settings.WindowWidth = 100;
+                client.Settings.WindowHeight = 30;
+                await client.RefreshWindowSizeAsync();
+                stream.ByteWrites.Should().BeEmpty();
+            }
+        }
 
-    [Fact]
-    public async Task RefreshWindowSize_AfterDont_Suppressed()
-    {
-      using (GlobalStateGuard.SkipProactive(true))
-      {
-        using var stream = new ScriptedStream();
-        using var client = new Client(stream, new CancellationToken());
-        client.Settings.WindowWidth = 100;
-        client.Settings.WindowHeight = 30;
-        stream.Enqueue(255, 253, 31);
-        (await ReadClientOnceAsync(client)).Should().BeEmpty();
-        stream.Enqueue(255, 254, 31);
-        (await ReadClientOnceAsync(client)).Should().BeEmpty();
-        stream.ByteWrites.Should().HaveCount(3);
-        stream.ByteWrites[2].Should().Equal(new byte[] { 255, 252, 31 });
-        client.Settings.WindowWidth = 120;
-        client.Settings.WindowHeight = 40;
-        await client.RefreshWindowSizeAsync();
-        stream.ByteWrites.Should().HaveCount(3);
-      }
-    }
+        [Fact]
+        public async Task RefreshWindowSize_AfterDont_Suppressed()
+        {
+            using (GlobalStateGuard.SkipProactive(true))
+            {
+                using var stream = new ScriptedStream();
+                using var client = new Client(stream, new CancellationToken());
+                client.Settings.WindowWidth = 100;
+                client.Settings.WindowHeight = 30;
+                stream.Enqueue(255, 253, 31);
+                (await ReadClientOnceAsync(client)).Should().BeEmpty();
+                stream.Enqueue(255, 254, 31);
+                (await ReadClientOnceAsync(client)).Should().BeEmpty();
+                stream.ByteWrites.Should().HaveCount(3);
+                stream.ByteWrites[2].Should().Equal(new byte[] { 255, 252, 31 });
+                client.Settings.WindowWidth = 120;
+                client.Settings.WindowHeight = 40;
+                await client.RefreshWindowSizeAsync();
+                stream.ByteWrites.Should().HaveCount(3);
+            }
+        }
 
-    [Theory]
-    [InlineData(100, 30, 100, 30)]
-    [InlineData(70000, 30, 80, 30)]
-    [InlineData(100, 90000, 100, 24)]
-    [InlineData(65535, 65535, 65535, 65535)]
-    public void GetEffectiveSize_ClampsDimensions(int width, int height, int expectedWidth, int expectedHeight)
-    {
-      NawsProtocol.GetEffectiveSize(width, height).Should().Be(((ushort)expectedWidth, (ushort)expectedHeight));
+        [Fact]
+        public async Task InboundNawsVerbFirst_IsRefusedWithWont()
+        {
+            // The client sends NAWS and never parses inbound NAWS: a server IS
+            // falls to the stray-IS arm and earns WONT.
+            using var stream = new ScriptedStream(255, 250, 31, 0, 0, 80, 0, 24, 255, 240);
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 252, 31 });
+        }
+
+        [Fact]
+        public async Task InboundNawsBareShape_IsRefusedWithWont()
+        {
+            // Bare shape (no verb): the width-high byte is the SEND-gate byte, so
+            // small widths (< 256) hit the stray-IS arm and earn WONT.
+            using var stream = new ScriptedStream(255, 250, 31, 0, 80, 0, 30, 255, 240);
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 252, 31 });
+        }
+
+        [Fact]
+        public async Task InboundNawsSend_IsLoggedOnly()
+        {
+            // A server SEND has no client answer path: consumed, logged, silent.
+            using var stream = new ScriptedStream(255, 250, 31, 1, 255, 240);
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+        }
+
+        [Theory]
+        [InlineData(100, 30, 100, 30)]
+        [InlineData(70000, 30, 80, 30)]
+        [InlineData(100, 90000, 100, 24)]
+        [InlineData(65535, 65535, 65535, 65535)]
+        public void GetEffectiveSize_ClampsDimensions(int width, int height, int expectedWidth, int expectedHeight)
+        {
+            NawsProtocol.GetEffectiveSize(width, height).Should().Be(((ushort)expectedWidth, (ushort)expectedHeight));
+        }
     }
-  }
 }

@@ -1,22 +1,22 @@
 ﻿namespace telnet_cs.Tests
 {
-  using System;
+    using System;
 
-  internal class WriteHandler : WriteHandlerBase
-  {
-    private readonly Action handler;
-
-    public WriteHandler(Func<byte[], bool> check, Action handler)
+    internal class WriteHandler : WriteHandlerBase
     {
-      Check = check;
-      this.handler = handler;
-    }
+        private readonly Action handler;
 
-    public override Func<byte[], bool> Check { get; }
+        public WriteHandler(Func<byte[], bool> check, Action handler)
+        {
+            Check = check;
+            this.handler = handler;
+        }
 
-    public override void Handle()
-    {
-      handler();
+        public override Func<byte[], bool> Check { get; }
+
+        public override void Handle()
+        {
+            handler();
+        }
     }
-  }
 }

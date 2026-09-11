@@ -1,11 +1,11 @@
 ﻿namespace telnet_cs.Tests
 {
-  using System;
+    using System;
 
-  internal abstract class WriteHandlerBase
-  {
-    public abstract Func<byte[], bool> Check { get; }
+    internal abstract class WriteHandlerBase
+    {
+        public abstract Func<byte[], bool> Check { get; }
 
-    public abstract void Handle();
-  }
+        public abstract void Handle();
+    }
 }

@@ -1,18 +1,18 @@
 ﻿namespace telnet_cs.Tests
 {
-  using Xunit;
-  using FluentAssertions;
+    using Xunit;
+    using FluentAssertions;
 
-  public class DummyTelnetServerTests
-  {
-    [Fact]
-    public void TelnetServerShouldTerminateAndReleaseDebuggingContext()
+    public class DummyTelnetServerTests
     {
-      DummyTelnetServer server;
-      using (server = new DummyTelnetServer())
-      {
-      }
-      server.IsListening.Should().BeFalse();
+        [Fact]
+        public void TelnetServerShouldTerminateAndReleaseDebuggingContext()
+        {
+            DummyTelnetServer server;
+            using (server = new DummyTelnetServer())
+            {
+            }
+            server.IsListening.Should().BeFalse();
+        }
     }
-  }
 }
