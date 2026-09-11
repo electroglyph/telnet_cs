@@ -121,7 +121,9 @@ namespace telnet_cs.Tests
             stream.Enqueue([.. XDisplayIsFrame("x:0")]);
             using var session = NewSession(stream);
             (await session.RequestXDisplayAsync(TimeSpan.FromSeconds(5))).Should().Be("x:0");
-            stream.Enqueue([255, 250, 36, 2,
+            // INFO is only honored from a WILL-agreed peer (RFC 1408): the
+            // WILL here earns the DO reply, then the INFO updates recency.
+            stream.Enqueue([255, 251, 36, 255, 250, 36, 2,
         0, (byte)'D', (byte)'I', (byte)'S', (byte)'P', (byte)'L', (byte)'A', (byte)'Y', 1, (byte)'z', (byte)':', (byte)'1',
         255, 240]);
             await session.ReadAsync(TimeSpan.FromSeconds(5));

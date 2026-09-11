@@ -105,6 +105,15 @@
 
             try
             {
+                // Drain text a terminated read stashed past its terminator
+                // before touching the wire, so pipelined data is never lost.
+                string pending = PendingText;
+                PendingText = string.Empty;
+                if (pending.Length != 0)
+                {
+                    return pending;
+                }
+
                 // A per-read linked source: an IP command aborts this read without
                 // cancelling the session's own InternalCancellation (which must
                 // survive for subsequent reads). Safe to dispose: the handler no
@@ -113,7 +122,15 @@
                 using (var handler = new ByteStreamHandler(ByteStream, linked, MillisecondReadDelay))
                 {
                     FeedSession(handler);
-                    return await handler.ReadAsync(timeout).ConfigureAwait(false);
+                    try
+                    {
+                        return await handler.ReadAsync(timeout).ConfigureAwait(false);
+                    }
+                    catch (System.Net.Sockets.SocketException)
+                    {
+                        // Dead peer, like every other read-path death: empty.
+                        return string.Empty;
+                    }
                 }
             }
             finally
@@ -186,7 +203,7 @@
         /// <returns>An awaitable Task.</returns>
         public Task WriteLineAsync(string command, CancellationToken cancellationToken = default)
         {
-            return WriteLineAsync(command, Client.LegacyLineFeed, cancellationToken);
+            return WriteLineAsync(command, LineFeed.Legacy, cancellationToken);
         }
 
         /// <summary>
@@ -223,7 +240,7 @@
         /// <returns>An awaitable Task.</returns>
         public Task WriteLineRfc854Async(string command, CancellationToken cancellationToken = default)
         {
-            return WriteLineAsync(command, Client.Rfc854LineFeed, cancellationToken);
+            return WriteLineAsync(command, LineFeed.Rfc854, cancellationToken);
         }
 
         private void FeedSession(ByteStreamHandler handler)

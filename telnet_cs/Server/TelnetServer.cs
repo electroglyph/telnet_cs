@@ -43,8 +43,9 @@
             ArgumentOutOfRangeException.ThrowIfNegative(port);
             ArgumentOutOfRangeException.ThrowIfGreaterThan(port, 65535);
             ArgumentNullException.ThrowIfNull(options);
+            ArgumentNullException.ThrowIfNull(options.ListenAddress);
             this.options = options;
-            listener = new System.Net.Sockets.TcpListener(IPAddress.Any, port);
+            listener = new System.Net.Sockets.TcpListener(options.ListenAddress, port);
         }
 
         /// <summary>
@@ -107,7 +108,7 @@
                         {
                             ServerCertificate = options.ServerCertificate,
                             ClientCertificateRequired = false,
-                            EnabledSslProtocols = SslProtocols.None,
+                            EnabledSslProtocols = options.TlsProtocols,
                         },
                         cancellationToken).ConfigureAwait(false);
                 }

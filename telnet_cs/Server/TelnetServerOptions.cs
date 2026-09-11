@@ -1,6 +1,7 @@
 ﻿namespace telnet_cs.Server
 {
     using System;
+    using System.Security.Authentication;
     using System.Security.Cryptography.X509Certificates;
     using System.Text;
     using telnet_cs.Client;
@@ -122,5 +123,22 @@
         /// caller loads the certificate (file, PEM, or store).
         /// </summary>
         public X509Certificate2? ServerCertificate { get; set; }
+
+        /// <summary>
+        /// TLS protocol versions for the server handshake. <c>SslProtocols.None</c>
+        /// (the default) lets the OS pick the best available. Mirrors the
+        /// client's <c>TlsProtocols</c>; only used when <c>ServerCertificate</c>
+        /// is set.
+        /// </summary>
+        public SslProtocols TlsProtocols { get; set; } = SslProtocols.None;
+
+        /// <summary>
+        /// Local address to listen on. <c>IPAddress.Any</c> (the default) keeps
+        /// today's IPv4-everywhere bind; set <c>IPAddress.Loopback</c> for
+        /// local-only servers or <c>IPAddress.IPv6Any</c> for IPv6
+        /// (dual-mode where the OS supports it). Read once at construction:
+        /// later mutations do not rebind the listener.
+        /// </summary>
+        public System.Net.IPAddress ListenAddress { get; set; } = System.Net.IPAddress.Any;
     }
 }

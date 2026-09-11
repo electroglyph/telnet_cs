@@ -53,7 +53,19 @@
             {
                 return width ? Console.WindowWidth : Console.WindowHeight;
             }
+            // Best-effort advisory probe: any documented console failure mode
+            // falls back to the NVT default size instead of breaking a read.
+            // (Exception list per the .NET 10 reference docs for
+            // Console.WindowWidth/Height.)
             catch (System.IO.IOException)
+            {
+                return width ? 80 : 24;
+            }
+            catch (System.ArgumentOutOfRangeException)
+            {
+                return width ? 80 : 24;
+            }
+            catch (System.PlatformNotSupportedException)
             {
                 return width ? 80 : 24;
             }

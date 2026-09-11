@@ -232,12 +232,31 @@
             ArgumentNullException.ThrowIfNull(terminator);
             bool isTerminated(string x) => Client.IsTerminatorLocated(terminator, x);
             var s = await TerminatedReadAsync(isTerminated, timeout, millisecondSpin, cancellationToken).ConfigureAwait(false);
+            s = CutAtFirstTerminator(s, terminator);
             if (!isTerminated(s))
             {
                 WriteLog(string.Format("Failed to terminate '{0}' with '{1}'", s, terminator));
             }
 
             return s;
+        }
+
+        /// <summary>
+        /// Cuts the result at the end of the first <paramref name="terminator"/>
+        /// occurrence and stashes the remainder in <see cref="BaseClient.PendingText"/>
+        /// for the next plain read. Unterminated text passes through untouched.
+        /// </summary>
+        private string CutAtFirstTerminator(string s, string terminator)
+        {
+            int at = s.IndexOf(terminator, StringComparison.Ordinal);
+            if (at < 0)
+            {
+                return s;
+            }
+
+            int end = at + terminator.Length;
+            PendingText = s.Substring(end);
+            return s.Substring(0, end);
         }
 
         /// <inheritdoc/>
@@ -252,6 +271,14 @@
             ArgumentNullException.ThrowIfNull(regex);
             bool isTerminated(string x) => Client.IsRegexLocated(regex, x);
             var s = await TerminatedReadAsync(isTerminated, timeout, millisecondSpin, cancellationToken).ConfigureAwait(false);
+            Match match = regex.Match(s);
+            if (match.Success)
+            {
+                int end = match.Index + match.Length;
+                PendingText = s.Substring(end);
+                s = s.Substring(0, end);
+            }
+
             if (!isTerminated(s))
             {
                 WriteLog(string.Format("Failed to match '{0}' with '{1}'", s, regex.ToString()));
@@ -266,6 +293,23 @@
             ArgumentNullException.ThrowIfNull(terminators);
             bool isTerminated(string x) => Client.IsAnyTerminatorLocated(terminators, x);
             var s = await TerminatedReadAsync(isTerminated, timeout, millisecondSpin, cancellationToken).ConfigureAwait(false);
+            int cut = -1;
+            foreach (var candidate in terminators)
+            {
+                int at = s.IndexOf(candidate, StringComparison.Ordinal);
+                if (at >= 0)
+                {
+                    int end = at + candidate.Length;
+                    cut = cut < 0 ? end : Math.Min(cut, end);
+                }
+            }
+
+            if (cut >= 0)
+            {
+                PendingText = s.Substring(cut);
+                s = s.Substring(0, cut);
+            }
+
             if (!isTerminated(s))
             {
                 WriteLog(string.Format("Failed to terminate '{0}' with any known terminator", s));
@@ -280,6 +324,23 @@
             ArgumentNullException.ThrowIfNull(regexes);
             bool isTerminated(string x) => Client.IsAnyRegexLocated(regexes, x);
             var s = await TerminatedReadAsync(isTerminated, timeout, millisecondSpin, cancellationToken).ConfigureAwait(false);
+            int cut = -1;
+            foreach (var candidate in regexes)
+            {
+                Match match = candidate.Match(s);
+                if (match.Success)
+                {
+                    int end = match.Index + match.Length;
+                    cut = cut < 0 ? end : Math.Min(cut, end);
+                }
+            }
+
+            if (cut >= 0)
+            {
+                PendingText = s.Substring(cut);
+                s = s.Substring(0, cut);
+            }
+
             if (!isTerminated(s))
             {
                 WriteLog(string.Format("Failed to match '{0}' with any known pattern", s));
@@ -316,6 +377,15 @@
 
             try
             {
+                // Drain text a terminated read stashed past its terminator
+                // before touching the wire, so pipelined data is never lost.
+                string pending = PendingText;
+                PendingText = string.Empty;
+                if (pending.Length != 0)
+                {
+                    return pending;
+                }
+
                 // A per-read linked source: an IP command aborts this read without
                 // cancelling the client's own InternalCancellation (which must
                 // survive for subsequent reads). Safe to dispose: the handler no
@@ -325,7 +395,17 @@
                 {
                     FeedHandler(handler);
                     await MaybeSendEnvironmentInfoAsync().ConfigureAwait(false);
-                    return await handler.ReadAsync(timeout).ConfigureAwait(false);
+                    try
+                    {
+                        return await handler.ReadAsync(timeout).ConfigureAwait(false);
+                    }
+                    catch (System.Net.Sockets.SocketException)
+                    {
+                        // Dead peer, like every other read-path death
+                        // (timeout/cancel/EOF/dispose all yield empty): a reset
+                        // connection is "no data", not an error.
+                        return string.Empty;
+                    }
                 }
             }
             finally
@@ -371,7 +451,12 @@
 
         private async Task<bool> IsTerminatedWithAsync(int loginTimeoutMs, string terminator)
         {
-            return (await TerminatedReadAsync(terminator, TimeSpan.FromMilliseconds(loginTimeoutMs), 1).ConfigureAwait(false)).TrimEnd().EndsWith(terminator);
+            // Untrimmed first: a terminator with trailing whitespace must match
+            // itself. Trimmed fallback preserves noise tolerance. Ordinal:
+            // terminators are protocol tokens (same rationale as
+            // IsTerminatorLocated).
+            string s = await TerminatedReadAsync(terminator, TimeSpan.FromMilliseconds(loginTimeoutMs), 1).ConfigureAwait(false);
+            return s.EndsWith(terminator, StringComparison.Ordinal) || s.TrimEnd().EndsWith(terminator, StringComparison.Ordinal);
         }
     }
 }

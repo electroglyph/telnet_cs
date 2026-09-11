@@ -12,8 +12,11 @@
     /// for the window size) falls back to the corresponding static on
     /// <see cref="Client"/> (or the documented default), so existing code that
     /// only touches the statics behaves exactly as before.
+    /// A record: <c>ConnectAsync</c> snapshots it with a compiler-generated
+    /// <c>with</c>-clone, so newly added members flow automatically and can
+    /// never be silently dropped by a manual field list.
     /// </summary>
-    public class TelnetClientOptions
+    public record TelnetClientOptions
     {
         /// <summary>
         /// Gets or sets the terminal type to negotiate. Null follows <see cref="Client.TerminalType"/>.
@@ -24,8 +27,11 @@
         /// Ordered terminal-type list (most to least specific) for RFC 1091
         /// cycling: successive SENDs walk this list instead of repeating
         /// <see cref="TerminalType"/>. Empty (the default) disables cycling.
+        /// Settable (not init-only) like the rest of this bag, and re-seated
+        /// — never shared — by the <c>with</c>-clone in
+        /// <c>Client.ApplyOptions</c>.
         /// </summary>
-        public IList<string> TerminalTypes { get; } = [];
+        public IList<string> TerminalTypes { get; set; } = [];
 
         /// <summary>
         /// Gets or sets the terminal speed to negotiate. Null follows <see cref="Client.TerminalSpeed"/>.
@@ -92,9 +98,11 @@
 
         /// <summary>
         /// User-defined variables reported as <c>USERVAR</c> entries in RFC 1408 ENVIRON responses.
-        /// Empty by default.
+        /// Empty by default. Settable (not init-only) like the rest of this
+        /// bag, and re-seated — never shared — by the <c>with</c>-clone in
+        /// <c>Client.ApplyOptions</c>.
         /// </summary>
-        public Dictionary<string, string> EnvironmentUserVars { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, string> EnvironmentUserVars { get; set; } = new(StringComparer.Ordinal);
 
         /// <summary>
         /// Master switch for implicit TLS (telnets-style): the TLS handshake

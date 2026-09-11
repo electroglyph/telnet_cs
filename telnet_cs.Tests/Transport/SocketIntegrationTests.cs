@@ -188,5 +188,50 @@ namespace telnet_cs.Tests
                 inbound.Should().Equal(255, 251, 34, 255, 243);
             }
         }
+
+        [Fact]
+        public async Task TryConsumeUrgent_WithoutPendingByte_ReturnsNullFast()
+        {
+            // No OOB byte is ever sent: the poll gate says none pending and the
+            // consume returns null without touching the (blocking) receive.
+            // Bounded by WhenAny, not by trust: a regression to a blocking
+            // receive would trip the 2s guard instead of hanging the suite.
+            using var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            using var sender = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            await sender.ConnectAsync(new IPEndPoint(IPAddress.Loopback, port));
+            using Socket accepted = await listener.AcceptSocketAsync();
+            using var sysClient = new System.Net.Sockets.TcpClient { Client = accepted };
+            using var tcp = new telnet_cs.Transport.TcpClient(sysClient);
+
+            var consumeTask = Task.Run(() => tcp.TryConsumeUrgent());
+            var completed = await Task.WhenAny(
+                consumeTask,
+                Task.Delay(TimeSpan.FromSeconds(2)));
+            completed.Should().Be(consumeTask);
+            (await consumeTask).Should().BeNull();
+        }
+
+        [Fact]
+        public async Task ReceiveUrgentAsync_AfterGracefulClose_ThrowsEndOfStream()
+        {
+            // Peer closes with no urgent byte in flight: the 0-byte receive
+            // surfaces EndOfStreamException, never a phantom 0x00 Synch.
+            using var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            using var sender = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            await sender.ConnectAsync(new IPEndPoint(IPAddress.Loopback, port));
+            using Socket accepted = await listener.AcceptSocketAsync();
+            using var sysClient = new System.Net.Sockets.TcpClient { Client = accepted };
+            using var tcp = new telnet_cs.Transport.TcpClient(sysClient);
+            sender.Shutdown(SocketShutdown.Both);
+            sender.Close();
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            Func<Task> act = () => tcp.ReceiveUrgentAsync(cts.Token);
+            await act.Should().ThrowAsync<EndOfStreamException>();
+        }
     }
 }

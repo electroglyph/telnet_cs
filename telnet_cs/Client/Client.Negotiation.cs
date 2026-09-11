@@ -1,6 +1,7 @@
 ﻿namespace telnet_cs.Client
 {
     using System;
+    using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
     using telnet_cs.IO;
@@ -12,11 +13,13 @@
         /// Gets the per-instance settings. Initialised empty (follow the statics);
         /// mutate its members to override behaviour for this client only.
         /// </summary>
-        public TelnetClientOptions Settings { get; } = new();
+        public TelnetClientOptions Settings { get; private set; } = new();
 
         /// <summary>
-        /// Copies every member of <paramref name="options"/> into
-        /// <see cref="Settings"/>. Single place owning the field list: the
+        /// Snapshots <paramref name="options"/> into <see cref="Settings"/> via
+        /// a compiler-generated <c>with</c>-clone: every current and future
+        /// member flows automatically, so a new member can never be silently
+        /// dropped here.
         /// <c>ConnectAsync</c> overload taking options must honor the whole
         /// object, not just the TLS members it consumes during the handshake.
         /// </summary>
@@ -24,35 +27,13 @@
         internal void ApplyOptions(TelnetClientOptions options)
         {
             ArgumentNullException.ThrowIfNull(options);
-            Settings.TerminalType = options.TerminalType;
-            Settings.TerminalTypes.Clear();
-            foreach (string entry in options.TerminalTypes)
+            // Collections are re-seated, not shared: the client owns its copies,
+            // so later mutations on either side stay independent.
+            Settings = options with
             {
-                Settings.TerminalTypes.Add(entry);
-            }
-
-            Settings.TerminalSpeed = options.TerminalSpeed;
-            Settings.XDisplayLocation = options.XDisplayLocation;
-            Settings.IsWriteConsole = options.IsWriteConsole;
-            Settings.AllowRemoteEcho = options.AllowRemoteEcho;
-            Settings.EnableBell = options.EnableBell;
-            Settings.TextEncoding = options.TextEncoding;
-            Settings.WindowWidth = options.WindowWidth;
-            Settings.WindowHeight = options.WindowHeight;
-            Settings.Log = options.Log;
-            Settings.EnvironmentUser = options.EnvironmentUser;
-            Settings.EnvironmentDisplay = options.EnvironmentDisplay;
-            Settings.EnvironmentUserVars.Clear();
-            foreach (var pair in options.EnvironmentUserVars)
-            {
-                Settings.EnvironmentUserVars.Add(pair.Key, pair.Value);
-            }
-
-            Settings.UseTls = options.UseTls;
-            Settings.TlsHost = options.TlsHost;
-            Settings.TlsValidationCallback = options.TlsValidationCallback;
-            Settings.TlsClientCertificates = options.TlsClientCertificates;
-            Settings.TlsProtocols = options.TlsProtocols;
+                TerminalTypes = [.. options.TerminalTypes],
+                EnvironmentUserVars = new Dictionary<string, string>(options.EnvironmentUserVars, StringComparer.Ordinal),
+            };
         }
 
         /// <summary>

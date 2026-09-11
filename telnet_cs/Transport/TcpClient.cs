@@ -158,10 +158,29 @@
         /// </summary>
         /// <param name="cancellationToken">The token to monitor for cancellation requests.</param>
         /// <returns>The urgent byte received.</returns>
+        /// <exception cref="System.IO.EndOfStreamException">The peer went away
+        /// before any urgent byte arrived: a 0-byte receive (graceful close) or
+        /// a socket failure (e.g. Linux reports <c>EINVAL</c> for OOB reads
+        /// after FIN) means there is no Synch to report, so this throws
+        /// instead of yielding a phantom <c>0x00</c>.</exception>
         public async Task<byte> ReceiveUrgentAsync(CancellationToken cancellationToken)
         {
             var buffer = new byte[1];
-            _ = await client.Client.ReceiveAsync(buffer, System.Net.Sockets.SocketFlags.OutOfBand, cancellationToken).ConfigureAwait(false);
+            int got;
+            try
+            {
+                got = await client.Client.ReceiveAsync(buffer, System.Net.Sockets.SocketFlags.OutOfBand, cancellationToken).ConfigureAwait(false);
+            }
+            catch (System.Net.Sockets.SocketException ex)
+            {
+                throw new System.IO.EndOfStreamException("The connection failed before any urgent byte arrived.", ex);
+            }
+
+            if (got == 0)
+            {
+                throw new System.IO.EndOfStreamException("The peer closed the connection: no urgent byte was received.");
+            }
+
             return buffer[0];
         }
 
@@ -188,9 +207,10 @@
         }
 
         /// <summary>
-        /// Consumes one pending urgent byte after <see cref="IsUrgentDataPending"/>
-        /// (the poll gate keeps this from blocking). Returns null when nothing
-        /// is pending or the consume fails.
+        /// Consumes one pending urgent byte after <see cref="IsUrgentDataPending"/>.
+        /// The receive itself runs non-blocking (see below), so the poll→receive
+        /// race resolves to an instant null instead of a block. Returns null when
+        /// nothing is pending or the consume fails.
         /// </summary>
         /// <returns>The urgent byte, or null when none is pending.</returns>
         public byte? TryConsumeUrgent()
@@ -202,9 +222,22 @@
 
             try
             {
-                var buffer = new byte[1];
-                int got = client.Client.Receive(buffer, 0, 1, System.Net.Sockets.SocketFlags.OutOfBand);
-                return got == 1 ? buffer[0] : null;
+                // Non-blocking receive: even if the OOB byte vanished after the
+                // poll, this returns WouldBlock instantly instead of blocking up
+                // to ReceiveTimeout. Restored in finally; SendAsync stays correct
+                // in the microsecond non-blocking window.
+                var socket = client.Client;
+                socket.Blocking = false;
+                try
+                {
+                    var buffer = new byte[1];
+                    int got = socket.Receive(buffer, 0, 1, System.Net.Sockets.SocketFlags.OutOfBand);
+                    return got == 1 ? buffer[0] : null;
+                }
+                finally
+                {
+                    socket.Blocking = true;
+                }
             }
             catch (ObjectDisposedException)
             {

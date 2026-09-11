@@ -162,12 +162,15 @@
             using var stream = new ScriptedStream("Password:");
             using var client = new Client(stream, new CancellationToken());
             var oneArg = await client.TerminatedReadAsync(new[] { new Regex("zzz"), new Regex("word") });
-            oneArg.Should().Be("Password:");
+            // "word" matches mid-buffer: the cut keeps "Password", ":" stashes.
+            oneArg.Should().Be("Password");
+            (await client.ReadAsync(TimeSpan.FromSeconds(2))).Should().Be(":");
             using var stream2 = new ScriptedStream("Password:");
             using var client2 = new Client(stream2, new CancellationToken());
             var twoArg = await client2.TerminatedReadAsync(
               new[] { new Regex("zzz"), new Regex("word") }, TimeSpan.FromSeconds(2));
-            twoArg.Should().Be("Password:");
+            twoArg.Should().Be("Password");
+            (await client2.ReadAsync(TimeSpan.FromSeconds(2))).Should().Be(":");
         }
 
         [Fact]

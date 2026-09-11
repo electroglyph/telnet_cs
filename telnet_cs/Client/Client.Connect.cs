@@ -19,12 +19,12 @@
         /// <summary>
         /// Prior to v0.9.0 LegacyLineFeed was the default. To be Rfc854 compliant you should prefer Rfc854LineFeed.
         /// </summary>
-        public const string LegacyLineFeed = "\n";
+        public const string LegacyLineFeed = LineFeed.Legacy;
 
         /// <summary>
         /// Post to v0.9.0 LegacyLineFeed has been retained as the default, but to be Rfc854 compliant you should prefer this.
         /// </summary>
-        public const string Rfc854LineFeed = "\r\n";
+        public const string Rfc854LineFeed = LineFeed.Rfc854;
 
         /// <summary>
         /// Skips the proactive option negotiation on connect. Prefer the

@@ -5,6 +5,11 @@
     using System.Diagnostics;
     using System.IO;
     using System.Linq;
+    using System.Net.Security;
+    using System.Net.Sockets;
+    using System.Security.Authentication;
+    using System.Security.Cryptography.X509Certificates;
+    using System.Text;
     using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
@@ -255,6 +260,144 @@
             using var sut = new Client(stream, new CancellationToken());
             var s = await sut.TerminatedReadAsync(string.Empty, TimeSpan.FromMilliseconds(500), 1);
             s.Should().NotBeNull();
+        }
+
+        [Fact]
+        public async Task TerminatedRead_PipelinedData_TruncatesAndStashesRemainder()
+        {
+            using var stream = new ScriptedStream("AB:CD:");
+            using var sut = new Client(stream, new CancellationToken());
+            (await sut.TerminatedReadAsync(":", TimeSpan.FromMilliseconds(500), 1)).Should().Be("AB:");
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().Be("CD:");
+        }
+
+        [Fact]
+        public async Task TerminatedRead_MultipleTerminators_CutsAtEarliest()
+        {
+            using var stream = new ScriptedStream("A;B:C");
+            using var sut = new Client(stream, new CancellationToken());
+            var terminators = new List<string> { ":", ";" };
+            (await sut.TerminatedReadAsync(terminators, TimeSpan.FromMilliseconds(500), 1)).Should().Be("A;");
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().Be("B:C");
+        }
+
+        [Fact]
+        public async Task TerminatedRead_Regex_CutsAtMatchEnd()
+        {
+            using var stream = new ScriptedStream("AB12CD");
+            using var sut = new Client(stream, new CancellationToken());
+            (await sut.TerminatedReadAsync(new Regex(@"\d+"), TimeSpan.FromMilliseconds(500), 1)).Should().Be("AB12");
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().Be("CD");
+        }
+
+        [Fact]
+        public async Task TerminatedRead_Unterminated_StashesNothing()
+        {
+            using var stream = new ScriptedStream("AB");
+            using var sut = new Client(stream, new CancellationToken());
+            (await sut.TerminatedReadAsync(":", TimeSpan.FromMilliseconds(200), 1)).Should().Be("AB");
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task TryLogin_TrailingSpaceTerminator_Succeeds()
+        {
+            // All three prompts arrive pipelined; the final "> " terminator
+            // ends in a space, which the old trimmed-only check could never
+            // match (login ran to timeout and failed).
+            using var stream = new ScriptedStream("Account: Password: > ");
+            using var sut = new Client(stream, new CancellationToken());
+            (await sut.TryLoginAsync("bob", "s3cret", 5000, "> ")).Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task ReadAsync_SocketException_ReturnsEmpty()
+        {
+            // A reset connection is a dead peer like any other read-path
+            // death: empty, not an error. The gate is wedged open so the
+            // throwing ReadByte is actually reached.
+            var fake = A.Fake<IByteStream>();
+            A.CallTo(() => fake.Connected).Returns(true);
+            A.CallTo(() => fake.Available).Returns(1);
+            A.CallTo(() => fake.ReadByte()).Throws(new SocketException((int)SocketError.ConnectionReset));
+            using var sut = new Client(fake, TimeSpan.FromMilliseconds(1), default) { MillisecondReadDelay = 1 };
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
+        }
+
+        [Fact]
+        public void ApplyOptions_CopiesEveryMember()
+        {
+            // Anti-drop guard for the with-clone: every member set here must
+            // arrive on Settings. (Future members flow structurally via the
+            // compiler-generated clone; this test documents the contract.)
+            var log = new List<string>();
+            bool Validate(object _, X509Certificate? __, X509Chain? ___, SslPolicyErrors ____) => true;
+            var certs = new X509CertificateCollection();
+            var options = new TelnetClientOptions
+            {
+                TerminalType = "xterm",
+                TerminalSpeed = "9600,9600",
+                XDisplayLocation = "host:0",
+                IsWriteConsole = true,
+                AllowRemoteEcho = true,
+                EnableBell = false,
+                TextEncoding = Encoding.Latin1,
+                WindowWidth = 100,
+                WindowHeight = 40,
+                Log = log.Add,
+                EnvironmentUser = "bob",
+                EnvironmentDisplay = "host:0",
+                UseTls = true,
+                TlsHost = "example.com",
+                TlsValidationCallback = Validate,
+                TlsClientCertificates = certs,
+                TlsProtocols = SslProtocols.Tls13,
+            };
+            options.TerminalTypes.Add("a");
+            options.EnvironmentUserVars["K"] = "v";
+
+            using var sut = new Client(ConnectedFake(), TimeSpan.FromMilliseconds(1), default);
+            sut.ApplyOptions(options);
+
+            sut.Settings.TerminalType.Should().Be("xterm");
+            sut.Settings.TerminalTypes.Should().Equal("a");
+            sut.Settings.TerminalSpeed.Should().Be("9600,9600");
+            sut.Settings.XDisplayLocation.Should().Be("host:0");
+            sut.Settings.IsWriteConsole.Should().BeTrue();
+            sut.Settings.AllowRemoteEcho.Should().BeTrue();
+            sut.Settings.EnableBell.Should().BeFalse();
+            sut.Settings.TextEncoding.Should().BeSameAs(Encoding.Latin1);
+            sut.Settings.WindowWidth.Should().Be(100);
+            sut.Settings.WindowHeight.Should().Be(40);
+            sut.Settings.Log.Should().NotBeNull();
+            sut.Settings.EnvironmentUser.Should().Be("bob");
+            sut.Settings.EnvironmentDisplay.Should().Be("host:0");
+            sut.Settings.EnvironmentUserVars.Should().Contain("K", "v");
+            sut.Settings.UseTls.Should().BeTrue();
+            sut.Settings.TlsHost.Should().Be("example.com");
+            sut.Settings.TlsValidationCallback.Should().NotBeNull();
+            sut.Settings.TlsClientCertificates.Should().BeSameAs(certs);
+            sut.Settings.TlsProtocols.Should().Be(SslProtocols.Tls13);
+        }
+
+        [Fact]
+        public void ApplyOptions_CollectionsAreCopiesNotAliases()
+        {
+            var options = new TelnetClientOptions();
+            options.TerminalTypes.Add("a");
+            options.EnvironmentUserVars["K"] = "v";
+            using var sut = new Client(ConnectedFake(), TimeSpan.FromMilliseconds(1), default);
+            sut.ApplyOptions(options);
+
+            options.TerminalTypes.Add("b");
+            options.EnvironmentUserVars["K2"] = "v2";
+            sut.Settings.TerminalTypes.Should().Equal("a");
+            sut.Settings.EnvironmentUserVars.Should().ContainSingle().Which.Should().Be(new KeyValuePair<string, string>("K", "v"));
+
+            sut.Settings.TerminalTypes.Add("c");
+            sut.Settings.EnvironmentUserVars["K3"] = "v3";
+            options.TerminalTypes.Should().Equal("a", "b");
+            options.EnvironmentUserVars.Should().HaveCount(2);
         }
 
         [Fact]

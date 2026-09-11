@@ -43,6 +43,14 @@
         /// </summary>
         protected void OnGoAheadReceived() => GoAheadReceived?.Invoke(this, EventArgs.Empty);
 
+        /// <summary>
+        /// Text read past a terminator by a terminated read, held for the next
+        /// plain read so pipelined data is never lost. Terminated reads cut
+        /// their result at the first terminator and stash the remainder here;
+        /// plain reads drain it before touching the wire.
+        /// </summary>
+        protected string PendingText { get; set; } = string.Empty;
+
         /// <inheritdoc/>
         public bool IsConnected
         {

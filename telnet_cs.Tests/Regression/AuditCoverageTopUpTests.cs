@@ -47,7 +47,10 @@
             using var client = new Client(stream, new CancellationToken());
             var result = await client.TerminatedReadAsync(
               new[] { new Regex("Nope>"), new Regex("Account") }, TimeSpan.FromSeconds(5), 1);
-            result.Should().Be("Account:");
+            // The match ("Account") ends before the buffer: the cut keeps the
+            // match, the trailing ":" is stashed for the next read.
+            result.Should().Be("Account");
+            (await client.ReadAsync(TimeSpan.FromSeconds(2))).Should().Be(":");
         }
 
         [Fact]

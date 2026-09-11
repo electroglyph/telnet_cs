@@ -198,6 +198,44 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task TlsServer_TlsProtocolsMismatch_FailsHandshake()
+        {
+            // Server pins TLS 1.3 only, client offers 1.2 only: no overlap, so
+            // both handshakes must fail. (A hardcoded-None server would accept
+            // 1.2 and this would go green-red — the test pins the option flows
+            // through.) Bounded waits on both sides; failure surfacing follows
+            // the existing loud paths (server AuthenticationException).
+            using var cert = CreateSelfSignedCert();
+            using var server = new TelnetServer(0, new TelnetServerOptions
+            {
+                ServerCertificate = cert,
+                TlsProtocols = SslProtocols.Tls13,
+            });
+            server.Start();
+            var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
+            var clientTask = Client.ConnectAsync(
+                "127.0.0.1", server.Port,
+                new TelnetClientOptions
+                {
+                    UseTls = true,
+                    TlsProtocols = SslProtocols.Tls12,
+                    TlsValidationCallback = (_, _, _, _) => true,
+                },
+                CancellationToken.None,
+                TimeSpan.FromSeconds(10));
+
+            var first = await Task.WhenAny(acceptTask, Task.Delay(TimeSpan.FromSeconds(10)));
+            first.Should().Be(acceptTask);
+            Func<Task> serverAct = () => acceptTask;
+            await serverAct.Should().ThrowAsync<AuthenticationException>();
+
+            var second = await Task.WhenAny(clientTask, Task.Delay(TimeSpan.FromSeconds(10)));
+            second.Should().Be(clientTask);
+            Func<Task> clientAct = () => clientTask;
+            await clientAct.Should().ThrowAsync<Exception>();
+        }
+
+        [Fact]
         public async Task TlsConnect_TimeoutCoversHandshake()
         {
             // Accepts but never handshakes (raw listener, no reads): the

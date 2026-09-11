@@ -6,6 +6,9 @@ namespace telnet_cs.Tests
 {
     using System;
     using System.Diagnostics;
+    using System.Net;
+    using System.Net.Sockets;
+    using System.Security.Authentication;
     using System.Threading;
     using System.Threading.Tasks;
     using FluentAssertions;
@@ -34,6 +37,8 @@ namespace telnet_cs.Tests
             options.TextEncoding.Should().BeNull();
             options.IsWriteConsole.Should().BeNull();
             options.Log.Should().BeNull();
+            options.TlsProtocols.Should().Be(SslProtocols.None);
+            options.ListenAddress.Should().Be(IPAddress.Any);
         }
 
         [Fact]
@@ -53,6 +58,35 @@ namespace telnet_cs.Tests
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
             using var session = await acceptTask;
             session.IsConnected.Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task AcceptSessionAsync_LoopbackListenAddress_Accepts()
+        {
+            using var server = new TelnetServer(0, new TelnetServerOptions { ListenAddress = IPAddress.Loopback });
+            server.Start();
+            var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
+            using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
+            using var session = await acceptTask;
+            session.IsConnected.Should().BeTrue();
+            client.IsConnected.Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task AcceptSessionAsync_IPv6ListenAddress_BindsAndAccepts()
+        {
+            if (!Socket.OSSupportsIPv6)
+            {
+                return;
+            }
+
+            using var server = new TelnetServer(0, new TelnetServerOptions { ListenAddress = IPAddress.IPv6Loopback });
+            server.Start();
+            var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
+            using var client = await Client.ConnectAsync("::1", server.Port);
+            using var session = await acceptTask;
+            session.IsConnected.Should().BeTrue();
+            client.IsConnected.Should().BeTrue();
         }
 
         [Fact]

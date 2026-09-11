@@ -16,7 +16,13 @@
         internal const byte UserVar = 3;
 
         private static readonly byte[] UserName = [(byte)'U', (byte)'S', (byte)'E', (byte)'R'];
-        private static readonly byte[] DisplayName = [(byte)'D', (byte)'I', (byte)'S', (byte)'P', (byte)'L', (byte)'A', (byte)'Y'];
+
+        /// <summary>
+        /// Well-known <c>DISPLAY</c> variable name: single source of truth for
+        /// the name bytes below and the server's effective-display recency rule.
+        /// </summary>
+        internal const string DisplayVariableName = "DISPLAY";
+        private static readonly byte[] DisplayName = Encode(DisplayVariableName);
 
         /// <summary>
         /// Builds a verb-first ENVIRON payload: the verb byte followed by

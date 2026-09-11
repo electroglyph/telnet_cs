@@ -13,10 +13,6 @@
     /// </summary>
     public partial class ServerSession
     {
-        // Well-known DISPLAY variable name (EnvironmentProtocol.DisplayName,
-        // decoded): tracked for the effective-display recency rule.
-        private const string DisplayVarName = "DISPLAY";
-
         // Guards the expecting-flags, chains, and collected values below. The
         // collectors assume single-threaded session use: concurrent
         // Request*Async calls would overwrite each other's expecting-flags and
@@ -120,7 +116,7 @@
                         return clientXDisplay;
                     }
 
-                    return clientEnvironment.TryGetValue(DisplayVarName, out string? display) ? display : null;
+                    return clientEnvironment.TryGetValue(EnvironmentProtocol.DisplayVariableName, out string? display) ? display : null;
                 }
             }
         }
@@ -423,6 +419,14 @@
                     return false;
                 }
 
+                // RFC 1408: only the WILL-ENVIRON side may send INFO. An INFO
+                // from a peer that never agreed is left unconsumed so the
+                // handler answers WONT, exactly like a stray IS.
+                if (isInfo && !Negotiation.IsEnabledByPeer((int)Options.OldEnvironment))
+                {
+                    return false;
+                }
+
                 if (!isInfo)
                 {
                     expectingEnvironment = false;
@@ -433,7 +437,7 @@
                     if (entry.Value is not null)
                     {
                         clientEnvironment[entry.Name] = entry.Value;
-                        if (string.Equals(entry.Name, DisplayVarName, StringComparison.Ordinal))
+                        if (string.Equals(entry.Name, EnvironmentProtocol.DisplayVariableName, StringComparison.Ordinal))
                         {
                             environDisplaySeq = ++displayArrivalSeq;
                         }

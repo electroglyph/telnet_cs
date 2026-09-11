@@ -10,8 +10,10 @@ namespace telnet_cs.Tests
     using System.IO;
     using System.Linq;
     using System.Net;
+    using System.Net.Sockets;
     using System.Threading;
     using System.Threading.Tasks;
+    using FakeItEasy;
     using FluentAssertions;
     using Xunit;
     using telnet_cs.Client;
@@ -121,6 +123,19 @@ namespace telnet_cs.Tests
             session.GoAheadReceived += (_, _) => fired++;
             (await session.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
             fired.Should().Be(1);
+        }
+
+        [Fact]
+        public async Task ReadAsync_SocketException_ReturnsEmpty()
+        {
+            // Same dead-peer mapping as the client: reset mid-read yields
+            // empty, not an error.
+            var fake = A.Fake<IByteStream>();
+            A.CallTo(() => fake.Connected).Returns(true);
+            A.CallTo(() => fake.Available).Returns(1);
+            A.CallTo(() => fake.ReadByte()).Throws(new SocketException((int)SocketError.ConnectionReset));
+            using var session = new ServerSession(fake, new TelnetServerOptions(), CancellationToken.None);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
         }
 
         [Fact]
@@ -405,14 +420,28 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task SpontaneousInfo_UpdatesEnvironmentWithoutRequest()
+        public async Task SpontaneousInfo_AfterWillAgreement_UpdatesEnvironment()
         {
+            // RFC 1408: only the WILL-ENVIRON side may send INFO. After the
+            // peer's WILL is agreed (DO reply), its INFO is consumed.
+            using var stream = new ScriptedStream();
+            stream.Enqueue([255, 251, 36, 255, 250, 36, 2, 3, (byte)'X', 1, (byte)'y', 255, 240]);
+            using var session = NewSession(stream);
+            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            session.ClientEnvironment.Should().Contain("X", "y");
+            OutboundBytes(stream).Should().Equal(255, 253, 36);
+        }
+
+        [Fact]
+        public async Task UnsolicitedInfo_WithoutAgreement_AnswersWont()
+        {
+            // Same INFO with no prior WILL: left unconsumed, handler WONTs.
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 250, 36, 2, 3, (byte)'X', 1, (byte)'y', 255, 240]);
             using var session = NewSession(stream);
             await session.ReadAsync(TimeSpan.FromSeconds(5));
-            session.ClientEnvironment.Should().Contain("X", "y");
-            OutboundBytes(stream).Should().BeEmpty();
+            session.ClientEnvironment.Should().NotContainKey("X");
+            OutboundBytes(stream).Should().Equal(255, 252, 36);
         }
 
         [Fact]
