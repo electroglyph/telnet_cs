@@ -2,6 +2,9 @@
 {
     using System;
     using System.Collections.Generic;
+    using System.Net.Security;
+    using System.Security.Authentication;
+    using System.Security.Cryptography.X509Certificates;
     using System.Text;
 
     /// <summary>
@@ -92,5 +95,36 @@
         /// Empty by default.
         /// </summary>
         public Dictionary<string, string> EnvironmentUserVars { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Master switch for implicit TLS (telnets-style): the TLS handshake
+        /// completes before the first telnet byte flows. False (the default)
+        /// keeps the plaintext path byte-identical.
+        /// </summary>
+        public bool UseTls { get; set; }
+
+        /// <summary>
+        /// SNI host name and certificate validation target. Null (the default)
+        /// falls back to the connect hostname.
+        /// </summary>
+        public string? TlsHost { get; set; }
+
+        /// <summary>
+        /// Custom server-certificate validation. Null (the default) keeps OS
+        /// chain validation.
+        /// </summary>
+        public RemoteCertificateValidationCallback? TlsValidationCallback { get; set; }
+
+        /// <summary>
+        /// Client certificates offered when the server requests them. Null
+        /// (the default) offers none.
+        /// </summary>
+        public X509CertificateCollection? TlsClientCertificates { get; set; }
+
+        /// <summary>
+        /// TLS protocol versions to offer. <c>SslProtocols.None</c> (the
+        /// default) lets the OS pick the best available.
+        /// </summary>
+        public SslProtocols TlsProtocols { get; set; } = SslProtocols.None;
     }
 }

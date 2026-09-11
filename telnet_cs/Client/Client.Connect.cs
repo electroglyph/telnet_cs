@@ -1,6 +1,7 @@
 ﻿namespace telnet_cs.Client
 {
     using System;
+    using System.Net.Security;
     using System.Threading;
     using System.Threading.Tasks;
     using telnet_cs.IO;
@@ -119,10 +120,29 @@
         /// <returns>A connected <see cref="Client"/> owning its stream. Dispose it when done.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="hostname"/> is <c>null</c>.</exception>
         /// <exception cref="InvalidOperationException">The connection could not be established within <paramref name="timeout"/>.</exception>
-        public static async Task<Client> ConnectAsync(string hostname, int port, CancellationToken cancellationToken = default, TimeSpan? timeout = null)
+        public static Task<Client> ConnectAsync(string hostname, int port, CancellationToken cancellationToken = default, TimeSpan? timeout = null)
+        {
+            return ConnectAsync(hostname, port, null, cancellationToken, timeout);
+        }
+
+        /// <summary>
+        /// Connects to a Telnet server, honouring cancellation and a connect timeout.
+        /// When <paramref name="options"/> enables <c>UseTls</c>, the TLS handshake
+        /// completes before the first telnet byte flows (implicit TLS).
+        /// </summary>
+        /// <param name="hostname">The hostname.</param>
+        /// <param name="port">The port.</param>
+        /// <param name="options">Per-instance settings, applied to the returned client's <c>Settings</c>. Null behaves like the overload without options.</param>
+        /// <param name="cancellationToken">The token to monitor for cancellation requests.</param>
+        /// <param name="timeout">The maximum time for the TCP connect plus, when TLS is on, the handshake (cancelled at the connect deadline). Defaults to 30 seconds.</param>
+        /// <returns>A connected <see cref="Client"/> owning its stream. Dispose it when done.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="hostname"/> is <c>null</c>.</exception>
+        /// <exception cref="InvalidOperationException">The connection (or the TLS handshake) could not be established within <paramref name="timeout"/>.</exception>
+        public static async Task<Client> ConnectAsync(string hostname, int port, TelnetClientOptions? options, CancellationToken cancellationToken = default, TimeSpan? timeout = null)
         {
             ArgumentNullException.ThrowIfNull(hostname);
             var effectiveTimeout = timeout ?? TimeSpan.FromSeconds(30);
+            var deadline = DateTime.UtcNow.Add(effectiveTimeout);
             var tcpClient = new System.Net.Sockets.TcpClient();
             try
             {
@@ -136,16 +156,67 @@
 
                 await connectTask.ConfigureAwait(false);
 #pragma warning disable CA2000 // Ownership of the stream transfers to the Client on success; the catch below releases it otherwise.
-                return new Client(new TcpByteStream(new TcpClient(tcpClient)), CancellationToken.None);
+                ISocket socket = new TcpClient(tcpClient);
+                if (options?.UseTls is true)
+                {
+                    socket = await HandshakeTlsAsync((TcpClient)socket, hostname, options, deadline, cancellationToken).ConfigureAwait(false);
+                }
+
+                var client = new Client(new TcpByteStream(socket), CancellationToken.None);
+                if (options is not null)
+                {
+                    client.ApplyOptions(options);
+                }
+
+                return client;
 #pragma warning restore CA2000
             }
             catch
             {
-                // Ownership transfers to the Client only on success. A failed connect
-                // or a failed Client constructor must still release the socket itself
-                // (any wrappers created so far hold no unmanaged resources of their own).
+                // Ownership transfers to the Client only on success. A failed connect,
+                // handshake, or Client constructor must still release the socket itself
+                // (the TlsSocket/SslStream wrappers created so far hold no unmanaged
+                // resources of their own; disposing the raw client releases everything).
                 tcpClient.Dispose();
                 throw;
+            }
+        }
+
+        private static async Task<TlsSocket> HandshakeTlsAsync(TcpClient socket, string hostname, TelnetClientOptions options, DateTime deadline, CancellationToken cancellationToken)
+        {
+            var auth = new SslClientAuthenticationOptions
+            {
+                TargetHost = options.TlsHost ?? hostname,
+                EnabledSslProtocols = options.TlsProtocols,
+            };
+            if (options.TlsClientCertificates is { Count: > 0 })
+            {
+                auth.ClientCertificates = options.TlsClientCertificates;
+            }
+
+            if (options.TlsValidationCallback is not null)
+            {
+                auth.RemoteCertificateValidationCallback = options.TlsValidationCallback;
+            }
+
+            var remaining = deadline - DateTime.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+            {
+                throw new InvalidOperationException($"TLS handshake with {hostname} timed out: the connect consumed the whole timeout.");
+            }
+
+            using var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            handshakeCts.CancelAfter(remaining);
+            try
+            {
+                return await TlsSocket.AuthenticateAsClientAsync(socket, auth, handshakeCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // A user cancel must stay a cancel; anything else is the handshake
+                // missing the connect deadline (SslStream has no timeout of its own).
+                cancellationToken.ThrowIfCancellationRequested();
+                throw new InvalidOperationException($"TLS handshake with {hostname} timed out.");
             }
         }
 

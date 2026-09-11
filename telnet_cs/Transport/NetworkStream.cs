@@ -9,13 +9,13 @@
     /// </summary>
     public class NetworkStream : INetworkStream
     {
-        private readonly System.Net.Sockets.NetworkStream stream;
+        private readonly System.IO.Stream stream;
 
         /// <summary>
         /// Initialises a new instance of the <see cref="NetworkStream" /> class.
         /// </summary>
         /// <param name="stream">The stream.</param>
-        public NetworkStream(System.Net.Sockets.NetworkStream stream)
+        public NetworkStream(System.IO.Stream stream)
         {
             this.stream = stream;
         }

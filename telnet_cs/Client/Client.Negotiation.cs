@@ -1,5 +1,6 @@
 ﻿namespace telnet_cs.Client
 {
+    using System;
     using System.Threading;
     using System.Threading.Tasks;
     using telnet_cs.IO;
@@ -12,6 +13,47 @@
         /// mutate its members to override behaviour for this client only.
         /// </summary>
         public TelnetClientOptions Settings { get; } = new();
+
+        /// <summary>
+        /// Copies every member of <paramref name="options"/> into
+        /// <see cref="Settings"/>. Single place owning the field list: the
+        /// <c>ConnectAsync</c> overload taking options must honor the whole
+        /// object, not just the TLS members it consumes during the handshake.
+        /// </summary>
+        /// <param name="options">The options to apply.</param>
+        internal void ApplyOptions(TelnetClientOptions options)
+        {
+            ArgumentNullException.ThrowIfNull(options);
+            Settings.TerminalType = options.TerminalType;
+            Settings.TerminalTypes.Clear();
+            foreach (string entry in options.TerminalTypes)
+            {
+                Settings.TerminalTypes.Add(entry);
+            }
+
+            Settings.TerminalSpeed = options.TerminalSpeed;
+            Settings.XDisplayLocation = options.XDisplayLocation;
+            Settings.IsWriteConsole = options.IsWriteConsole;
+            Settings.AllowRemoteEcho = options.AllowRemoteEcho;
+            Settings.EnableBell = options.EnableBell;
+            Settings.TextEncoding = options.TextEncoding;
+            Settings.WindowWidth = options.WindowWidth;
+            Settings.WindowHeight = options.WindowHeight;
+            Settings.Log = options.Log;
+            Settings.EnvironmentUser = options.EnvironmentUser;
+            Settings.EnvironmentDisplay = options.EnvironmentDisplay;
+            Settings.EnvironmentUserVars.Clear();
+            foreach (var pair in options.EnvironmentUserVars)
+            {
+                Settings.EnvironmentUserVars.Add(pair.Key, pair.Value);
+            }
+
+            Settings.UseTls = options.UseTls;
+            Settings.TlsHost = options.TlsHost;
+            Settings.TlsValidationCallback = options.TlsValidationCallback;
+            Settings.TlsClientCertificates = options.TlsClientCertificates;
+            Settings.TlsProtocols = options.TlsProtocols;
+        }
 
         /// <summary>
         /// Gets the persistent RFC 1143 negotiation state for this connection.

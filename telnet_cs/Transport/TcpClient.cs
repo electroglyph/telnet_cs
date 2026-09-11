@@ -134,6 +134,13 @@
         }
 
         /// <summary>
+        /// Gets the raw <see cref="System.Net.Sockets.NetworkStream"/> without
+        /// triggering the caching <see cref="GetStream"/> wrapper, for
+        /// handshake-layer use (e.g. wrapping it in an <c>SslStream</c>).
+        /// </summary>
+        internal System.Net.Sockets.NetworkStream RawStream => client.GetStream();
+
+        /// <summary>
         /// Sends a single byte with TCP urgent (out-of-band) semantics via
         /// <see cref="System.Net.Sockets.SocketFlags.OutOfBand"/> (RFC 854 Synch support).
         /// </summary>

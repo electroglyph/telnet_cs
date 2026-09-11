@@ -2,6 +2,8 @@
 {
     using System;
     using System.Net;
+    using System.Net.Security;
+    using System.Security.Authentication;
     using System.Threading;
     using System.Threading.Tasks;
     using telnet_cs.Transport;
@@ -89,11 +91,25 @@
         {
             ObjectDisposedException.ThrowIf(disposed, this);
             var accepted = await listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
-#pragma warning disable CA2000 // Ownership of the socket transfers to the session on success; the catch releases it otherwise.
+#pragma warning disable CA2000 // Ownership of the socket transfers to the session on success; the catch releases it otherwise (including the half-built TLS wrapper: its factory releases the SslStream on handshake failure, and the raw accept is always disposed below).
             ServerSession? session = null;
             try
             {
-                session = new ServerSession(new TcpByteStream(new TcpClient(accepted), takeOwnership: true), options, CancellationToken.None);
+                ISocket socket = new TcpClient(accepted);
+                if (options.ServerCertificate is not null)
+                {
+                    socket = await TlsSocket.AuthenticateAsServerAsync(
+                        (TcpClient)socket,
+                        new SslServerAuthenticationOptions
+                        {
+                            ServerCertificate = options.ServerCertificate,
+                            ClientCertificateRequired = false,
+                            EnabledSslProtocols = SslProtocols.None,
+                        },
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                session = new ServerSession(new TcpByteStream(socket, takeOwnership: true), options, CancellationToken.None);
                 // The session emits the server opening preset before the accept
                 // completes; a fully toggled-off preset sends nothing.
                 await session.SendOpeningPresetAsync(cancellationToken).ConfigureAwait(false);

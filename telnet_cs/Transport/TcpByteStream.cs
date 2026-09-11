@@ -233,14 +233,16 @@ namespace telnet_cs.Transport
         /// <summary>
         /// Non-blocking Synch trigger for the read loop: consumes one pending
         /// TCP urgent byte (RFC 854 Synch signal) when the underlying socket is
-        /// the concrete <see cref="TcpClient"/> and urgent data waits. Any other
-        /// socket (fakes included) reads as "none pending", so this never
-        /// blocks and never throws.
+        /// the concrete <see cref="TcpClient"/> or the TLS decorator
+        /// <see cref="TlsSocket"/> and urgent data waits. Any other socket
+        /// (fakes included) reads as "none pending", so this never blocks
+        /// and never throws.
         /// </summary>
         /// <returns>The urgent byte, or null when none is pending.</returns>
         public byte? TryConsumeUrgentSignal()
         {
-            return (socket as TcpClient)?.TryConsumeUrgent();
+            return (socket as TcpClient)?.TryConsumeUrgent()
+                ?? (socket as TlsSocket)?.TryConsumeUrgent();
         }
 
         /// <summary>

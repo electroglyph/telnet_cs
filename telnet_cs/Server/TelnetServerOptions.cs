@@ -1,6 +1,7 @@
 ﻿namespace telnet_cs.Server
 {
     using System;
+    using System.Security.Cryptography.X509Certificates;
     using System.Text;
     using telnet_cs.Client;
 
@@ -113,5 +114,13 @@
         /// Optional handler invoked with protocol log messages. Null (the default) disables logging.
         /// </summary>
         public Action<string>? Log { get; set; }
+
+        /// <summary>
+        /// Server TLS certificate for implicit TLS (telnets-style). Null (the
+        /// default) keeps plaintext: every accepted session handshakes as the
+        /// TLS server before the opening preset only when this is set. The
+        /// caller loads the certificate (file, PEM, or store).
+        /// </summary>
+        public X509Certificate2? ServerCertificate { get; set; }
     }
 }
