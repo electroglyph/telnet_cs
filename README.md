@@ -1,5 +1,22 @@
 # telnet_cs
 
+Fair warning: this is 100% GMO, non-organic clanker generated code.
+
+This should be considered experimental for now, I will continue to add
+test coverage, etc.
+
+My development process: telnet server/client made based on a core group
+of RFCs. Code reorganized and audited multiple times by AI for clarity
+and correctness. After that I cloned [telnetlib3](https://github.com/jquast/telnetlib3) and had AI
+port some of the missing features over. The full list is below.
+
+I left a lot of telnetlib3's stuff out of scope, because it does A LOT.
+
+Thanks and respect to jquast and all the other contributors of telnetlib3.
+
+Mostly AI generated text follows:
+
+
 A Telnet client **and** server library for .NET 10 (C# 14), implemented
 directly from the protocol specifications: RFC 854 (base protocol, NVT,
 commands, Synch), RFC 855 (option negotiation framework), RFC 1143
@@ -16,19 +33,19 @@ commands, Synch), RFC 855 (option negotiation framework), RFC 1143
 - **Server:** `telnet_cs.Server.TelnetServer` + `ServerSession` — accept loop,
   server-role negotiation, authentication helper, per-client options
   (terminal type, speed, window size, environment, linemode).
+- **Ported from [telnetlib3](https://github.com/jquast/telnetlib3):**
+  - Client input helpers — `Client.InputFilter` (ATASCII/PETSCII keymaps,
+    longest-first sequence translation with ESC-delay hold-back) and
+    `Client.LinemodeBuffer` (client-side LINEMODE EDIT: EC/EL/EW editing,
+    TRAPSIG to IAC commands, forwardmask flush, CR/LF line send).
+  - Server REPL shell — `Server.ServerShells.RunReplAsync` (`Ready.` banner,
+    `tel:sh> ` prompt with per-prompt Go-Ahead, and
+    `quit/help/version/negotiation/stats/environ` commands).
+  - Runtime extras — `SendGaAsync` (SGA-aware Go-Ahead), generic
+    `WaitForNegotiationAsync` / `WaitForOptionEnabledAsync` waiters,
+    `Server.TelnetSessionContext` (activity timestamps, rx/tx counters,
+    typescript recorder, property bag), `IdleTimeout` (default 300 s),
+    `StatusInterval` (default 20 s), and opt-in `TlsAutoDetect` peek.
 - 429 tests, full suite green with warnings-as-errors. Requires the
   .NET 10 SDK and runtime; build with
   `dotnet build telnet_cs.sln -c Release`.
-
-## AI-generated, experimental
-
-This codebase was largely written by an AI coding agent working from the
-RFC texts: each feature was planned spec-first, implemented against the
-plan, and pinned with tests. The design favors small protocol units,
-explicit state machines, and wire-exact test assertions over cleverness.
-
-It is **experimental**: protocol coverage is broad but real-world
-interoperability (odd servers, raw sockets, timing edge cases) has not
-been battle-tested. Review the code, run the suite (`dotnet test
-telnet_cs.sln`), and verify against your peer before trusting it in
-production.
