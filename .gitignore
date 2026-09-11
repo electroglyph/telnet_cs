@@ -329,9 +329,9 @@ ASALocalRun/
 # MFractors (Xamarin productivity tool) working folder 
 .mfractor/
 /nuget.exe
-*.md
-!README.md
-!readme.md
+
+# Local reorg plan (working notes, not committed).
+/organize.md
 
 # Local verbatim reference copies of the Telnet RFCs (downloaded from
 # https://www.rfc-editor.org, not committed).
