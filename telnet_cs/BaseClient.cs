@@ -1,0 +1,143 @@
+﻿namespace telnet_cs
+{
+  using System;
+  using System.Collections.Generic;
+  using System.Text.RegularExpressions;
+
+  /// <summary>
+  /// The base class for Clients.
+  /// </summary>
+  public abstract partial class BaseClient : IBaseClient
+  {
+    /// <summary>
+    /// The default time out ms.
+    /// </summary>
+    protected const int DefaultTimeoutMs = 100;
+
+    /// <summary>
+    /// The default read delay ms.
+    /// </summary>
+    public const int DefaultMillisecondReadDelay = 16;
+
+    /// <summary>
+    /// The byte stream.
+    /// </summary>
+    private readonly IByteStream byteStream;
+
+    /// <inheritdoc/>
+    public int MillisecondReadDelay { get; set; } = DefaultMillisecondReadDelay;
+
+    /// <inheritdoc/>
+    public bool IsConnected
+    {
+      get
+      {
+        return byteStream.Connected;
+      }
+    }
+
+    /// <summary>
+    /// Gets the byte stream.
+    /// </summary>
+    protected IByteStream ByteStream
+    {
+      get
+      {
+        return byteStream;
+      }
+    }
+
+    /// <summary>
+    /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+    /// </summary>
+    public void Dispose()
+    {
+      Dispose(true);
+      GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// Determines whether the specified terminator has been located.
+    /// </summary>
+    /// <param name="terminator">The terminator to search for.</param>
+    /// <param name="s">The content to search for the <paramref name="terminator"/>.</param>
+    /// <returns>True if the terminator is located, otherwise false.</returns>
+    protected static bool IsTerminatorLocated(string? terminator, string? s)
+    {
+      if (string.IsNullOrEmpty(s))
+      {
+        return false;
+      }
+
+      // Ordinal: terminators are protocol tokens, and a culture-aware
+      // comparison treats NUL as ignorable (same class of bug as the old
+      // ByteStringConverter "\0xFF" issue).
+      return !string.IsNullOrEmpty(terminator) && s.Contains(terminator, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Determines whether any of the specified terminators has been located.
+    /// An empty collection never matches (consistent with <see cref="IsTerminatorLocated"/> on empty input).
+    /// </summary>
+    /// <param name="terminators">The terminators to search for.</param>
+    /// <param name="s">The content to search.</param>
+    /// <returns>True if any terminator is located, otherwise false.</returns>
+    protected static bool IsAnyTerminatorLocated(IEnumerable<string>? terminators, string? s)
+    {
+      if (terminators == null || string.IsNullOrEmpty(s))
+      {
+        return false;
+      }
+
+      foreach (var terminator in terminators)
+      {
+        if (!string.IsNullOrEmpty(terminator) && s.IndexOf(terminator, StringComparison.Ordinal) >= 0)
+        {
+          return true;
+        }
+      }
+
+      return false;
+    }
+    /// <summary>
+    /// Determines whether the specified Regex has matched. A null Regex never matches.
+    /// </summary>
+    /// <param name="regex">The Regex to search for.</param>
+    /// <param name="s">The content to search for the <paramref name="regex"/>.</param>
+    /// <returns>True if the Regex is matched, otherwise false.</returns>
+    protected static bool IsRegexLocated(Regex? regex, string? s)
+    {
+      if (string.IsNullOrEmpty(s) || regex == null)
+      {
+        return false;
+      }
+
+      return regex.IsMatch(s);
+    }
+
+    /// <summary>
+    /// Determines whether any of the specified Regexes has matched.
+    /// An empty collection never matches.
+    /// </summary>
+    /// <param name="regexes">The Regexes to match.</param>
+    /// <param name="s">The content to search.</param>
+    /// <returns>True if any Regex matches, otherwise false.</returns>
+    protected static bool IsAnyRegexLocated(IEnumerable<Regex>? regexes, string? s)
+    {
+      if (regexes == null || string.IsNullOrEmpty(s))
+      {
+        return false;
+      }
+
+      foreach (var regex in regexes)
+      {
+        if (regex != null && regex.IsMatch(s))
+        {
+          return true;
+        }
+      }
+
+      return false;
+    }
+  }
+}

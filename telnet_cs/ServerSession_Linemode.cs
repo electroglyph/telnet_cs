@@ -1,0 +1,177 @@
+namespace telnet_cs
+{
+  /// <summary>
+  /// Server-role LINEMODE (S4): the session is the DO-sender. MODE masks
+  /// from the peer are answered with the server rules (EDIT/TRAPSIG kept,
+  /// RFC 1184 §2.2) via the handler flag; SLC handling is role-symmetric
+  /// except import requests (SLC func 0), which the session answers with
+  /// its full table through the subnegotiation hook. FORWARDMASK and
+  /// MODE/STATUS/TIMING-MARK peer replies need no new code (silent
+  /// consumption and the shared snapshot path already do the right thing).
+  /// </summary>
+  public partial class ServerSession
+  {
+    private readonly LinemodeState linemodeState = new();
+
+    /// <summary>Sets one LINEMODE SLC table row (test/setup hook).</summary>
+    /// <param name="function">The SLC function code (1–30).</param>
+    /// <param name="level">The agreement level.</param>
+    /// <param name="value">The character value.</param>
+    internal void SetLinemodeEntry(byte function, byte level, byte value) =>
+      linemodeState.SetEntry(function, level, value);
+
+    /// <summary>
+    /// Sends a LINEMODE MODE mask to the peer (RFC 1184 §2.2). Sends nothing
+    /// unless LINEMODE is agreed (the peer answered our DO). The peer's
+    /// MODE+ACK answer is folded into the shared state by subsequent reads;
+    /// an ACKed change the peer will not follow is adopted silently, per
+    /// the server rule.
+    /// </summary>
+    /// <param name="mode">The MODE mask to propose (EDIT/TRAPSIG bits).</param>
+    /// <param name="cancellationToken">A token to cancel the send.</param>
+    /// <returns>An awaitable Task.</returns>
+    public Task SendModeAsync(byte mode, CancellationToken cancellationToken = default)
+    {
+      if (!Negotiation.IsEnabledByPeer((int)Options.LineMode))
+      {
+        return Task.CompletedTask;
+      }
+
+      return SendLinemodeFrameAsync([LinemodeProtocol.Mode, mode], cancellationToken);
+    }
+
+    /// <summary>
+    /// Proposes a FORWARDMASK to the peer (RFC 1184 §2.3: server-only DO
+    /// plus 0–32 mask octets). Sends nothing unless LINEMODE is agreed.
+    /// The peer's WILL/WONT answer is consumed silently by subsequent reads.
+    /// </summary>
+    /// <param name="mask">The forward-mask octets (at most 32).</param>
+    /// <param name="cancellationToken">A token to cancel the send.</param>
+    /// <returns>An awaitable Task.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="mask"/> has more than 32 octets.</exception>
+    public Task SendForwardMaskAsync(byte[] mask, CancellationToken cancellationToken = default)
+    {
+      ArgumentNullException.ThrowIfNull(mask);
+      ArgumentOutOfRangeException.ThrowIfGreaterThan(mask.Length, 32);
+      if (!Negotiation.IsEnabledByPeer((int)Options.LineMode))
+      {
+        return Task.CompletedTask;
+      }
+
+      return SendLinemodeFrameAsync([(byte)Commands.Do, LinemodeProtocol.ForwardMask, .. mask], cancellationToken);
+    }
+
+    /// <summary>
+    /// Publishes the configured special characters to the peer (RFC 1184
+    /// §5.5). Sends nothing unless LINEMODE is agreed, and nothing at all
+    /// when no SLC row is configured (an all-NOSUPPORT export would wrongly
+    /// tell the peer to disable everything).
+    /// </summary>
+    /// <param name="cancellationToken">A token to cancel the send.</param>
+    /// <returns>An awaitable Task.</returns>
+    public Task PublishSpecialCharactersAsync(CancellationToken cancellationToken = default)
+    {
+      if (!Negotiation.IsEnabledByPeer((int)Options.LineMode))
+      {
+        return Task.CompletedTask;
+      }
+
+      byte[]? triplets = linemodeState.ExportTriplets();
+      if (triplets is null)
+      {
+        WriteLog("PublishSpecialCharacters: no special characters configured; nothing sent.");
+        return Task.CompletedTask;
+      }
+
+      return SendLinemodeFrameAsync([LinemodeProtocol.SetLocalCharacters, .. triplets], cancellationToken);
+    }
+
+    /// <summary>
+    /// Requests the peer's special-character table (RFC 1184 §2.4: SLC
+    /// func 0 with DEFAULT). Sends nothing unless LINEMODE is agreed; the
+    /// peer's answer is folded into the shared LINEMODE state by subsequent
+    /// reads.
+    /// </summary>
+    /// <param name="cancellationToken">A token to cancel the send.</param>
+    /// <returns>An awaitable Task.</returns>
+    public Task RequestRemoteSpecialCharactersAsync(CancellationToken cancellationToken = default)
+    {
+      if (!Negotiation.IsEnabledByPeer((int)Options.LineMode))
+      {
+        return Task.CompletedTask;
+      }
+
+      return SendLinemodeFrameAsync(
+        [LinemodeProtocol.SetLocalCharacters, 0, LinemodeProtocol.LevelDefault, 0], cancellationToken);
+    }
+
+    /// <summary>
+    /// Receives a single byte with TCP urgent (out-of-band) semantics: the
+    /// receive side of the RFC 854 Synch signal (TCP Urgent + DM). Requires
+    /// the byte stream to be a <see cref="TcpByteStream"/> over a real TCP
+    /// connection; otherwise throws <see cref="NotSupportedException"/>.
+    /// </summary>
+    /// <param name="cancellationToken">A token to cancel the receive.</param>
+    /// <returns>The urgent byte received (DM, 242, for a Synch).</returns>
+    public async Task<byte> ReceiveUrgentAsync(CancellationToken cancellationToken = default)
+    {
+      if (ByteStream is not TcpByteStream stream)
+      {
+        throw new NotSupportedException("Urgent (out-of-band) receive requires a real TCP connection (TcpByteStream); the current byte stream does not support it.");
+      }
+
+      using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+        cancellationToken, InternalCancellation.Token);
+      return await stream.ReceiveUrgentAsync(linked.Token).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Answers a peer SLC import request (func 0 with DEFAULT: "send your
+    /// table") with the full configured table, or silently when nothing is
+    /// configured. Anything else is left for the normal SLC path.
+    /// </summary>
+    /// <param name="payload">The LINEMODE payload.</param>
+    /// <returns>True when the payload was an import request (consumed).</returns>
+    private bool TryConsumeLinemodeImport(List<byte> payload)
+    {
+      if (payload.Count != 4
+        || payload[0] != LinemodeProtocol.SetLocalCharacters
+        || payload[1] != 0
+        || payload[2] != LinemodeProtocol.LevelDefault
+        || payload[3] != 0)
+      {
+        return false;
+      }
+
+      byte[]? triplets = linemodeState.ExportTriplets();
+      if (triplets is null)
+      {
+        WriteLog("Linemode import requested with no special characters configured; nothing sent.");
+        return true;
+      }
+
+      WriteLog("Sending: " + nameof(Options.LineMode) + " SLC table.");
+      _ = SendLinemodeFrameAsync([LinemodeProtocol.SetLocalCharacters, .. triplets], CancellationToken.None);
+      return true;
+    }
+
+    private async Task SendLinemodeFrameAsync(byte[] payload, CancellationToken cancellationToken)
+    {
+      byte[] frame = EnvironmentProtocol.FrameSubnegotiation((int)Options.LineMode, payload);
+      using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+        cancellationToken, InternalCancellation.Token);
+      if (ByteStream.Connected && !linked.Token.IsCancellationRequested)
+      {
+        await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
+        try
+        {
+          await ByteStream.WriteAsync(frame, 0, frame.Length, linked.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+          SendRateLimit.Release();
+        }
+      }
+    }
+  }
+}

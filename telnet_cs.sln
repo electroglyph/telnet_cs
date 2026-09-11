@@ -1,0 +1,30 @@
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "telnet_cs", "telnet_cs\telnet_cs.csproj", "{80D6CAB7-654A-46B7-8BFE-096F9E629902}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "telnet_cs.CiTests", "telnet_cs.CiTests\telnet_cs.CiTests.csproj", "{069F6184-C056-4ECA-8504-0311E844087E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{80D6CAB7-654A-46B7-8BFE-096F9E629902}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{80D6CAB7-654A-46B7-8BFE-096F9E629902}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{80D6CAB7-654A-46B7-8BFE-096F9E629902}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{80D6CAB7-654A-46B7-8BFE-096F9E629902}.Release|Any CPU.Build.0 = Release|Any CPU
+		{069F6184-C056-4ECA-8504-0311E844087E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{069F6184-C056-4ECA-8504-0311E844087E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{069F6184-C056-4ECA-8504-0311E844087E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{069F6184-C056-4ECA-8504-0311E844087E}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {4BAA646F-C205-4CEC-891B-180EE216F973}
+	EndGlobalSection
+EndGlobal
