@@ -18,6 +18,12 @@
     public partial class ServerSession
     {
         /// <summary>
+        /// Gets the persistent RFC 1143 negotiation state backing the shared
+        /// <c>BaseClient</c> GA/waiter helpers.
+        /// </summary>
+        protected override NegotiationState SessionNegotiation => Negotiation;
+
+        /// <summary>
         /// Sends the server opening preset: WILL for each offered option and DO
         /// for each requested one (see <see cref="TelnetServerOptions"/>), each
         /// tracked by <see cref="Negotiation"/> so repeats stay silent per

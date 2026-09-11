@@ -362,7 +362,7 @@
         }
 
         /// <inheritdoc/>
-        public async Task<string> ReadAsync(TimeSpan timeout, CancellationToken cancellationToken)
+        public override async Task<string> ReadAsync(TimeSpan timeout, CancellationToken cancellationToken)
         {
             // Serialise concurrent reads so interleaved calls cannot split a reply.
             // A cancelled wait means "no data", not an error.

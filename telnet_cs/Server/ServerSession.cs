@@ -63,6 +63,7 @@
             // constructs the session before throwing below (same shape as Client).
             ArgumentNullException.ThrowIfNull(options);
             Settings = options;
+            StartIdleTimer();
         }
 
         /// <summary>
@@ -90,7 +91,7 @@
         /// <param name="timeout">The timeout.</param>
         /// <param name="cancellationToken">Token to cancel the read. Cancellation returns the partial text read so far.</param>
         /// <returns>Any text read from the session.</returns>
-        public async Task<string> ReadAsync(TimeSpan timeout, CancellationToken cancellationToken)
+        public override async Task<string> ReadAsync(TimeSpan timeout, CancellationToken cancellationToken)
         {
             // Serialise concurrent reads so interleaved calls cannot split input.
             // A cancelled wait means "no data", not an error.
@@ -124,7 +125,13 @@
                     FeedSession(handler);
                     try
                     {
-                        return await handler.ReadAsync(timeout).ConfigureAwait(false);
+                        string result = await handler.ReadAsync(timeout).ConfigureAwait(false);
+                        if (result.Length != 0)
+                        {
+                            Context.NoteRead(result);
+                        }
+
+                        return result;
                     }
                     catch (System.Net.Sockets.SocketException)
                     {
@@ -152,6 +159,7 @@
             {
                 // Custom encoding: pre-encode here so the exact bytes hit the stream.
                 await WriteAsync(ByteStringConverter.ConvertStringToByteArray(command, Settings.TextEncoding), cancellationToken).ConfigureAwait(false);
+                Context.NoteWritten(command);
                 return;
             }
 
@@ -162,6 +170,7 @@
                 try
                 {
                     await ByteStream.WriteAsync(command, linked.Token).ConfigureAwait(false);
+                    Context.NoteWritten(command);
                 }
                 finally
                 {

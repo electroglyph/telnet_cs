@@ -167,5 +167,43 @@
         /// later mutations do not rebind the listener.
         /// </summary>
         public System.Net.IPAddress ListenAddress { get; set; } = System.Net.IPAddress.Any;
+
+        /// <summary>
+        /// Gets or sets the idle disconnect timeout (the reference
+        /// <c>timeout = 300</c>): a session whose <see cref="TelnetSessionContext"/>
+        /// saw no text read or written for this long is sent
+        /// <c>"Timeout."</c> and closed. Defaults to 300 seconds;
+        /// <c>Timeout.InfiniteTimeSpan</c> (or any non-positive span) disables.
+        /// </summary>
+        public TimeSpan IdleTimeout { get; set; } = TimeSpan.FromSeconds(300);
+
+        /// <summary>
+        /// Gets or sets the status-log interval (the reference
+        /// <c>StatusLogger(interval = 20)</c>): while set, the server logs one
+        /// <c>endpoint (rx,tx,idle,tls)</c> line per accepted session whenever
+        /// its counters changed since the previous tick. Defaults to 20
+        /// seconds; null (or any non-positive span) disables. Silent without
+        /// <see cref="Log"/>.
+        /// </summary>
+        public TimeSpan? StatusInterval { get; set; } = TimeSpan.FromSeconds(20);
+
+        /// <summary>
+        /// Gets or sets the TLS-auto-detect peek window (the reference
+        /// <c>--tls-auto</c>, const 0.5 s): when <see cref="ServerCertificate"/>
+        /// is set and this is finite, each accept peeks at the first inbound
+        /// byte for this long — <c>0x16</c> (TLS ClientHello) handshakes as the
+        /// TLS server, anything else (or a quiet peer) stays plaintext.
+        /// Defaults to <c>Timeout.InfiniteTimeSpan</c> (disabled: explicit
+        /// cert-or-plaintext).
+        /// </summary>
+        public TimeSpan TlsAutoDetect { get; set; } = System.Threading.Timeout.InfiniteTimeSpan;
+
+        /// <summary>
+        /// Gets or sets whether prompt loops (see <see cref="ServerShells"/>)
+        /// skip the per-prompt Go-Ahead (the reference
+        /// <c>--never-send-ga</c>). Defaults to <c>false</c> (send GA, which
+        /// <c>SendGaAsync</c> still suppresses while SGA is in effect).
+        /// </summary>
+        public bool NeverSendGa { get; set; }
     }
 }

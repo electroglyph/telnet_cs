@@ -46,6 +46,9 @@
         /// </summary>
         public NegotiationState Negotiation { get; } = new();
 
+        /// <inheritdoc/>
+        protected override NegotiationState SessionNegotiation => Negotiation;
+
         /// <summary>
         /// Asks the peer to enable <paramref name="telnetOption"/> (sends
         /// <c>IAC DO</c>), unless already enabled, already negotiating, or

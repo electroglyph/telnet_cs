@@ -578,6 +578,14 @@ terminal program. telnetlib3 ships a full one
     `Protocol/NawsProtocol.cs:50-54`) — no raw-mode interop exists. Both
     csprojs omit `OutputType` (default `Library`), so a `Terminal` port
     would also need a new executable project, not just new classes.
+- **Implemented:** `Client/InputFilter.cs` (longest-first sequence tables +
+  single-byte map, prefix hold-back, `Flush` literalizes held bytes,
+  `EscapeDelay` default 350 ms; `CreateAtascii`/`CreatePetscii` factories
+  carry the reference retro maps verbatim) and `Client/LinemodeBuffer.cs`
+  (trapsig → `IAC IP/ABORT/SUSP/EOF/BRK/AYT`, local `EC`/`EL`/`EW` editing,
+  forwardmask flush, `CR`/`LF` line send; `LinemodeEdit` selects the SLC
+  func/value/level triplets, defaulting to `EC = 127`, `EL = 0x15`,
+  `EW = 0x17`). Covered by `telnet_cs.Tests/Client/ShellInputTests.cs`.
 
 ## 13. Interactive server shell + PTY shell server
 
@@ -639,6 +647,12 @@ terminal program. telnetlib3 ships a full one
     directly (ordering: §19 before §13a).
   - Verified skip: no `fork`/`Process`/PTY layer exists in the library
     (only substring false positives such as "started").
+- **Implemented:** `Server/ServerShells.cs` (`RunReplAsync`) — `Ready.`
+  banner, `tel:sh> ` prompt, per-prompt `SendGaAsync` unless
+  `NeverSendGa`, and the `quit/help/version/negotiation/stats/environ`
+  commands (the reference `toggle`/`dump`/`slc`/`linemode` introspection is
+  covered by `negotiation`, which dumps the agreed/refused option states).
+  Covered by `telnet_cs.Tests/Server/ReplTests.cs`.
 
 ## 14. Relay (proxy) server example
 
@@ -946,8 +960,19 @@ executables.
     SGA (`IO/ByteStreamHandler.cs:823-833`, agreed-state signal at `:827`),
     while outbound `SendCommand(GoAhead)` is unconditional
     (`Server/ServerSession.Negotiation.cs:147-152`) — `SendGaAsync` is the
-    missing guard (false when SGA agreed, else `IAC GA`), and §13a will
-    consume it.
+     missing guard (false when SGA agreed, else `IAC GA`), and §13a will
+     consume it.
+- **Implemented:** `Client/BaseClient.GaWaiters.cs` (`SendGaAsync` on both
+  roles; `WaitForNegotiationAsync` + `WaitForOptionEnabledAsync` generic
+  named waiters that pump short reads instead of spinning),
+  `Server/TelnetSessionContext.cs` (connect/last-activity timestamps, idle
+  span, rx/tx char counters, raw typescript recorder, property bag),
+  `TelnetServerOptions.IdleTimeout` (default 300 s, latched per-session
+  `IsIdleTimedOut` followed by a best-effort `Timeout.` notice and close),
+  `TelnetServerOptions.StatusInterval` (default 20 s, endpoint/rx/tx/idle/
+  tls lines via `options.Log`), and `TelnetServerOptions.TlsAutoDetect`
+  (opt-in pre-handshake `0x16` peek that falls back to plaintext; default
+  off). Covered by `telnet_cs.Tests/Server/SessionExtrasTests.cs`.
 
 ## 20. Accessories / diagnostics utilities
 
