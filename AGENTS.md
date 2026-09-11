@@ -11,15 +11,14 @@ Repo-root `AGENTS.md` wins per category over global config fallbacks.
 - Build: `dotnet build telnet_cs.sln -c Release` (or Debug). Requires the .NET 10 SDK **and** .NET 10 runtime.
 - Run tests: `dotnet test telnet_cs.sln -c Release` — use `--filter` for focused tests.
 - Format check: `dotnet format --verify-no-changes` (build treats warnings as errors; unformatted pushes fail).
-- Never run `pytest`.
 
 ## Conventions
 
-- Layout: `telnet_cs/` (library, flat `telnet_cs` namespace today), `telnet_cs.CiTests/` (xUnit suites + `DummyByteStream` / `DummyTelnetServer*` fakes).
+- Layout: `telnet_cs/` (library: `Client/`, `Server/`, `Transport/`, `Protocol/`, `IO/`), `telnet_cs.Tests/` (xUnit suites, `Helpers/` shared fixtures + `Fakes/` socket doubles).
 - Language reference: [csharp.md](./csharp.md) — local copy (C# 9 → C# 14). The [Best practices (C# 14)](#best-practices-c-14) section below states which practices to apply; per-feature details live in `csharp.md`.
 - All new and rewritten code must follow [Best practices (C# 14)](#best-practices-c-14). Modernize surrounding lines you touch; do not reformat untouched code.
 - Wire discipline: keep established wire bytes / negotiation behavior byte-for-byte unless a technical reason and a test pin justify the change. Do not paraphrase protocol behavior or "improve" message framing without a wire-exact regression test.
-- Tests live next to the code they cover conceptually (`telnet_cs.CiTests/`); give tests standalone names that describe the feature under test (`MethodUnderTest_Scenario_ExpectedResult`).
+- Tests live next to the code they cover conceptually (`telnet_cs.Tests/`); give tests standalone names that describe the feature under test (`MethodUnderTest_Scenario_ExpectedResult`).
 
 ## Hard rules
 
