@@ -81,7 +81,9 @@
         OldEnvironment = 36,
         /// <summary>Authentication facilities (37).</summary>
         Authentication = 37,
-        /// <summary>Environment variables, new form (RFC 1408, 39).</summary>
+        /// <summary>Encryption facilities (38). Negotiated refusal only: no cipher exchange is implemented.</summary>
+        Encrypt = 38,
+        /// <summary>Environment variables, new form (RFC 1572, 39).</summary>
         NewEnvironment = 39,
         /// <summary>TN3270 enhancements (40).</summary>
         TN3270 = 40,
@@ -103,12 +105,36 @@
         URL = 48,
         /// <summary>Forward X Window System (49).</summary>
         ForwardX = 49,
+        /// <summary>MUD Server Data Protocol (MSDP, 69).</summary>
+        Msdp = 69,
+        /// <summary>MUD Server Status Protocol (MSSP, 70).</summary>
+        Mssp = 70,
+        /// <summary>MCCP version 1 compression (85, obsolete; always refused).</summary>
+        Mccp1 = 85,
+        /// <summary>MCCP version 2 compression, server-to-client zlib (86).</summary>
+        Mccp2 = 86,
+        /// <summary>MCCP version 3 compression, client-to-server zlib (87).</summary>
+        Mccp3 = 87,
+        /// <summary>MUD Sound Protocol (MSP, 90).</summary>
+        Msp = 90,
+        /// <summary>MUD eXtension Protocol (MXP, 91).</summary>
+        Mxp = 91,
+        /// <summary>Unassigned option 92 (probed, always refused).</summary>
+        Telopt92 = 92,
+        /// <summary>Zenith MUD Protocol (ZMP, 93).</summary>
+        Zmp = 93,
+        /// <summary>Aardwolf MUD Protocol (102).</summary>
+        Aardwolf = 102,
         /// <summary>Pragma logon (138).</summary>
         PragmaLogon = 138,
         /// <summary>SSPI logon (139).</summary>
         SspiLogon = 139,
         /// <summary>Pragma heartbeat (140).</summary>
         PragmaHeartbeat = 140,
+        /// <summary>Achaea Telnet Client Protocol (ATCP, 200).</summary>
+        Atcp = 200,
+        /// <summary>Generic MUD Communication Protocol (GMCP, 201).</summary>
+        Gmcp = 201,
         /// <summary>Extended options list (255).</summary>
         ExtendedOptions = 255
     }

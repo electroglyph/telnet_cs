@@ -11,6 +11,8 @@
         Suspend = 237,
         /// <summary>Abort or terminate the process (ABORT, 238; RFC 1184 §2.5).</summary>
         Abort = 238,
+        /// <summary>End of record marker (EOR, 239; RFC 885). Sent as IAC EOR with no subnegotiation.</summary>
+        EndOfRecord = 239,
         /// <summary>End of a subnegotiation block (SE, 240).</summary>
         SubnegotiationEnd = 240,
         /// <summary>No operation (NOP, 241).</summary>

@@ -74,6 +74,11 @@
             handler.EnvironmentDisplay = Settings.EnvironmentDisplay;
             handler.EnvironmentUserVars = Settings.EnvironmentUserVars;
             handler.XDisplayLocation = Settings.XDisplayLocation;
+            handler.SendLocation = Settings.SendLocation;
+            handler.CharsetOffers = [.. Settings.CharsetOffers];
+            handler.EnableMccp = Settings.EnableMccp;
+            handler.EnableMudOptions = Settings.EnableMudOptions;
+            handler.EnableComPort = Settings.EnableComPort;
             handler.Linemode = linemodeState;
             handler.GoAheadReceived = OnGoAheadReceived;
         }

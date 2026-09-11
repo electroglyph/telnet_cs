@@ -105,6 +105,43 @@
         public Dictionary<string, string> EnvironmentUserVars { get; set; } = new(StringComparer.Ordinal);
 
         /// <summary>
+        /// Value sent spontaneously as <c>IAC SB SNDLOC &lt;location&gt; IAC SE</c>
+        /// (RFC 779, ASCII) after answering <c>DO SNDLOC</c>. Null (the
+        /// default) sends nothing.
+        /// </summary>
+        public string? SendLocation { get; set; }
+
+        /// <summary>
+        /// Character sets offered in CHARSET REQUEST answers (RFC 2066), in
+        /// preference order. Defaults to UTF-8. Empty answers REJECTED.
+        /// Settable (not init-only) like the rest of this bag, and re-seated
+        /// — never shared — by the <c>with</c>-clone in
+        /// <c>Client.ApplyOptions</c>.
+        /// </summary>
+        public IList<string> CharsetOffers { get; set; } = ["UTF-8"];
+
+        /// <summary>
+        /// Opts in to MCCP2/MCCP3 compression (options 86/87). False (the
+        /// default) refuses compression; keep it off over TLS (CRIME/BREACH).
+        /// Framing-level only: zlib decoding stays the caller's (see the
+        /// MCCP start hooks).
+        /// </summary>
+        public bool EnableMccp { get; set; }
+
+        /// <summary>
+        /// Whether the MUD options (MSDP, MSSP, MSP, MXP, ZMP, Aardwolf,
+        /// ATCP, GMCP) may be agreed. True (the default) agrees; set
+        /// <c>false</c> to decline them like the reference client default.
+        /// </summary>
+        public bool EnableMudOptions { get; set; } = true;
+
+        /// <summary>
+        /// Whether COM port control (option 44, RFC 2217 framing level) may
+        /// be agreed. True (the default) agrees.
+        /// </summary>
+        public bool EnableComPort { get; set; } = true;
+
+        /// <summary>
         /// Master switch for implicit TLS (telnets-style): the TLS handshake
         /// completes before the first telnet byte flows. False (the default)
         /// keeps the plaintext path byte-identical.

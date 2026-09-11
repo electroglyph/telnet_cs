@@ -21,11 +21,17 @@
         private bool expectingTerminalType;
         private bool expectingTerminalSpeed;
         private bool expectingEnvironment;
+        private bool expectingNewEnvironment;
         private bool expectingXDisplay;
+        private bool expectingCharset;
+        private bool expectingLocation;
         private readonly List<string> terminalTypeChain = [];
         private string? clientTerminalSpeed;
         private string? clientXDisplay;
+        private string? clientCharset;
+        private string? clientLocation;
         private readonly Dictionary<string, string> clientEnvironment = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> clientNewEnvironment = new(StringComparer.Ordinal);
         private (ushort Width, ushort Height)? clientWindowSize;
         // Arrival order shared by option-35 IS and ENVIRON DISPLAY writes, so
         // the effective display resolves last-arrived-wins (RFC 1408 §5). Zero
@@ -79,6 +85,79 @@
                 lock (collectorLock)
                 {
                     return new Dictionary<string, string>(clientEnvironment, StringComparer.Ordinal);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the environment variables reported by the peer in new form
+        /// (RFC 1572), from requested IS answers and spontaneous INFO updates.
+        /// Same shape as <see cref="ClientEnvironment"/>, kept separate so a
+        /// peer reporting both forms never mixes them.
+        /// </summary>
+        public IReadOnlyDictionary<string, string> ClientNewEnvironment
+        {
+            get
+            {
+                lock (collectorLock)
+                {
+                    return new Dictionary<string, string>(clientNewEnvironment, StringComparer.Ordinal);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the character set agreed via CHARSET ACCEPTED (RFC 2066), or
+        /// null when none was negotiated yet. Populated by
+        /// <see cref="RequestCharsetAsync"/>.
+        /// </summary>
+        public string? ClientCharset
+        {
+            get
+            {
+                lock (collectorLock)
+                {
+                    return clientCharset;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the location reported by the peer via SNDLOC (RFC 779), or
+        /// null when none arrived. Populated by
+        /// <see cref="RequestSendLocationAsync"/>.
+        /// </summary>
+        public string? ClientLocation
+        {
+            get
+            {
+                lock (collectorLock)
+                {
+                    return clientLocation;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the effective terminal type: when the reported chain reaches
+        /// a third entry starting with <c>"MTTS "</c> (MUD Terminal Type
+        /// Standard), the second entry names the real terminal and the MTTS
+        /// bitmask only lists client capabilities — so the second entry wins.
+        /// Otherwise the first entry wins, or null when nothing arrived.
+        /// </summary>
+        public string? ClientEffectiveTerminalType
+        {
+            get
+            {
+                lock (collectorLock)
+                {
+                    if (terminalTypeChain.Count >= 3 &&
+                        terminalTypeChain[2].StartsWith("MTTS ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return terminalTypeChain[1];
+                    }
+
+                    return terminalTypeChain.Count > 0 ? terminalTypeChain[0] : null;
                 }
             }
         }
@@ -246,6 +325,102 @@
             }
         }
 
+        /// <summary>
+        /// Asks the peer for environment variables in new form (RFC 1572:
+        /// <c>SEND</c>, one <c>IS</c>). Later spontaneous INFO updates also
+        /// land in <see cref="ClientNewEnvironment"/>. Returns the variables
+        /// known when the answer arrives or the timeout elapses.
+        /// </summary>
+        /// <param name="timeout">The maximum time to wait for the answer.</param>
+        /// <param name="types">The requested type bytes (VAR/USERVAR); null or
+        /// empty requests the defaults (well-known variables, then user
+        /// variables).</param>
+        /// <param name="cancellationToken">A token to cancel the wait.</param>
+        public async Task<IReadOnlyDictionary<string, string>> RequestNewEnvironmentAsync(TimeSpan timeout, byte[]? types = null, CancellationToken cancellationToken = default)
+        {
+            lock (collectorLock)
+            {
+                expectingNewEnvironment = true;
+            }
+
+            await SendSbAsync(Options.NewEnvironment, types ?? [], cancellationToken).ConfigureAwait(false);
+            await PollForResponseAsync(IsNewEnvironmentDone, timeout, cancellationToken).ConfigureAwait(false);
+            lock (collectorLock)
+            {
+                expectingNewEnvironment = false;
+                return new Dictionary<string, string>(clientNewEnvironment, StringComparer.Ordinal);
+            }
+        }
+
+        /// <summary>
+        /// Asks the peer for a character set (RFC 2066: <c>REQUEST</c>, one
+        /// <c>ACCEPTED</c>/<c>REJECTED</c>). Returns the accepted name, or null
+        /// on timeout or rejection.
+        /// </summary>
+        /// <param name="timeout">The maximum time to wait for the answer.</param>
+        /// <param name="cancellationToken">A token to cancel the wait.</param>
+        public async Task<string?> RequestCharsetAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
+        {
+            lock (collectorLock)
+            {
+                clientCharset = null;
+                expectingCharset = true;
+            }
+
+            await SendFrameAsync((int)Options.CharacterSet, CharsetProtocol.BuildRequest(Settings.CharsetOffers), cancellationToken).ConfigureAwait(false);
+            await PollForResponseAsync(IsCharsetDone, timeout, cancellationToken).ConfigureAwait(false);
+            lock (collectorLock)
+            {
+                expectingCharset = false;
+                return clientCharset;
+            }
+        }
+
+        /// <summary>
+        /// Asks the peer for its location (RFC 779: <c>DO SNDLOC</c>, one
+        /// spontaneous SB). Returns the location string, or null on timeout.
+        /// The peer volunteers the SB after WILL, so no SEND goes out here.
+        /// </summary>
+        /// <param name="timeout">The maximum time to wait for the answer.</param>
+        /// <param name="cancellationToken">A token to cancel the wait.</param>
+        public async Task<string?> RequestSendLocationAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
+        {
+            lock (collectorLock)
+            {
+                clientLocation = null;
+                expectingLocation = true;
+            }
+
+            await RequestEnableAsync(Options.SendLocation, cancellationToken).ConfigureAwait(false);
+            await PollForResponseAsync(IsLocationDone, timeout, cancellationToken).ConfigureAwait(false);
+            lock (collectorLock)
+            {
+                expectingLocation = false;
+                return clientLocation;
+            }
+        }
+
+        /// <summary>
+        /// Sends the LFLOW restart mode (RFC 1372) as a server: RESTART_ANY
+        /// when <paramref name="restartOnAny"/> is true, else RESTART_XON.
+        /// Returns <c>false</c> (sending nothing) unless the peer enabled
+        /// LFLOW (WILL) first, mirroring the reference server-only guard.
+        /// </summary>
+        /// <param name="restartOnAny">Whether any character restarts output.</param>
+        /// <param name="cancellationToken">A token to cancel the send.</param>
+        public async Task<bool> SendLineflowModeAsync(bool restartOnAny, CancellationToken cancellationToken = default)
+        {
+            if (!Negotiation.IsEnabledByPeer((int)Options.RemoteFlowControl))
+            {
+                WriteLog("Cannot send LFLOW without receipt of WILL LFLOW.");
+                return false;
+            }
+
+            var mode = restartOnAny ? LineflowProtocol.RestartAny : LineflowProtocol.RestartXon;
+            await SendFrameAsync((int)Options.RemoteFlowControl, [mode], cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+
         private bool IsTerminalTypeDone()
         {
             lock (collectorLock)
@@ -267,6 +442,30 @@
             lock (collectorLock)
             {
                 return !expectingEnvironment;
+            }
+        }
+
+        private bool IsNewEnvironmentDone()
+        {
+            lock (collectorLock)
+            {
+                return !expectingNewEnvironment;
+            }
+        }
+
+        private bool IsCharsetDone()
+        {
+            lock (collectorLock)
+            {
+                return !expectingCharset;
+            }
+        }
+
+        private bool IsLocationDone()
+        {
+            lock (collectorLock)
+            {
+                return !expectingLocation;
             }
         }
 
@@ -295,6 +494,20 @@
                 return TryConsumeLinemodeImport(payload);
             }
 
+            if (inputOption == (int)Options.SendLocation)
+            {
+                // RFC 779: the SB is the raw ASCII location (no verbs), so it
+                // precedes the IS/INFO gate below.
+                return TryConsumeSendLocation(payload);
+            }
+
+            if (inputOption == (int)Options.CharacterSet)
+            {
+                // RFC 2066 ACCEPTED shares its byte value (2) with INFO, so it
+                // is consumed here, ahead of the gate.
+                return TryConsumeCharset(payload);
+            }
+
             if (payload[0] != EnvironmentProtocol.Is && payload[0] != EnvironmentProtocol.Info)
             {
                 return false;
@@ -315,9 +528,9 @@
                 return TryConsumeXDisplay(payload);
             }
 
-            if (inputOption == (int)Options.OldEnvironment)
+            if (inputOption == (int)Options.OldEnvironment || inputOption == (int)Options.NewEnvironment)
             {
-                return TryConsumeEnvironment(payload);
+                return TryConsumeEnvironment(inputOption, payload);
             }
 
             return false;
@@ -409,34 +622,43 @@
             }
         }
 
-        private bool TryConsumeEnvironment(List<byte> payload)
+        private bool TryConsumeEnvironment(int inputOption, List<byte> payload)
         {
             var isInfo = payload[0] == EnvironmentProtocol.Info;
+            var isNew = inputOption == (int)Options.NewEnvironment;
             lock (collectorLock)
             {
-                if (!isInfo && !expectingEnvironment)
+                if (!isInfo && !expectingEnvironment && !expectingNewEnvironment)
                 {
                     return false;
                 }
 
-                // RFC 1408: only the WILL-ENVIRON side may send INFO. An INFO
-                // from a peer that never agreed is left unconsumed so the
-                // handler answers WONT, exactly like a stray IS.
-                if (isInfo && !Negotiation.IsEnabledByPeer((int)Options.OldEnvironment))
+                // Only the WILL-ENVIRON side may send INFO. An INFO from a
+                // peer that never agreed is left unconsumed so the handler
+                // answers WONT, exactly like a stray IS.
+                if (isInfo && !Negotiation.IsEnabledByPeer(inputOption))
                 {
                     return false;
                 }
 
                 if (!isInfo)
                 {
-                    expectingEnvironment = false;
+                    if (isNew)
+                    {
+                        expectingNewEnvironment = false;
+                    }
+                    else
+                    {
+                        expectingEnvironment = false;
+                    }
                 }
 
+                var store = isNew ? clientNewEnvironment : clientEnvironment;
                 foreach (var entry in EnvironmentProtocol.ParseEntries(payload))
                 {
                     if (entry.Value is not null)
                     {
-                        clientEnvironment[entry.Name] = entry.Value;
+                        store[entry.Name] = entry.Value;
                         if (string.Equals(entry.Name, EnvironmentProtocol.DisplayVariableName, StringComparison.Ordinal))
                         {
                             environDisplaySeq = ++displayArrivalSeq;
@@ -448,6 +670,52 @@
             }
         }
 
+        /// <summary>
+        /// Consumes an SNDLOC report (RFC 779, raw ASCII, no verbs) while a
+        /// location request is outstanding.
+        /// </summary>
+        private bool TryConsumeSendLocation(List<byte> payload)
+        {
+            lock (collectorLock)
+            {
+                if (!expectingLocation)
+                {
+                    return false;
+                }
+
+                expectingLocation = false;
+                clientLocation = System.Text.Encoding.Latin1.GetString([.. payload]);
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Consumes a CHARSET ACCEPTED/REJECTED answer (RFC 2066) while a
+        /// character-set request is outstanding. REJECTED completes with a
+        /// null charset.
+        /// </summary>
+        private bool TryConsumeCharset(List<byte> payload)
+        {
+            lock (collectorLock)
+            {
+                if (!expectingCharset)
+                {
+                    return false;
+                }
+
+                if (payload[0] != CharsetProtocol.Accepted && payload[0] != CharsetProtocol.Rejected)
+                {
+                    return false;
+                }
+
+                expectingCharset = false;
+                clientCharset = payload[0] == CharsetProtocol.Accepted
+                  ? System.Text.Encoding.ASCII.GetString([.. payload.Skip(1)])
+                  : null;
+                return true;
+            }
+        }
+
         private async Task PollForResponseAsync(Func<bool> isDone, TimeSpan timeout, CancellationToken cancellationToken)
         {
             var end = DateTime.UtcNow.Add(timeout);
@@ -455,6 +723,24 @@
             while (!isDone() && DateTime.UtcNow < end && !linked.Token.IsCancellationRequested)
             {
                 await ReadAsync(TimeSpan.FromMilliseconds(MillisecondReadDelay), linked.Token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task SendFrameAsync(int option, byte[] payload, CancellationToken cancellationToken)
+        {
+            var frame = EnvironmentProtocol.FrameSubnegotiation(option, payload);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
+            if (ByteStream.Connected && !linked.Token.IsCancellationRequested)
+            {
+                await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
+                try
+                {
+                    await ByteStream.WriteAsync(frame, 0, frame.Length, linked.Token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    SendRateLimit.Release();
+                }
             }
         }
 

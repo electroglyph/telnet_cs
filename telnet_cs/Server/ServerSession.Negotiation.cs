@@ -68,6 +68,21 @@
             {
                 await RequestEnableAsync(Options.LineMode, cancellationToken).ConfigureAwait(false);
             }
+
+            if (Settings.RequestNewEnvironment)
+            {
+                await RequestEnableAsync(Options.NewEnvironment, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (Settings.RequestCharacterSet)
+            {
+                await RequestEnableAsync(Options.CharacterSet, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (Settings.RequestSendLocation)
+            {
+                await RequestEnableAsync(Options.SendLocation, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         /// <summary>

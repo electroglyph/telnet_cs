@@ -254,6 +254,9 @@
             handler.SubnegotiationResponse = OnSubnegotiationResponse;
             handler.Linemode = linemodeState;
             handler.ApplyLinemodeAsServer = true;
+            // Only a server may send SB LFLOW (RFC 1372): agreeing to a peer
+            // WILL LFLOW volunteers the configured restart mode.
+            handler.SendLineflowAsServer = true;
             handler.GoAheadReceived = OnGoAheadReceived;
             // A server has no local user: console echo defaults off (opt in via
             // settings for debugging), and the machine must never beep at a peer.

@@ -78,6 +78,33 @@
         public bool RequestLinemode { get; set; } = true;
 
         /// <summary>
+        /// Gets or sets whether sessions request new-form environment reports
+        /// (<c>DO NewEnvironment</c>, RFC 1572) in the opening preset.
+        /// Defaults to <c>false</c> so default opening-preset bytes are unchanged.
+        /// </summary>
+        public bool RequestNewEnvironment { get; set; }
+
+        /// <summary>
+        /// Gets or sets whether sessions request character-set negotiation
+        /// (<c>DO CharacterSet</c>, RFC 2066) in the opening preset. Defaults
+        /// to <c>false</c> so default opening-preset bytes are unchanged.
+        /// </summary>
+        public bool RequestCharacterSet { get; set; }
+
+        /// <summary>
+        /// Gets or sets whether sessions request the peer location
+        /// (<c>DO SendLocation</c>, RFC 779) in the opening preset. Defaults
+        /// to <c>false</c> so default opening-preset bytes are unchanged.
+        /// </summary>
+        public bool RequestSendLocation { get; set; }
+
+        /// <summary>
+        /// Gets or sets the character sets offered in CHARSET REQUESTs
+        /// (RFC 2066), in preference order. Defaults to UTF-8.
+        /// </summary>
+        public IList<string> CharsetOffers { get; set; } = ["UTF-8"];
+
+        /// <summary>
         /// Gets or sets the prompt sent before reading the login name in
         /// <c>ServerSession.AuthenticateAsync</c> (S2). Defaults to
         /// <c>"login: "</c>.

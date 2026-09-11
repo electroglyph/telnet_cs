@@ -73,13 +73,13 @@
         [Fact]
         public async Task StatusSend_RefusedOption_Omitted()
         {
-            // NEW-ENVIRON (39) stays refused; this harness agrees nothing else, so
+            // TELOPT 92 stays refused; this harness agrees nothing else, so
             // only the WILL STATUS self-entry joins the IS.
-            var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 253, 5, 255, 251, 39, 255, 250, 5, 1, 255, 240);
+            var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 253, 5, 255, 251, 92, 255, 250, 5, 1, 255, 240);
             output.Should().BeEmpty();
             stream.ByteWrites.Should().HaveCount(3);
             stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 5 });
-            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 254, 39 });
+            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 254, 92 });
             stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 5, 240 });
         }
 

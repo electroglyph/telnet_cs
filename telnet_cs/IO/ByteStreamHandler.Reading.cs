@@ -2,6 +2,7 @@
 {
     using System;
     using System.Collections.Generic;
+    using System.Runtime.InteropServices;
     using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
@@ -142,12 +143,42 @@
 
         private string DecodeResult(StringBuilder sb, List<byte> rawBytes)
         {
+            ApplySyncTermFont(CollectionsMarshal.AsSpan(rawBytes));
             if (TextEncoding != null)
             {
                 return TextEncoding.GetString(rawBytes.ToArray());
             }
 
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Scans inbound bytes for a SyncTERM font-selection sequence and
+        /// adopts its encoding for subsequent reads. An explicitly configured
+        /// <see cref="ByteStreamHandler.TextEncoding"/> always wins; the
+        /// sequence itself stays in the data stream untouched.
+        /// </summary>
+        private void ApplySyncTermFont(ReadOnlySpan<byte> raw)
+        {
+            if (TextEncoding is not null || raw.IsEmpty)
+            {
+                return;
+            }
+
+            var name = SyncTermFont.DetectEncoding(raw);
+            if (name is null)
+            {
+                return;
+            }
+
+            var encoding = SyncTermFont.ResolveEncoding(name);
+            if (encoding is null)
+            {
+                return;
+            }
+
+            TextEncoding = encoding;
+            SyncTermFontDetected?.Invoke(name);
         }
 
         private static int ClampReceiveTimeout(TimeSpan timeout)

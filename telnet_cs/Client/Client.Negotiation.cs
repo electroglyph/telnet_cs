@@ -33,6 +33,7 @@
             {
                 TerminalTypes = [.. options.TerminalTypes],
                 EnvironmentUserVars = new Dictionary<string, string>(options.EnvironmentUserVars, StringComparer.Ordinal),
+                CharsetOffers = [.. options.CharsetOffers],
             };
         }
 

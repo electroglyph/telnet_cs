@@ -185,19 +185,19 @@
         }
 
         [Fact]
-        public async Task WillNewEnvironment_GetsDont()
+        public async Task WillNewEnvironment_GetsDo()
         {
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 251, 39);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 254, 39 });
+            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 253, 39 });
         }
 
         [Fact]
-        public async Task DoNewEnvironment_GetsWont()
+        public async Task DoNewEnvironment_GetsWill()
         {
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 253, 39);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 252, 39 });
+            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 251, 39 });
         }
 
         private static int CountSubnegotiations(ScriptedStream stream) =>
