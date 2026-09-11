@@ -32,7 +32,8 @@
         }
 
         /// <summary>
-        /// Builds a complete <c>IAC SB NAWS IS wHi wLo hHi hLo IAC SE</c> frame.
+        /// Builds a complete bare <c>IAC SB NAWS wHi wLo hHi hLo IAC SE</c>
+        /// frame (RFC 1073 carries no IS verb inside NAWS).
         /// </summary>
         /// <param name="width">The width (0-65535).</param>
         /// <param name="height">The height (0-65535).</param>
@@ -40,7 +41,6 @@
         {
             var payload = new byte[]
             {
-        EnvironmentProtocol.Is,
         (byte)(width >> 8), (byte)width,
         (byte)(height >> 8), (byte)height,
             };

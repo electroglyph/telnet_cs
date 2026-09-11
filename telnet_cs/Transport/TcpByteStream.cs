@@ -47,8 +47,10 @@ namespace telnet_cs.Transport
         /// optionally taking ownership of <paramref name="tcpSocket"/> so
         /// disposing this stream also disposes the socket. A server wrapping an
         /// accepted socket (see <see cref="TelnetServer"/>) passes
-        /// <c>true</c>; a caller that keeps using the socket passes <c>false</c>
-        /// (closing still releases the connection via <see cref="Close"/>).
+        /// <c>true</c>; a caller that keeps using the socket passes <c>false</c>,
+        /// in which case disposing this stream leaves the socket untouched and
+        /// usable. An explicit <see cref="Close"/> still closes the connection
+        /// in both cases.
         /// </summary>
         /// <param name="tcpSocket">The TCP socket.</param>
         /// <param name="takeOwnership"><c>true</c> to dispose the socket with this stream.</param>
@@ -270,10 +272,18 @@ namespace telnet_cs.Transport
         {
             if (isDisposing)
             {
-                Close();
                 if (isSocketOwned)
                 {
+                    Close();
                     socket.Dispose();
+                }
+                else
+                {
+                    // Not ours: leave the socket (and its stream) alone so the
+                    // owner can keep using it. The cached wrapper is dropped
+                    // without disposing — disposing it would dispose the
+                    // socket's own NetworkStream, closing the connection.
+                    cachedStream = null;
                 }
             }
         }

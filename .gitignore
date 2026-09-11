@@ -332,3 +332,6 @@ ASALocalRun/
 
 # Local reorg plan (working notes, not committed).
 /organize.md
+
+# Local correctness audit (working notes, not committed).
+/audit.md

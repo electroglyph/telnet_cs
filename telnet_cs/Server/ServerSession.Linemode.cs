@@ -160,6 +160,9 @@
             }
 
             WriteLog("Sending: " + nameof(Options.LineMode) + " SLC table.");
+            // Fire-and-forget: the reply rides SendRateLimit, so wire order
+            // against other sends is still safe; a send failure here is
+            // unobserved by design (the import was already consumed).
             _ = SendLinemodeFrameAsync([LinemodeProtocol.SetLocalCharacters, .. triplets], CancellationToken.None);
             return true;
         }

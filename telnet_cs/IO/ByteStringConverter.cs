@@ -1,5 +1,4 @@
-﻿
-namespace telnet_cs.IO
+﻿namespace telnet_cs.IO
 {
     using System.Text;
     using telnet_cs.Protocol;
@@ -21,7 +20,11 @@ namespace telnet_cs.IO
         }
 
         /// <summary>
-        /// Converts a string to bytes, escaping literal IAC bytes by doubling.
+        /// Converts a string to bytes, escaping literal IAC characters (U+00FF)
+        /// by doubling them before encoding. The doubling is char-level: it
+        /// covers Latin-1 (default) and UTF-8 (which never emits 0xFF), but an
+        /// exotic encoding whose byte 255 comes from another char would emit
+        /// a raw 0xFF.
         /// </summary>
         /// <param name="value">The string to convert.</param>
         /// <param name="encoding">The encoding to use. When null (default), the legacy Latin-1 mapping is used.</param>
@@ -81,6 +84,11 @@ namespace telnet_cs.IO
 
         internal static string ToString(byte[] bytes, int offset, int count, Encoding? encoding)
         {
+            ArgumentNullException.ThrowIfNull(bytes);
+            ArgumentOutOfRangeException.ThrowIfNegative(offset);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(count, bytes.Length - offset);
+
             if (encoding != null)
             {
                 return encoding.GetString(bytes, offset, count);

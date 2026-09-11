@@ -77,6 +77,7 @@
             var sb = new StringBuilder();
             var rawBytes = new List<byte>();
             var opByteCounts = new List<int>();
+            var echoBytes = new List<byte?>();
             byteStream.ReceiveTimeout = ClampReceiveTimeout(timeout);
             var endInitialTimeout = DateTime.UtcNow.Add(timeout);
             var rollingTimeout = ExtendRollingTimeout(timeout);
@@ -84,7 +85,7 @@
             {
                 do
                 {
-                    if (await RetrieveAndParseResponse(sb, rawBytes, opByteCounts).ConfigureAwait(false))
+                    if (await RetrieveAndParseResponse(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false))
                     {
                         rollingTimeout = ExtendRollingTimeout(timeout);
                     }
@@ -100,9 +101,9 @@
             }
 
             var read = DecodeResult(sb, rawBytes);
-            if (echoBack && rawBytes.Count > 0)
+            if (echoBack)
             {
-                await EchoBackAsync(rawBytes).ConfigureAwait(false);
+                await EchoBackAsync(echoBytes).ConfigureAwait(false);
             }
 
             if (LocalEchoEnabled)
@@ -115,22 +116,28 @@
 
         /// <summary>
         /// Returns received data bytes to the sender (RFC 857 remote echo: we
-        /// agreed via <c>WILL ECHO</c>, so the peer relies on us). Data 0xFF is
-        /// escaped per the usual IAC-doubling rule.
+        /// agreed via <c>WILL ECHO</c>, so the peer relies on us). Only genuine
+        /// data echoes — command markers (BRK/EOF/...) render locally and are
+        /// never sent back. Data 0xFF is escaped per the usual IAC-doubling rule.
         /// </summary>
-        private Task EchoBackAsync(List<byte> rawBytes)
+        private Task EchoBackAsync(List<byte?> echoBytes)
         {
-            var escaped = new List<byte>(rawBytes.Count);
-            foreach (var b in rawBytes)
+            var escaped = new List<byte>(echoBytes.Count);
+            foreach (var b in echoBytes)
             {
-                escaped.Add(b);
-                if (b == IacByte)
+                if (b.HasValue)
                 {
-                    escaped.Add(b);
+                    escaped.Add(b.Value);
+                    if (b.Value == IacByte)
+                    {
+                        escaped.Add(b.Value);
+                    }
                 }
             }
 
-            return byteStream.WriteAsync(escaped.ToArray(), 0, escaped.Count, internalCancellation.Token);
+            return escaped.Count == 0
+                ? Task.CompletedTask
+                : byteStream.WriteAsync(escaped.ToArray(), 0, escaped.Count, internalCancellation.Token);
         }
 
         private string DecodeResult(StringBuilder sb, List<byte> rawBytes)

@@ -1,5 +1,6 @@
 ﻿namespace telnet_cs.Tests
 {
+    using System;
     using FluentAssertions;
     using Xunit;
     using telnet_cs.IO;
@@ -72,7 +73,19 @@
             // and must not strip anything. Currently fails: ASCII decodes 0xFF to
             // '?' (63), so the .Trim((char)255) is a no-op over already-lost data.
             var s = ByteStringConverter.ToString(new byte[] { 255, 65, 255 });
-            s.Should().Be("\u00FFA\u00FF");
+            s.Should().Be("ÿAÿ");
+        }
+
+        [Theory]
+        [InlineData(-1, 1)]
+        [InlineData(0, -1)]
+        [InlineData(4, 1)]
+        [InlineData(3, 2)]
+        [InlineData(0, 4)]
+        public void ToString_InvalidOffsetCount_ThrowsArgumentOutOfRange(int offset, int count)
+        {
+            var act = () => ByteStringConverter.ToString(new byte[] { 65, 66, 67 }, offset, count);
+            act.Should().Throw<ArgumentOutOfRangeException>();
         }
     }
 }

@@ -35,7 +35,7 @@
         }
 
         [Fact]
-        public async Task NawsReplyIsBinaryRfc1073()
+        public async Task NawsReplyIsBareRfc1073()
         {
             using var stream = new ScriptedStream(255, 253, 31);
             using var handler = MakeHandler(stream, out var cts);
@@ -46,7 +46,7 @@
                 (await handler.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
             }
 
-            var expected = new byte[] { 255, 250, 31, 0, 0, 132, 0, 37, 255, 240 };
+            var expected = new byte[] { 255, 250, 31, 0, 132, 0, 37, 255, 240 };
             stream.ByteWrites.Should().HaveCount(2);
             stream.ByteWrites[1].Should().Equal(expected);
         }

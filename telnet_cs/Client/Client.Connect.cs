@@ -12,6 +12,7 @@
     /// Basic Telnet client.
     /// Terminal type and speed can be configured via static properties on the <see cref="Client"/> class.
     /// <see cref="Client"/>.IsWriteConsole can be used to configure whether to write output to the console; often useful for debugging purposes.
+    /// Per-instance settings (including TLS) flow through <c>Settings</c>, configured via the <c>ConnectAsync</c> overload that takes <c>TelnetClientOptions</c>.
     /// </summary>
     public partial class Client
     {
@@ -120,6 +121,7 @@
         /// <returns>A connected <see cref="Client"/> owning its stream. Dispose it when done.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="hostname"/> is <c>null</c>.</exception>
         /// <exception cref="InvalidOperationException">The connection could not be established within <paramref name="timeout"/>.</exception>
+        /// <exception cref="System.Net.Sockets.SocketException">The TCP dial failed (DNS, refused, unreachable).</exception>
         public static Task<Client> ConnectAsync(string hostname, int port, CancellationToken cancellationToken = default, TimeSpan? timeout = null)
         {
             return ConnectAsync(hostname, port, null, cancellationToken, timeout);
@@ -138,15 +140,20 @@
         /// <returns>A connected <see cref="Client"/> owning its stream. Dispose it when done.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="hostname"/> is <c>null</c>.</exception>
         /// <exception cref="InvalidOperationException">The connection (or the TLS handshake) could not be established within <paramref name="timeout"/>.</exception>
+        /// <exception cref="System.Net.Sockets.SocketException">The TCP dial failed (DNS, refused, unreachable).</exception>
         public static async Task<Client> ConnectAsync(string hostname, int port, TelnetClientOptions? options, CancellationToken cancellationToken = default, TimeSpan? timeout = null)
         {
             ArgumentNullException.ThrowIfNull(hostname);
             var effectiveTimeout = timeout ?? TimeSpan.FromSeconds(30);
+            ArgumentOutOfRangeException.ThrowIfLessThan(effectiveTimeout, TimeSpan.Zero);
             var deadline = DateTime.UtcNow.Add(effectiveTimeout);
             var tcpClient = new System.Net.Sockets.TcpClient();
             try
             {
                 var connectTask = tcpClient.ConnectAsync(hostname, port);
+                // A timed-out dial keeps running: observe a late fault here so it
+                // can never surface as an unobserved task exception.
+                _ = connectTask.ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
                 var completed = await Task.WhenAny(connectTask, Task.Delay(effectiveTimeout, cancellationToken)).ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
                 if (completed != connectTask)
@@ -156,10 +163,11 @@
 
                 await connectTask.ConfigureAwait(false);
 #pragma warning disable CA2000 // Ownership of the stream transfers to the Client on success; the catch below releases it otherwise.
-                ISocket socket = new TcpClient(tcpClient);
+                TcpClient tcpSocket = new TcpClient(tcpClient);
+                ISocket socket = tcpSocket;
                 if (options?.UseTls is true)
                 {
-                    socket = await HandshakeTlsAsync((TcpClient)socket, hostname, options, deadline, cancellationToken).ConfigureAwait(false);
+                    socket = await HandshakeTlsAsync(tcpSocket, hostname, options, deadline, cancellationToken).ConfigureAwait(false);
                 }
 
                 var client = new Client(new TcpByteStream(socket), CancellationToken.None);
@@ -175,8 +183,9 @@
             {
                 // Ownership transfers to the Client only on success. A failed connect,
                 // handshake, or Client constructor must still release the socket itself
-                // (the TlsSocket/SslStream wrappers created so far hold no unmanaged
-                // resources of their own; disposing the raw client releases everything).
+                // (disposing the raw client releases the connection; only an
+                // SslStream native context created mid-handshake falls to
+                // finalization).
                 tcpClient.Dispose();
                 throw;
             }
@@ -261,7 +270,9 @@
                 Commands.Dont => Negotiation.RequestDisable((int)option),
                 Commands.Will => Negotiation.OfferEnable((int)option),
                 Commands.Wont => Negotiation.OfferDisable((int)option),
-                _ => command,
+                // Anything else is not a negotiation verb: sending it with an
+                // option byte would emit a malformed three-byte frame, so drop it.
+                _ => null,
             };
             return SendNegotiationBytesAsync(verb, option);
         }

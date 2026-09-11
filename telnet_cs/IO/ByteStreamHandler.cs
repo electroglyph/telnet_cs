@@ -21,8 +21,10 @@
 
         /// <summary>
         /// Single-byte lookahead stash. Used by CR handling to peek at the byte
-        /// following a CR without blocking: CR NUL collapses to CR, CR LF stays
-        /// CR LF (the LF is pushed back and processed on the next pass).
+        /// following a CR without blocking: CR NUL collapses to CR only when
+        /// the NUL is already available at the peek — a split CR…NUL leaks a
+        /// literal NUL. CR LF stays CR LF (the LF is pushed back and processed
+        /// on the next pass).
         /// </summary>
         private int? pushbackByte;
 
@@ -51,7 +53,7 @@
         /// Split out of <c>RetrieveAndParseResponse</c> to keep that method
         /// under the complexity gate. Returns null when not discarding.
         /// </summary>
-        private async Task<bool?> RetrieveSynchDiscardAsync(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts)
+        private async Task<bool?> RetrieveSynchDiscardAsync(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes)
         {
             if (PollSynchTrigger())
             {
@@ -59,7 +61,7 @@
             }
 
             return InSynchDiscard
-              ? await RetrieveAndParseSynchDiscard(sb, rawBytes, opByteCounts).ConfigureAwait(false)
+              ? await RetrieveAndParseSynchDiscard(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false)
               : null;
         }
 
@@ -85,7 +87,7 @@
         /// so end-of-urgent never cuts the scan short and a later urgent byte
         /// re-triggers a fresh scan.
         /// </summary>
-        private async Task<bool> RetrieveAndParseSynchDiscard(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts)
+        private async Task<bool> RetrieveAndParseSynchDiscard(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes)
         {
             var input = ReadNextByte();
             if (input != IacByte)
@@ -111,7 +113,7 @@
                 return false;
             }
 
-            await InterpretNextAsCommand(sb, rawBytes, opByteCounts, verb).ConfigureAwait(false);
+            await InterpretNextAsCommand(sb, rawBytes, opByteCounts, echoBytes, verb).ConfigureAwait(false);
             return false;
         }
 
@@ -277,6 +279,9 @@
         /// </summary>
         internal static Action<string>? Trace { get; set; }
 
+        /// <summary>
+        /// Idle delay between read polls when no data is available.
+        /// </summary>
         internal int MillisecondReadDelay { get; set; } = 16;
 
         private bool IsResponsePending
@@ -362,8 +367,10 @@
 
         /// <summary>
         /// Reads the next byte, honouring the single-byte pushback stash.
-        /// Stream failures surface as -1 (end of data) so a fragmented or reset
-        /// connection aborts the parse instead of throwing out of the read loop.
+        /// I/O failures (<see cref="System.IO.IOException"/>, including read
+        /// timeouts) and over-reads surface as -1; anything else the stream
+        /// throws (notably <see cref="System.Net.Sockets.SocketException"/>)
+        /// propagates to the caller.
         /// </summary>
         private int ReadNextByte()
         {
@@ -404,14 +411,15 @@
         /// <param name="sb">The incoming message.</param>
         /// <param name="rawBytes">The raw data bytes backing <paramref name="sb"/> (used when <see cref="TextEncoding"/> is set).</param>
         /// <param name="opByteCounts">Parallel to <paramref name="sb"/>: bytes of <paramref name="rawBytes"/> per appended char.</param>
+        /// <param name="echoBytes">Parallel to <paramref name="sb"/>: the original data byte to echo per char, or null for command markers (never echoed) and rendering continuations.</param>
         /// <returns>True if response is pending.</returns>
-        private async Task<bool> RetrieveAndParseResponse(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts)
+        private async Task<bool> RetrieveAndParseResponse(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes)
         {
             // RFC 854 Synch trigger: a pending urgent byte enters discard mode.
             // Poll-gated and TCP-only, so fakes and pipes never see it; the urgent
             // byte itself is consumed by the probe, and in-band IAC DM (below)
             // ends the mode.
-            var synch = await RetrieveSynchDiscardAsync(sb, rawBytes, opByteCounts).ConfigureAwait(false);
+            var synch = await RetrieveSynchDiscardAsync(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
             if (synch.HasValue)
             {
                 return synch.Value;
@@ -434,26 +442,26 @@
                         {
                             // Escaped literal data byte 255: one char + one raw byte,
                             // not the decimal string "255".
-                            AppendRecorded(sb, rawBytes, opByteCounts, (char)IacByte);
+                            AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, (char)IacByte);
                         }
                         else
                         {
-                            await InterpretNextAsCommand(sb, rawBytes, opByteCounts, inputVerb).ConfigureAwait(false);
+                            await InterpretNextAsCommand(sb, rawBytes, opByteCounts, echoBytes, inputVerb).ConfigureAwait(false);
                         }
 
                         break;
                     case 1: // Start of Heading
-                        AppendRecorded(sb, rawBytes, opByteCounts, "\n \n");
+                        AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "\n \n", 1);
                         break;
                     case 2: // Start of Text
-                        AppendRecorded(sb, rawBytes, opByteCounts, "\t");
+                        AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "\t", 2);
                         break;
                     case 3: // End of Text or "break" CTRL+C
-                        AppendRecorded(sb, rawBytes, opByteCounts, "^C");
+                        AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "^C", 3);
                         WriteLog("^C");
                         break;
                     case 4: // End of Transmission
-                        AppendRecorded(sb, rawBytes, opByteCounts, "^D");
+                        AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "^D", 4);
                         break;
                     case 5: // Enquiry
                         await byteStream.WriteByteAsync(6, internalCancellation.Token).ConfigureAwait(false); // Send ACK
@@ -479,15 +487,15 @@
                         break;
                     case 8: // Backspace
                             // Erase the previously decoded character, if any.
-                        EraseLastChar(sb, rawBytes, opByteCounts);
+                        EraseLastChar(sb, rawBytes, opByteCounts, echoBytes);
                         break;
                     case 11: // Vertical TAB
                     case 12: // Form Feed
-                        AppendRecorded(sb, rawBytes, opByteCounts, Environment.NewLine);
+                        AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, Environment.NewLine, (byte)input);
                         break;
                     case 13: // Carriage Return: NUL after CR is ignored (CR NUL -> CR);
                              // LF after CR is data (CR LF stays CR LF).
-                        AppendRecorded(sb, rawBytes, opByteCounts, "\r");
+                        AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "\r", 13);
                         if (byteStream.Available > 0)
                         {
                             var following = TryReadByte();
@@ -499,14 +507,14 @@
 
                         break;
                     case 21:
-                        AppendRecorded(sb, rawBytes, opByteCounts, "NAK: Retransmit last message.");
+                        AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "NAK: Retransmit last message.", 21);
                         WriteLog("ERROR NAK: Retransmit last message.");
                         break;
                     case 31: // Unit Separator
-                        AppendRecorded(sb, rawBytes, opByteCounts, ",");
+                        AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, ",", 31);
                         break;
                     default:
-                        AppendRecorded(sb, rawBytes, opByteCounts, (char)input);
+                        AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, (char)input);
                         break;
                 }
 
@@ -516,13 +524,22 @@
             return false;
         }
 
-        private static void AppendRecorded(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, string text)
+        private static void AppendRecorded(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes, string text, byte? echoByte = null)
         {
             sb.Append(text);
-            AppendRecorded(rawBytes, opByteCounts, Encoding.ASCII.GetBytes(text));
+            rawBytes.AddRange(Encoding.ASCII.GetBytes(text));
+            // Char-aligned: ASCII yields exactly one byte per char, so each sb
+            // char maps to exactly one count entry (the documented invariant).
+            // Only the first char carries the original data byte for echo;
+            // command markers pass none and are never echoed back.
+            for (var i = 0; i < text.Length; i++)
+            {
+                opByteCounts.Add(1);
+                echoBytes.Add(i == 0 ? echoByte : null);
+            }
         }
 
-        private static void AppendRecorded(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, char c)
+        private static void AppendRecorded(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes, char c)
         {
             sb.Append(c);
             // Data bytes are Latin-1 by definition here: the default (null
@@ -530,12 +547,9 @@
             // only matters for explicit TextEncoding decoding.
             rawBytes.Add((byte)c);
             opByteCounts.Add(1);
-        }
-
-        private static void AppendRecorded(List<byte> rawBytes, List<int> opByteCounts, byte[] bytes)
-        {
-            rawBytes.AddRange(bytes);
-            opByteCounts.Add(bytes.Length);
+            // The char overload is only used for genuine data (escaped IAC and
+            // the default data case), so the byte always echoes.
+            echoBytes.Add((byte)c);
         }
 
         /// <summary>
@@ -546,7 +560,7 @@
         /// <summary>
         /// Erases the last decoded character, if any (BS handling and RFC 854 EC).
         /// </summary>
-        private static void EraseLastChar(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts)
+        private static void EraseLastChar(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes)
         {
             if (sb.Length > 0)
             {
@@ -554,6 +568,7 @@
                 var taken = opByteCounts[^1];
                 opByteCounts.RemoveAt(opByteCounts.Count - 1);
                 rawBytes.RemoveRange(rawBytes.Count - taken, taken);
+                echoBytes.RemoveAt(echoBytes.Count - 1);
             }
         }
 
@@ -561,7 +576,7 @@
         /// Erases back to (but not including) the last CR LF, or everything if
         /// there is none (RFC 854 EL).
         /// </summary>
-        private static void EraseLine(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts)
+        private static void EraseLine(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes)
         {
             var marker = sb.ToString().LastIndexOf("\r\n", StringComparison.Ordinal);
             var keep = marker < 0 ? 0 : marker + 2;
@@ -572,6 +587,7 @@
             }
 
             opByteCounts.RemoveRange(keep, sb.Length - keep);
+            echoBytes.RemoveRange(keep, sb.Length - keep);
             rawBytes.RemoveRange(rawBytes.Count - removeBytes, removeBytes);
             sb.Length = keep;
         }
@@ -585,8 +601,9 @@
         /// <param name="sb">The incoming message.</param>
         /// <param name="rawBytes">The raw data bytes backing <paramref name="sb"/> (used when <see cref="TextEncoding"/> is set).</param>
         /// <param name="opByteCounts">Parallel to <paramref name="sb"/>: bytes of <paramref name="rawBytes"/> per appended char.</param>
+        /// <param name="echoBytes">Parallel to <paramref name="sb"/>: the original data byte to echo per char, or null for command markers (never echoed) and rendering continuations.</param>
         /// <param name="inputVerb">The command we received.</param>
-        private async Task InterpretNextAsCommand(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, int inputVerb)
+        private async Task InterpretNextAsCommand(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes, int inputVerb)
         {
             WriteLog(Enum.GetName(typeof(Commands), inputVerb) ?? inputVerb.ToString());
             switch (inputVerb)
@@ -607,31 +624,31 @@
                     return;
                 case (int)Commands.EraseCharacter:
                     // RFC 854 EC: erase the last undeleted character, same as BS.
-                    EraseLastChar(sb, rawBytes, opByteCounts);
+                    EraseLastChar(sb, rawBytes, opByteCounts, echoBytes);
                     return;
                 case (int)Commands.EraseLine:
                     // RFC 854 EL: erase back to (but not including) the last CR LF.
-                    EraseLine(sb, rawBytes, opByteCounts);
+                    EraseLine(sb, rawBytes, opByteCounts, echoBytes);
                     return;
                 case (int)Commands.Break:
                     // Surface BRK distinctly instead of swallowing it silently.
                     WriteLog("Break (BRK) received.");
-                    AppendRecorded(sb, rawBytes, opByteCounts, "[BRK]");
+                    AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "[BRK]");
                     return;
                 case (int)Commands.EndOfFile:
                     // RFC 1184 §2.5: notify the process of end of file.
                     WriteLog("End of file (EOF) received.");
-                    AppendRecorded(sb, rawBytes, opByteCounts, "[EOF]");
+                    AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "[EOF]");
                     return;
                 case (int)Commands.Suspend:
                     // RFC 1184 §2.5: suspend is a no-op when unsupported, but still surfaced.
                     WriteLog("Suspend (SUSP) received.");
-                    AppendRecorded(sb, rawBytes, opByteCounts, "[SUSP]");
+                    AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "[SUSP]");
                     return;
                 case (int)Commands.Abort:
                     // RFC 1184 §2.5: terminate-only abort, surfaced like BRK.
                     WriteLog("Abort (ABORT) received.");
-                    AppendRecorded(sb, rawBytes, opByteCounts, "[ABORT]");
+                    AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "[ABORT]");
                     return;
                 case (int)Commands.SubnegotiationEnd:
                 case (int)Commands.NoOperation:
@@ -688,15 +705,39 @@
 
             // Scan to IAC SE. The payload is capped: over-long input keeps being
             // consumed (so the stream resynchronises) but is then ignored.
+            // STATUS (RFC 859) uses inner framing — a bare SE byte terminates
+            // and SE SE escapes a literal SE — so the scan is option-aware.
             var payload = new List<byte>();
             var overCap = false;
-            var complete = false;
+            var statusFraming = inputOption == (int)Options.Status;
             while (true)
             {
                 var b = TryReadByte();
                 if (b == -1)
                 {
                     return;
+                }
+
+                if (statusFraming && b == SeByte)
+                {
+                    var following = TryReadByte();
+                    if (following == -1)
+                    {
+                        return;
+                    }
+
+                    if (following == SeByte)
+                    {
+                        AddPayloadByte((byte)SeByte);
+                        continue;
+                    }
+
+                    // Bare SE terminates STATUS; the following byte belongs to
+                    // the subsequent stream, so stash it for the next read.
+                    // (The scan path always consumes a pending pushback before
+                    // reaching SB, so the stash is free here.)
+                    pushbackByte = following;
+                    break;
                 }
 
                 if (b == IacByte)
@@ -709,25 +750,13 @@
 
                     if (following == SeByte)
                     {
-                        complete = true;
                         break;
                     }
 
                     if (following == IacByte)
                     {
                         // Escaped literal IAC inside the payload.
-                        if (!overCap)
-                        {
-                            if (payload.Count < MaxSubnegotiationBytes)
-                            {
-                                payload.Add(IacByte);
-                            }
-                            else
-                            {
-                                overCap = true;
-                            }
-                        }
-
+                        AddPayloadByte(IacByte);
                         continue;
                     }
 
@@ -735,20 +764,27 @@
                     return;
                 }
 
-                if (!overCap)
+                AddPayloadByte((byte)b);
+            }
+
+            void AddPayloadByte(byte value)
+            {
+                if (overCap)
                 {
-                    if (payload.Count < MaxSubnegotiationBytes)
-                    {
-                        payload.Add((byte)b);
-                    }
-                    else
-                    {
-                        overCap = true;
-                    }
+                    return;
+                }
+
+                if (payload.Count < MaxSubnegotiationBytes)
+                {
+                    payload.Add(value);
+                }
+                else
+                {
+                    overCap = true;
                 }
             }
 
-            if (!complete || overCap || payload.Count == 0)
+            if (overCap || payload.Count == 0)
             {
                 return;
             }
@@ -1120,7 +1156,6 @@
             NawsSizeSent?.Invoke(width, height);
             var payload = new byte[]
             {
-        EnvironmentProtocol.Is,
         (byte)(width >> 8), (byte)width,
         (byte)(height >> 8), (byte)height,
             };

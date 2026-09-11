@@ -144,7 +144,8 @@
 
                 // RFC 1184 §5.8: a sent function with FLUSHIN/FLUSHOUT also fires
                 // its flush actions. Runs after the semaphore is released — the
-                // flush sends take it themselves.
+                // FLUSHOUT send takes it itself; FLUSHIN goes straight to the
+                // separate OOB channel and takes no lock.
                 await ProcessSlcFlushAsync(command, cancellationToken).ConfigureAwait(false);
             }
         }
@@ -439,10 +440,14 @@
 
             if (ByteStream.Connected && !cancellationToken.IsCancellationRequested)
             {
+                // Copy out before the first await: the callee takes a
+                // non-nullable verb, and narrowing a parameter across awaits is
+                // not something to rely on here.
+                Commands agreedVerb = verb.Value;
                 await SendRateLimit.WaitAsync(cancellationToken).ConfigureAwait(false);
                 try
                 {
-                    await SendNegotiationBytesAsync(verb, option, cancellationToken).ConfigureAwait(false);
+                    await SendNegotiationBytesAsync(agreedVerb, option, cancellationToken).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -451,13 +456,10 @@
             }
         }
 
-        private Task SendNegotiationBytesAsync(Commands? verb, Options option, CancellationToken cancellationToken)
+        // The single caller (SendRequestAsync) already drops null verbs, so the
+        // non-nullable parameter lets the compiler enforce that contract.
+        private Task SendNegotiationBytesAsync(Commands verb, Options option, CancellationToken cancellationToken)
         {
-            if (verb is null)
-            {
-                return Task.CompletedTask;
-            }
-
             var buffer = new byte[] { (byte)Commands.InterpretAsCommand, (byte)verb, (byte)option };
             return ByteStream.WriteAsync(buffer, 0, buffer.Length, cancellationToken);
         }

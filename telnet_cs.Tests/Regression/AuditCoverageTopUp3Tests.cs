@@ -25,7 +25,7 @@
             stream.ByteWrites.Should().HaveCount(2);
             stream.ByteWrites[1].Should().Equal(new byte[]
             {
-        255, 250, 31, 0, 0, 80, 0, 24, 255, 240,
+        255, 250, 31, 0, 80, 0, 24, 255, 240,
             });
         }
 

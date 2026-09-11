@@ -230,5 +230,26 @@
                 stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 5, 253, 240, 240, 240 });
             }
         }
+
+        [Fact]
+        public async Task StatusBareSe_TerminatesScanAndPreservesTrailingBytes()
+        {
+            // RFC 859 inner framing: a bare SE ends a STATUS payload, so the
+            // bytes after it (here "AB") belong to the subsequent stream.
+            // Payload [IS] is a stray IS and earns WONT.
+            var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 250, 5, 0, 240, 65, 66, 255, 240);
+            output.Should().Be("AB");
+            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 252, 5 });
+        }
+
+        [Fact]
+        public async Task StatusDoubledSe_StaysInPayload()
+        {
+            // SE SE inside STATUS escapes a literal SE data byte (RFC 859):
+            // payload [IS, SE] is still a stray IS, and nothing leaks to data.
+            var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 250, 5, 0, 240, 240, 255, 240);
+            output.Should().BeEmpty();
+            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 252, 5 });
+        }
     }
 }

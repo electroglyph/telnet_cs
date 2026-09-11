@@ -17,6 +17,10 @@
         // decoded): tracked for the effective-display recency rule.
         private const string DisplayVarName = "DISPLAY";
 
+        // Guards the expecting-flags, chains, and collected values below. The
+        // collectors assume single-threaded session use: concurrent
+        // Request*Async calls would overwrite each other's expecting-flags and
+        // mix the chains (no reentrancy protection by design).
         private readonly Lock collectorLock = new();
         private bool expectingTerminalType;
         private bool expectingTerminalSpeed;
@@ -141,7 +145,8 @@
         /// Asks the peer for its terminal-type list (RFC 1091: <c>SEND</c>,
         /// then one <c>IS</c> per entry). The returned list ends at the first
         /// repeat (same-string-twice terminates the list); the terminating
-        /// duplicate is excluded. Returns whatever arrived when the timeout
+        /// duplicate is excluded. A peer that never repeats is cut off after
+        /// 32 entries. Returns whatever arrived when the timeout
         /// elapses (possibly empty).
         /// </summary>
         /// <param name="timeout">The maximum time to wait for the full chain.</param>

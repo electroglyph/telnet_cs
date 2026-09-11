@@ -234,8 +234,17 @@
         private static System.Net.Sockets.TcpClient GetConnectedClient(string hostName, int port)
         {
             var client = new System.Net.Sockets.TcpClient();
-            client.Connect(hostName, port);
-            return client;
+            try
+            {
+                client.Connect(hostName, port);
+                return client;
+            }
+            catch
+            {
+                // A failed sync connect must not leak the socket handle.
+                client.Dispose();
+                throw;
+            }
         }
     }
 }

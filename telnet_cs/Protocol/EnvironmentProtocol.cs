@@ -39,8 +39,16 @@
         {
             var entries = new List<(byte Type, byte[] Name, byte[] Value)>();
             var seenAny = false;
+            var seenTypes = new HashSet<byte>();
             foreach (var type in requestedTypes)
             {
+                // A repeated type would emit the same block twice: answer each
+                // requested type once, first-seen order preserved.
+                if (!seenTypes.Add(type))
+                {
+                    continue;
+                }
+
                 seenAny = true;
                 if (type == Var)
                 {
@@ -173,11 +181,16 @@
             while (index < payload.Count)
             {
                 var b = payload[index];
-                if (b == Esc && index + 1 < payload.Count)
+                if (b == Esc)
                 {
+                    // A trailing ESC is a truncated escape: it contributes no byte.
                     index++;
-                    raw.Add(payload[index]);
-                    index++;
+                    if (index < payload.Count)
+                    {
+                        raw.Add(payload[index]);
+                        index++;
+                    }
+
                     continue;
                 }
 
@@ -197,7 +210,7 @@
         {
             if (user is not null)
             {
-                entries.Add((Var, UserName, Escape(Encode(user))));
+                entries.Add((Var, (byte[])UserName.Clone(), Escape(Encode(user))));
             }
 
             if (display is not null)

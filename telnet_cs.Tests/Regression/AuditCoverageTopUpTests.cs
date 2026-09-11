@@ -79,12 +79,12 @@
             (await handler.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
             stream.ByteWrites.Should().HaveCount(2);
             var naws = stream.ByteWrites[1];
-            naws.Should().HaveCount(10);
+            naws.Should().HaveCount(9);
             naws[0].Should().Be(255);
             naws[1].Should().Be(250);
             naws[2].Should().Be(31);
-            naws[8].Should().Be(255);
-            naws[9].Should().Be(240);
+            naws[7].Should().Be(255);
+            naws[8].Should().Be(240);
         }
     }
 }

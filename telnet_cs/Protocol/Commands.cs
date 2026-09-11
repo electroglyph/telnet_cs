@@ -15,7 +15,7 @@
         SubnegotiationEnd = 240,
         /// <summary>No operation (NOP, 241).</summary>
         NoOperation = 241,
-        /// <summary>Data mark for the Synch signal (DM, 242; sent out-of-band, never in-band).</summary>
+        /// <summary>Data mark for the Synch signal (DM, 242; this library only sends it out-of-band, but in-band IAC DM is received as a NOP per RFC 854).</summary>
         DataMark = 242,
         /// <summary>Break / attention (BRK, 243).</summary>
         Break = 243,

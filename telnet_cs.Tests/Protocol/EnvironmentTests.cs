@@ -98,6 +98,16 @@
         }
 
         [Fact]
+        public async Task EnvironSend_DuplicateType_AnsweredOnce()
+        {
+            // A repeated type byte must not duplicate the block in the reply.
+            var (output, stream) = await ReadHandlerOnceAsync(ConfigureFull, 255, 250, 36, 1, 0, 0, 255, 240);
+            output.Should().BeEmpty();
+            stream.ByteWrites.Should().ContainSingle().Which.Should()
+              .Equal(ExpectedIsFrame(0, UserEntry(), DisplayEntry()));
+        }
+
+        [Fact]
         public async Task EnvironSend_EmptyRequest_ReturnsDefaults()
         {
             var (output, stream) = await ReadHandlerOnceAsync(ConfigureFull, 255, 250, 36, 1, 255, 240);
@@ -125,6 +135,15 @@
             entries[0].Should().Be((false, "A", ""));
             entries[1].Should().Be((false, "B", null));
             entries[2].Should().Be((false, "C", ""));
+        }
+
+        [Fact]
+        public void ParseEntries_TrailingEsc_IsDropped()
+        {
+            // A trailing ESC is a truncated escape: it contributes no byte,
+            // instead of leaking a literal \x02 into the name.
+            var entries = EnvironmentProtocol.ParseEntries(new byte[] { 0, 0, (byte)'A', 2 });
+            entries.Should().ContainSingle().Which.Should().Be((false, "A", null));
         }
 
         [Fact]

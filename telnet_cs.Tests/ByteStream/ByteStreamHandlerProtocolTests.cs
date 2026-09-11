@@ -95,6 +95,28 @@
         }
 
         [Fact]
+        public async Task EraseLine_AfterMarker_ErasesWithoutThrow()
+        {
+            // opByteCounts used to hold one entry per append instead of one per
+            // char, so EL after a multi-char marker indexed past the end and
+            // threw ArgumentOutOfRangeException out of ReadAsync.
+            var (output, writes) = await ReadScriptedWithWritesAsync(255, 243, 255, 248);
+            output.Should().BeEmpty();
+            writes.Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task Backspace_AfterMarker_KeepsEncodedPathInSync()
+        {
+            // EraseLastChar used to drop one sb char but a whole multi-byte
+            // count entry, desyncing the encoded path ("A" vs sb-truth "A[BRK").
+            using var stream = new ScriptedStream(65, 255, 243, 8);
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1) { TextEncoding = Encoding.Latin1 };
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("A[BRK");
+        }
+
+        [Fact]
         public async Task BellIsSwallowedWithoutThrow()
         {
             // Console.Beep() is a no-op on this Linux env; on headless/unsupported
@@ -190,7 +212,7 @@
         }
 
         [Fact]
-        public async Task DoWindowSizeRepliesWillPlusNawsFollowUp()
+        public async Task DoWindowSizeRepliesWillPlusBareNawsFollowUp()
         {
             var fake = FakeStreamOnce(new[] { 255, 253, 31 });
             using var cts = new CancellationTokenSource();
@@ -202,8 +224,8 @@
             A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, 0, 3, A<CancellationToken>.Ignored))
               .WhenArgumentsMatch(o => o[0] is byte[] b && b[0] == 255 && b[1] == 251 && b[2] == 31)
               .MustHaveHappened();
-            // NAWS follow-up (RFC 1073): IAC SB WS <width-hi> <width-lo> <height-hi> <height-lo> IAC SE
-            var expectedNaws = new byte[] { 255, 250, 31, 0, 0, 80, 0, 24, 255, 240 };
+            // NAWS follow-up (bare RFC 1073 shape, no IS verb): IAC SB WS <width-hi> <width-lo> <height-hi> <height-lo> IAC SE
+            var expectedNaws = new byte[] { 255, 250, 31, 0, 80, 0, 24, 255, 240 };
             A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, 0, expectedNaws.Length, A<CancellationToken>.Ignored))
               .WhenArgumentsMatch(o => o[0] is byte[] b && b.SequenceEqual(expectedNaws))
               .MustHaveHappenedOnceExactly();

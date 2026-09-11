@@ -85,10 +85,20 @@
         {
             var (sut, socket, _) = Make();
             sut.Close();
-            A.CallTo(() => socket.Close()).MustHaveHappened();
+            A.CallTo(() => socket.Close()).MustHaveHappenedOnceExactly();
             sut.Dispose();
-            A.CallTo(() => socket.Close()).MustHaveHappenedTwiceOrMore();
+            A.CallTo(() => socket.Close()).MustHaveHappenedOnceExactly();
             A.CallTo(() => socket.Dispose()).MustNotHaveHappened();
+        }
+
+        [Fact]
+        public void DisposeOwned_DisposesSocket()
+        {
+            var (_, socket, _) = Make();
+            using var sut = new TcpByteStream(socket, takeOwnership: true);
+            sut.Dispose();
+            A.CallTo(() => socket.Close()).MustHaveHappened();
+            A.CallTo(() => socket.Dispose()).MustHaveHappened();
         }
     }
 }

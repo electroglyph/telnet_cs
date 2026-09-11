@@ -132,7 +132,8 @@
 
                 // RFC 1184 §5.8: a sent function with FLUSHIN/FLUSHOUT also fires
                 // its flush actions. Runs after the semaphore is released — the
-                // flush sends take it themselves.
+                // FLUSHOUT send takes it itself; FLUSHIN goes straight to the
+                // separate OOB channel and takes no lock.
                 await ProcessSlcFlushAsync(command, linked.Token).ConfigureAwait(false);
             }
         }

@@ -13,7 +13,7 @@
     {
         private static byte[] NawsFrame(int width, int height) => new byte[]
         {
-      255, 250, 31, 0, (byte)(width >> 8), (byte)width, (byte)(height >> 8), (byte)height, 255, 240,
+      255, 250, 31, (byte)(width >> 8), (byte)width, (byte)(height >> 8), (byte)height, 255, 240,
         };
 
         private static async Task<string> ReadClientOnceAsync(Client client)

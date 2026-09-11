@@ -7,10 +7,10 @@
     public partial class Client
     {
         /// <summary>
-        /// Re-sends the NAWS terminal size (<c>IAC SB NAWS IS … IAC SE</c>,
-        /// RFC 1073) when it changed since the last report. Sends nothing unless
-        /// we are the WILL-sender: a server <c>DON'T</c> after accept suppresses
-        /// further updates (the RFC's anti-loop rule), as does a never-negotiated
+        /// Re-sends the NAWS terminal size (bare <c>IAC SB NAWS … IAC SE</c>,
+        /// RFC 1073 carries no IS verb inside NAWS) when it changed since the
+        /// last report. Sends nothing unless we are the WILL-sender: a server
+        /// <c>DON'T</c> after accept suppresses further updates (the RFC's anti-loop rule), as does a never-negotiated
         /// option. Change <see cref="TelnetClientOptions.WindowWidth"/>/
         /// <see cref="TelnetClientOptions.WindowHeight"/> (or resize the console)
         /// before calling; .NET exposes no console-resize event, so polling via

@@ -84,6 +84,8 @@
         /// session releases the accepted socket. The session emits the server
         /// opening preset (see <see cref="ServerSession.SendOpeningPresetAsync"/>)
         /// before this returns; a fully toggled-off preset sends nothing.
+        /// Throws <see cref="InvalidOperationException"/> if the listener was
+        /// never started.
         /// </summary>
         /// <param name="cancellationToken">A token to cancel the accept.</param>
         /// <returns>The accepted session.</returns>
@@ -95,11 +97,12 @@
             ServerSession? session = null;
             try
             {
-                ISocket socket = new TcpClient(accepted);
+                TcpClient tcpSocket = new TcpClient(accepted);
+                ISocket socket = tcpSocket;
                 if (options.ServerCertificate is not null)
                 {
                     socket = await TlsSocket.AuthenticateAsServerAsync(
-                        (TcpClient)socket,
+                        tcpSocket,
                         new SslServerAuthenticationOptions
                         {
                             ServerCertificate = options.ServerCertificate,

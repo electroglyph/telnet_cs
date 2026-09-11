@@ -137,6 +137,35 @@
         }
 
         [Fact]
+        public async Task OptIn_CommandMarkers_AreNotEchoedBack()
+        {
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            sut.AllowRemoteEcho = true;
+            stream.Enqueue(255, 253, 1);
+            await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
+            stream.Enqueue(255, 243, 65);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("[BRK]A");
+            stream.ByteWrites.Should().Contain(b => b.SequenceEqual(new byte[] { 65 }));
+            stream.ByteWrites.SelectMany(b => b).Should().NotContain((byte)'[');
+        }
+
+        [Fact]
+        public async Task OptIn_ControlByte_EchoesOriginalByte()
+        {
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            sut.AllowRemoteEcho = true;
+            stream.Enqueue(255, 253, 1);
+            await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
+            stream.Enqueue(3);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("^C");
+            stream.ByteWrites.Should().Contain(b => b.SequenceEqual(new byte[] { 3 }));
+        }
+
+        [Fact]
         public async Task OptIn_EchoBack_EscapesIac()
         {
             using var stream = new ScriptedStream();
