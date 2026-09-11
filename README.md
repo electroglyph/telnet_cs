@@ -17,7 +17,7 @@ commands, Synch), RFC 855 (option negotiation framework), RFC 1143
   server-role negotiation, authentication helper, per-client options
   (terminal type, speed, window size, environment, linemode).
 - 429 tests, full suite green with warnings-as-errors. Requires the
-  .NET 10 SDK and runtime (pinned via `global.json`); build with
+  .NET 10 SDK and runtime; build with
   `dotnet build telnet_cs.sln -c Release`.
 
 ## AI-generated, experimental

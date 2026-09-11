@@ -5,78 +5,52 @@ namespace telnet_cs.Tests
   using telnet_cs.IO;
 
   /// <summary>
-  /// Saves process-wide telnet statics on creation and restores them on
-  /// dispose, so tests pinning static-fallback behavior cannot leak settings
-  /// into each other while assembly-wide parallelization stays off.
+  /// Scopes the process-wide static negotiation settings a test touches.
+  /// The suite runs serially (see <c>AssemblyInfo</c>), so save/set/restore
+  /// per test is sufficient isolation.
   /// </summary>
-  internal sealed class GlobalStateGuard : IDisposable
+  internal static class GlobalStateGuard
   {
-    private readonly Action restore;
+    internal static Scope<bool> SkipProactive(bool skip) =>
+      new(() => Client.SkipProactiveOptionNegotiation, v => Client.SkipProactiveOptionNegotiation = v, skip);
 
-    private GlobalStateGuard(Action restore)
-    {
-      this.restore = restore;
-    }
+    internal static Scope<string> TerminalType(string terminalType) =>
+      new(() => Client.TerminalType, v => Client.TerminalType = v, terminalType);
 
-    /// <inheritdoc/>
-    public void Dispose()
-    {
-      restore();
-    }
+    internal static Scope<string> TerminalSpeed(string terminalSpeed) =>
+      new(() => Client.TerminalSpeed, v => Client.TerminalSpeed = v, terminalSpeed);
 
-    /// <summary>
-    /// Sets <c>SkipProactiveOptionNegotiation</c> for the guarded block.
-    /// </summary>
-    /// <param name="value">The value to hold.</param>
-    public static GlobalStateGuard SkipProactive(bool value)
-    {
-      var prior = Client.SkipProactiveOptionNegotiation;
-      Client.SkipProactiveOptionNegotiation = value;
-      return new GlobalStateGuard(() => Client.SkipProactiveOptionNegotiation = prior);
-    }
+    internal static Scope<Action<string>?> Trace(Action<string>? hook) =>
+      new(() => Client.Trace, v => Client.Trace = v, hook);
+
+    internal static Scope<Action<string>?> HandlerTrace(Action<string>? hook) =>
+      new(() => ByteStreamHandler.Trace, v => ByteStreamHandler.Trace = v, hook);
 
     /// <summary>
-    /// Sets the fallback <c>TerminalType</c> for the guarded block.
+    /// Restores the captured setting when disposed.
     /// </summary>
-    /// <param name="value">The value to hold.</param>
-    public static GlobalStateGuard TerminalType(string value)
+    /// <typeparam name="T">The setting type.</typeparam>
+    internal sealed class Scope<T> : IDisposable
     {
-      var prior = Client.TerminalType;
-      Client.TerminalType = value;
-      return new GlobalStateGuard(() => Client.TerminalType = prior);
-    }
+      private readonly Action<T> set;
+      private readonly T previous;
+      private bool disposed;
 
-    /// <summary>
-    /// Sets the fallback <c>TerminalSpeed</c> for the guarded block.
-    /// </summary>
-    /// <param name="value">The value to hold.</param>
-    public static GlobalStateGuard TerminalSpeed(string value)
-    {
-      var prior = Client.TerminalSpeed;
-      Client.TerminalSpeed = value;
-      return new GlobalStateGuard(() => Client.TerminalSpeed = prior);
-    }
+      public Scope(Func<T> get, Action<T> set, T value)
+      {
+        previous = get();
+        this.set = set;
+        set(value);
+      }
 
-    /// <summary>
-    /// Sets the client <c>Trace</c> hook for the guarded block.
-    /// </summary>
-    /// <param name="value">The value to hold.</param>
-    public static GlobalStateGuard Trace(Action<string>? value)
-    {
-      var prior = Client.Trace;
-      Client.Trace = value;
-      return new GlobalStateGuard(() => Client.Trace = prior);
-    }
-
-    /// <summary>
-    /// Sets the handler <c>Trace</c> hook for the guarded block.
-    /// </summary>
-    /// <param name="value">The value to hold.</param>
-    public static GlobalStateGuard HandlerTrace(Action<string>? value)
-    {
-      var prior = ByteStreamHandler.Trace;
-      ByteStreamHandler.Trace = value;
-      return new GlobalStateGuard(() => ByteStreamHandler.Trace = prior);
+      public void Dispose()
+      {
+        if (!disposed)
+        {
+          disposed = true;
+          set(previous);
+        }
+      }
     }
   }
 }

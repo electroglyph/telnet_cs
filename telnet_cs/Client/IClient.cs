@@ -189,14 +189,6 @@
     /// Writes the specified <paramref name="command"/> to the server.
     /// </summary>
     /// <param name="command">The command.</param>
-    /// <param name="lineEnding">The line ending to use (<c>Lf</c> preserves the legacy default).</param>
-    /// <returns>An awaitable Task.</returns>
-    Task WriteLineAsync(string command, LineEnding lineEnding);
-
-    /// <summary>
-    /// Writes the specified <paramref name="command"/> to the server.
-    /// </summary>
-    /// <param name="command">The command.</param>
     /// <returns>An awaitable Task.</returns>
     Task WriteLineRfc854Async(string command);
 

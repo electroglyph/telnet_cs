@@ -130,13 +130,13 @@
     internal LinemodeState Linemode { get; set; } = new();
 
     /// <summary>
-    /// Gets or sets which LINEMODE MODE rules apply to inbound masks: the
-    /// client rules (<see cref="LinemodeState.ApplyMode"/>) by default, or
-    /// the server rules (<see cref="LinemodeState.ApplyModeAsServer"/>).
-    /// Fed by the server session; <c>Client</c> (the default) keeps the
-    /// client behavior. SLC handling is role-symmetric and needs no flag.
+    /// Gets or sets whether inbound LINEMODE MODE masks use the server rules
+    /// (<see cref="LinemodeState.ApplyModeAsServer"/>) instead of the client
+    /// rules (<see cref="LinemodeState.ApplyMode"/>). Set by the server
+    /// session; a client-side handler keeps the default client behavior.
+    /// SLC handling is role-symmetric and needs no flag.
     /// </summary>
-    internal LinemodeRole LinemodeRole { get; set; }
+    internal bool ApplyLinemodeAsServer { get; set; }
 
     /// <summary>
     /// Gets or sets the per-instance log hook. The client feeds its effective
@@ -798,7 +798,7 @@
 
     /// <summary>
     /// Confirm a MODE mask (RFC 1184 §2.2): client rules by default, server
-    /// rules when <see cref="LinemodeRole"/> is <c>Server</c>.
+    /// rules when <see cref="ApplyLinemodeAsServer"/> is set.
     /// </summary>
     /// <param name="payload">The MODE payload ([MODE, mask]).</param>
     private Task ReplyModeAsync(List<byte> payload)
@@ -809,7 +809,7 @@
         return Task.CompletedTask;
       }
 
-      byte? reply = LinemodeRole == LinemodeRole.Server ? Linemode.ApplyModeAsServer(payload[1]) : Linemode.ApplyMode(payload[1]);
+      byte? reply = ApplyLinemodeAsServer ? Linemode.ApplyModeAsServer(payload[1]) : Linemode.ApplyMode(payload[1]);
       if (reply is null)
       {
         return Task.CompletedTask;

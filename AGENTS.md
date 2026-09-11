@@ -2,6 +2,11 @@
 
 Telnet client **and** server library for .NET 10 (C# 14).
 
+## Hard rule
+
+NEVER run git commands (no `git status`, `git diff`, `git log`, `git add`,
+`git commit`, etc.). If you need repo state, ask the user.
+
 ## How opencode uses AGENTS.md
 
 Repo-root `AGENTS.md` wins per category over global config fallbacks.

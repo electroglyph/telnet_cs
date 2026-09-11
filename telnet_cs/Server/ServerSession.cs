@@ -17,7 +17,7 @@
   /// machinery: stream ownership, send/read rate limits, cancellation, and
   /// terminator helpers.
   /// </summary>
-  public partial class ServerSession : BaseClient, IServerSession
+  public partial class ServerSession : BaseClient
   {
     /// <summary>
     /// Gets the per-instance settings. The reference passed to the
@@ -215,19 +215,6 @@
     }
 
     /// <summary>
-    /// Writes the specified <paramref name="command"/> plus a
-    /// <see cref="telnet_cs.Client.LineEnding"/> line feed to the peer.
-    /// </summary>
-    /// <param name="command">The command.</param>
-    /// <param name="lineEnding">The line ending to use (<c>Lf</c> preserves the legacy default).</param>
-    /// <param name="cancellationToken">A token to cancel the write.</param>
-    /// <returns>An awaitable Task.</returns>
-    public Task WriteLineAsync(string command, telnet_cs.Client.LineEnding lineEnding, CancellationToken cancellationToken = default)
-    {
-      return WriteLineAsync(command, lineEnding == telnet_cs.Client.LineEnding.Crlf ? Client.Rfc854LineFeed : Client.LegacyLineFeed, cancellationToken);
-    }
-
-    /// <summary>
     /// Writes the specified <paramref name="command"/> plus an RFC 854
     /// compliant <c>"\r\n"</c> line feed to the peer.
     /// </summary>
@@ -249,7 +236,7 @@
       // falls through to the normal responder path.
       handler.SubnegotiationResponse = OnSubnegotiationResponse;
       handler.Linemode = linemodeState;
-      handler.LinemodeRole = LinemodeRole.Server;
+      handler.ApplyLinemodeAsServer = true;
       // A server has no local user: console echo defaults off (opt in via
       // settings for debugging), and the machine must never beep at a peer.
       handler.IsWriteConsole = Settings.IsWriteConsole ?? false;

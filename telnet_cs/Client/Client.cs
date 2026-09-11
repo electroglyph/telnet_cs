@@ -50,12 +50,6 @@
     }
 
     /// <inheritdoc/>
-    public Task WriteLineAsync(string command, LineEnding lineEnding)
-    {
-      return WriteLineAsync(command, lineEnding == LineEnding.Crlf ? Rfc854LineFeed : LegacyLineFeed);
-    }
-
-    /// <inheritdoc/>
     public async Task WriteAsync(string command, CancellationToken cancellationToken = default)
     {
       ArgumentNullException.ThrowIfNull(command);
