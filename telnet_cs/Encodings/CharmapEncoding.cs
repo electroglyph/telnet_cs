@@ -227,6 +227,7 @@ namespace telnet_cs.Encodings
             ArgumentOutOfRangeException.ThrowIfNegative(charCount);
             ArgumentOutOfRangeException.ThrowIfGreaterThan(charCount, chars.Length - charIndex);
             ArgumentOutOfRangeException.ThrowIfNegative(byteIndex);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(byteIndex, bytes.Length);
             var end = charIndex + charCount;
             var written = 0;
             for (var i = charIndex; i < end; i++)
@@ -248,6 +249,11 @@ namespace telnet_cs.Encodings
                 {
                     written += EncodeWithFallback(chars, i - length + 1, length, bytes, byteIndex + written);
                     continue;
+                }
+
+                if (byteIndex + written >= bytes.Length)
+                {
+                    throw new ArgumentException("The output byte buffer is too small.", nameof(bytes));
                 }
 
                 bytes[byteIndex + written] = mapped;
@@ -297,7 +303,9 @@ namespace telnet_cs.Encodings
         public override int GetMaxByteCount(int charCount)
         {
             ArgumentOutOfRangeException.ThrowIfNegative(charCount);
-            return charCount;
+            // Each input char can expand through the replacement text, with
+            // each substitute char encoding to one byte.
+            return checked(charCount * Math.Max(1, EncoderFallback.MaxCharCount));
         }
 
         /// <inheritdoc/>

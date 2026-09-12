@@ -1,5 +1,6 @@
 namespace telnet_cs.Encodings
 {
+    using System;
     using System.Collections.Generic;
     using System.Text;
 
@@ -51,9 +52,41 @@ namespace telnet_cs.Encodings
         /// <inheritdoc/>
         public override int GetByteCount(char[] chars, int index, int count)
         {
-            // Char-array counts stay raw: EOL folding needs string context for
-            // the CRLF pair, so only the string overloads normalize.
-            return base.GetByteCount(chars, index, count);
+            // One-shot char[] input folds like the string overload: a CRLF
+            // pair is fully visible here, so normalize before counting.
+            ArgumentNullException.ThrowIfNull(chars);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(count, chars.Length - index);
+            var normalized = NormalizeEol(new string(chars, index, count)).ToCharArray();
+            return base.GetByteCount(normalized, 0, normalized.Length);
+        }
+
+        /// <inheritdoc/>
+        public override int GetBytes(char[] chars, int charIndex, int charCount, byte[] bytes, int byteIndex)
+        {
+            // Same one-shot folding as GetByteCount: normalize the slice,
+            // then encode through the base table.
+            ArgumentNullException.ThrowIfNull(chars);
+            ArgumentNullException.ThrowIfNull(bytes);
+            ArgumentOutOfRangeException.ThrowIfNegative(charIndex);
+            ArgumentOutOfRangeException.ThrowIfNegative(charCount);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(charCount, chars.Length - charIndex);
+            ArgumentOutOfRangeException.ThrowIfNegative(byteIndex);
+            var normalized = NormalizeEol(new string(chars, charIndex, charCount)).ToCharArray();
+            return base.GetBytes(normalized, 0, normalized.Length, bytes, byteIndex);
+        }
+
+        /// <inheritdoc/>
+        public override byte[] GetBytes(char[] chars, int index, int count)
+        {
+            // One-shot array encoding folds like the string overload.
+            ArgumentNullException.ThrowIfNull(chars);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(count, chars.Length - index);
+            var normalized = NormalizeEol(new string(chars, index, count)).ToCharArray();
+            return base.GetBytes(normalized, 0, normalized.Length);
         }
 
         /// <inheritdoc/>

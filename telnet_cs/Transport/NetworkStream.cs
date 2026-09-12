@@ -17,6 +17,7 @@
         /// <param name="stream">The stream.</param>
         public NetworkStream(System.IO.Stream stream)
         {
+            ArgumentNullException.ThrowIfNull(stream);
             this.stream = stream;
         }
 

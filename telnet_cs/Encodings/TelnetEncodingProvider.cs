@@ -51,7 +51,14 @@ namespace telnet_cs.Encodings
         /// <inheritdoc/>
         public override Encoding? GetEncoding(int codepage)
         {
-            return null;
+            return codepage switch
+            {
+                80001 => new AtasciiEncoding(),
+                80002 => new PetsciiEncoding(),
+                80003 => new AtaristEncoding(),
+                80004 => new Big5BbsEncoding(),
+                _ => null,
+            };
         }
 
         /// <summary>
@@ -64,6 +71,48 @@ namespace telnet_cs.Encodings
         public override Encoding? GetEncoding(string name, EncoderFallback? encoderFallback, DecoderFallback? decoderFallback)
         {
             var encoding = GetEncoding(name);
+            if (encoding is null)
+            {
+                return null;
+            }
+
+            if (encoderFallback is not null)
+            {
+                switch (encoding)
+                {
+                    case CharmapEncoding charmap:
+                        charmap.EncoderFallback = encoderFallback;
+                        break;
+                    case Big5BbsEncoding big5bbs:
+                        big5bbs.EncoderFallback = encoderFallback;
+                        break;
+                }
+            }
+
+            if (decoderFallback is not null)
+            {
+                switch (encoding)
+                {
+                    case CharmapEncoding charmap:
+                        charmap.DecoderFallback = decoderFallback;
+                        break;
+                    case Big5BbsEncoding big5bbs:
+                        big5bbs.DecoderFallback = decoderFallback;
+                        break;
+                }
+            }
+
+            return encoding;
+        }
+
+        /// <summary>
+        /// Returns the codec for a codepage with the requested fallbacks
+        /// installed directly on the concrete instance (same shadowing
+        /// reason as the name-based overload).
+        /// </summary>
+        public override Encoding? GetEncoding(int codepage, EncoderFallback? encoderFallback, DecoderFallback? decoderFallback)
+        {
+            var encoding = GetEncoding(codepage);
             if (encoding is null)
             {
                 return null;

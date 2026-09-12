@@ -310,12 +310,26 @@
             ArgumentNullException.ThrowIfNull(terminator);
             bool isTerminated(string x) => IsTerminatorLocated(terminator, x);
             var s = await TerminatedReadAsync(isTerminated, timeout, millisecondSpin, cancellationToken).ConfigureAwait(false);
+            s = CutAtFirstTerminator(s, terminator);
             if (!isTerminated(s))
             {
                 WriteLog($"Failed to terminate '{s}' with '{terminator}'");
             }
 
             return s;
+        }
+
+        private string CutAtFirstTerminator(string s, string terminator)
+        {
+            int at = s.IndexOf(terminator, StringComparison.Ordinal);
+            if (at < 0)
+            {
+                return s;
+            }
+
+            int end = at + terminator.Length;
+            PendingText = s.Substring(end);
+            return s.Substring(0, end);
         }
 
         /// <summary>

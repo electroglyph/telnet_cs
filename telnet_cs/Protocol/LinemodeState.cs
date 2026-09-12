@@ -202,13 +202,14 @@
                     // DEFAULT is a directive ("use your default"), not a value
                     // proposal: restore from the configured defaults and reply
                     // the restored row without ACK. The inbound value byte is
-                    // ignored.
+                    // ignored. RFC 1184 section 5.5 rule 3 echoes the agreed
+                    // flush bits, so the restored flags ride along.
                     SlcEntry configured = defaults[function];
                     table[function] = current.Level == LinemodeProtocol.LevelDefault
                       ? new SlcEntry(LinemodeProtocol.LevelNoSupport, configured.Value, 0)
                       : configured;
                     SlcEntry restored = table[function];
-                    return (restored.Level, restored.Value);
+                    return ((byte)(restored.Level | restored.Flags), restored.Value);
                 }
 
                 if (level == current.Level && (modifier & LinemodeProtocol.FlagAck) != 0)
@@ -228,11 +229,15 @@
 
                 if (current.Level == LinemodeProtocol.LevelCantChange)
                 {
-                    return (LinemodeProtocol.LevelCantChange, current.Value);
+                    // Fixed row: refuse with our stored value and flush bits
+                    // (RFC 1184 section 5.5 rule 3 echoes the agreed modifiers).
+                    return ((byte)(LinemodeProtocol.LevelCantChange | current.Flags), current.Value);
                 }
 
                 table[function] = new SlcEntry(level, value, flags);
-                return ((byte)(level | LinemodeProtocol.FlagAck), value);
+                // Agreement: switch and reply with the same modifiers plus ACK
+                // (RFC 1184 section 5.5 rule 3 and section 5.10 example).
+                return ((byte)(level | flags | LinemodeProtocol.FlagAck), value);
             }
         }
 
@@ -308,7 +313,9 @@
                     {
                         triplets ??= [];
                         triplets.Add(function);
-                        triplets.Add(entry.Level);
+                        // Export carries the agreed flush bits with the level
+                        // (RFC 1184 section 5.5 rule 3).
+                        triplets.Add((byte)(entry.Level | entry.Flags));
                         triplets.Add(entry.Value);
                     }
                     else if (forImport)

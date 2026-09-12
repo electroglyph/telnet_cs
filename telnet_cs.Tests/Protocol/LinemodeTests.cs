@@ -388,6 +388,8 @@
         {
             // RFC 1184 §5.8: the BRK row carries FLUSHOUT (modifier 2|32), so the
             // sent IAC BRK is followed by IAC DO TIMING-MARK.
+            // RFC 1184 §5.5 rule 3: the SLC agreement reply echoes the
+            // negotiated FLUSHOUT bit with ACK (2|32|128 = 162).
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
@@ -399,7 +401,7 @@
                 await client.SendCommand(Commands.Break);
                 stream.ByteWrites.Should().HaveCount(4);
                 stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 34 });
-                stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 3, 2, 130, 7, 255, 240 });
+                stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 3, 2, 162, 7, 255, 240 });
                 stream.ByteWrites[2].Should().Equal(new byte[] { 255, 243 });
                 stream.ByteWrites[3].Should().Equal(new byte[] { 255, 253, 6 });
             }

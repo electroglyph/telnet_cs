@@ -21,46 +21,29 @@
         }
 
         /// <summary>
-        /// Converts a string to bytes, escaping literal IAC characters (U+00FF)
-        /// by doubling them before encoding. The doubling is char-level: it
-        /// covers Latin-1 (default) and UTF-8 (which never emits 0xFF), but an
-        /// exotic encoding whose byte 255 comes from another char would emit
-        /// a raw 0xFF.
+        /// Converts a string to bytes, escaping IAC (0xFF) at the byte level
+        /// after encoding so every wire 0xFF is doubled (RFC 854), whatever
+        /// source character produced it.
         /// </summary>
         /// <param name="value">The string to convert.</param>
         /// <param name="encoding">The encoding to use. When null (default), the legacy Latin-1 mapping is used.</param>
         public static byte[] ConvertStringToByteArray(string value, Encoding? encoding)
         {
-            // RFC 854: a literal IAC byte (255) in outgoing data must be escaped by
-            // doubling it. Done with a manual loop so the comparison is ordinal by
-            // construction (and CA1307 flags the 2-argument string.Replace form).
-            var doubled = new StringBuilder(value.Length);
-            foreach (var c in value)
-            {
-                doubled.Append(c);
-                if (c == (char)Commands.InterpretAsCommand)
-                {
-                    doubled.Append(c);
-                }
-            }
-
-            var escaped = doubled.ToString();
-
             if (encoding == null)
             {
                 // Latin-1 maps bytes 0-255 one-to-one to the first 256 Unicode code
                 // points. (ASCIIEncoding would map everything above 127 to '?'.) A
                 // manual loop preserves the legacy truncation semantics exactly.
-                var buffer = new byte[escaped.Length];
-                for (var i = 0; i < escaped.Length; i++)
+                var buffer = new byte[value.Length];
+                for (var i = 0; i < value.Length; i++)
                 {
-                    buffer[i] = (byte)escaped[i];
+                    buffer[i] = (byte)value[i];
                 }
 
-                return buffer;
+                return EscapeIacBytes(buffer);
             }
 
-            return encoding.GetBytes(escaped);
+            return EscapeIacBytes(encoding.GetBytes(value));
         }
 
         /// <summary>

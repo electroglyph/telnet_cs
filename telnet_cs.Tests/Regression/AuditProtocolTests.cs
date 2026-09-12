@@ -53,11 +53,12 @@ namespace telnet_cs.Tests
             // Reasoning (recheck): the previous assertion (ContainKey("K"))
             // could never pass — once ReadKey stops at TABLE_CLOSE, the top
             // level sees no VAL after "K" and drops the key, so the correct
-            // post-fix result is empty. The precise invariant is that no key
-            // ever carries the framing byte, which is what is pinned here.
+            // post-fix result is empty. OnlyContain cannot express that (it
+            // fails on empty collections), so emptiness plus an explicit
+            // no-leak assertion is pinned instead.
             var payload = new byte[] { Var, (byte)'K', TableClose, Val, (byte)'v' };
             var result = MudProtocol.MsdpDecode(payload);
-            result.Keys.Should().OnlyContain(k => !k.Contains('\x04'));
+            result.Should().BeEmpty();
             result.Should().NotContainKey("K\x04");
         }
 

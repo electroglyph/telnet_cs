@@ -82,9 +82,10 @@
         public TelnetServerOptions Settings => options;
 
         /// <summary>
-        /// Gets the bound port. Valid once <see cref="Start"/> has run (this is
-        /// how callers discover the OS-assigned port when constructed with 0);
-        /// 0 before that.
+        /// Gets the bound port, or 0 when not listening. Valid once <see cref="Start"/>
+        /// has run (this is how callers discover the OS-assigned port when
+        /// constructed with 0); 0 before <see cref="Start"/> and again after
+        /// <see cref="Stop"/> or <see cref="Dispose"/>.
         /// </summary>
         public int Port => boundPort;
 
@@ -104,10 +105,20 @@
         }
 
         /// <summary>
-        /// Stops listening. Accepted sessions are unaffected.
+        /// Stops listening. Accepted sessions are unaffected. Clears the bound
+        /// port back to 0 and stops the status timer; <see cref="Start"/>
+        /// re-arms both.
         /// </summary>
         public void Stop()
         {
+            var timer = System.Threading.Interlocked.Exchange(ref statusTimer, null);
+            if (timer is not null)
+            {
+                timer.Change(System.Threading.Timeout.InfiniteTimeSpan, System.Threading.Timeout.InfiniteTimeSpan);
+                timer.Dispose();
+            }
+
+            boundPort = 0;
             listener.Stop();
         }
 
@@ -272,6 +283,7 @@
                     timer.Dispose();
                 }
 
+                boundPort = 0;
                 listener.Stop();
             }
         }

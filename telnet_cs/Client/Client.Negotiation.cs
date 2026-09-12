@@ -2,6 +2,7 @@
 {
     using System;
     using System.Collections.Generic;
+    using System.Security.Cryptography.X509Certificates;
     using System.Threading;
     using System.Threading.Tasks;
     using telnet_cs.IO;
@@ -34,6 +35,7 @@
                 TerminalTypes = [.. options.TerminalTypes],
                 EnvironmentUserVars = new Dictionary<string, string>(options.EnvironmentUserVars, StringComparer.Ordinal),
                 CharsetOffers = [.. options.CharsetOffers],
+                TlsClientCertificates = options.TlsClientCertificates is null ? null : new X509CertificateCollection(options.TlsClientCertificates),
             };
         }
 

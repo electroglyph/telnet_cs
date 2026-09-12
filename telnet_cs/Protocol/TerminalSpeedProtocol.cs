@@ -81,12 +81,14 @@
         private static int Round(int rate)
         {
             int best = StandardRates[0];
+            var bestDiff = Math.Abs((long)best - rate);
             foreach (int candidate in StandardRates)
             {
-                if (Math.Abs(candidate - rate) < Math.Abs(best - rate) ||
-                  (Math.Abs(candidate - rate) == Math.Abs(best - rate) && candidate > best))
+                var diff = Math.Abs((long)candidate - rate);
+                if (diff < bestDiff || (diff == bestDiff && candidate > best))
                 {
                     best = candidate;
+                    bestDiff = diff;
                 }
             }
 

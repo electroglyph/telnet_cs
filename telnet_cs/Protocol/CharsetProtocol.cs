@@ -39,14 +39,32 @@ namespace telnet_cs.Protocol
 
         /// <summary>
         /// Builds a <c>REQUEST</c> payload (verb first, without IAC SB/SE
-        /// framing) offering <paramref name="charsets"/> joined by a space.
+        /// framing) offering <paramref name="charsets"/>. The separator byte
+        /// (RFC 2066 section 2, chosen by the sender and absent from every
+        /// name) defaults to space and falls back to the first of
+        /// <c>';'</c>, <c>','</c>, <c>'/'</c> absent from all names, so offers
+        /// containing spaces still round-trip.
         /// </summary>
         /// <param name="charsets">The offered character-set names.</param>
         public static byte[] BuildRequest(IEnumerable<string> charsets)
         {
             ArgumentNullException.ThrowIfNull(charsets);
-            var joined = string.Join(" ", charsets);
-            var body = Encoding.ASCII.GetBytes(" " + joined);
+            var offers = charsets as IReadOnlyList<string> ?? [.. charsets];
+            var separator = ' ';
+            if (offers.Any(static name => name.Contains(' ')))
+            {
+                foreach (var candidate in new[] { ';', ',', '/' })
+                {
+                    if (offers.All(name => !name.Contains(candidate)))
+                    {
+                        separator = candidate;
+                        break;
+                    }
+                }
+            }
+
+            var joined = string.Join(separator, offers);
+            var body = Encoding.ASCII.GetBytes(separator + joined);
             var payload = new byte[1 + body.Length];
             payload[0] = Request;
             body.CopyTo(payload, 1);
@@ -82,16 +100,23 @@ namespace telnet_cs.Protocol
 
             var separator = (char)payload[1];
             var text = Encoding.ASCII.GetString([.. payload.Skip(2)]);
-            return text.Split(separator);
+            return text.Length == 0 ? [] : text.Split(separator);
         }
 
         /// <summary>
         /// Reads the character-set name from an <c>ACCEPTED</c> payload (verb first).
+        /// RFC 2066 section 2 requires ACCEPTED to name a charset, so a payload
+        /// without a name is malformed.
         /// </summary>
         /// <param name="payload">The received payload, verb first.</param>
         public static string ParseAccepted(IReadOnlyList<byte> payload)
         {
             ArgumentNullException.ThrowIfNull(payload);
+            if (payload.Count < 2)
+            {
+                throw new ArgumentException("ACCEPTED payload must name a character set.", nameof(payload));
+            }
+
             return Encoding.ASCII.GetString([.. payload.Skip(1)]);
         }
 

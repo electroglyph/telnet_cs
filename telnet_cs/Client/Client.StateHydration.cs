@@ -106,6 +106,6 @@
         /// next per-read handler so a frame split across reads reassembles
         /// (telnetlib3 _sb_buffer parity).
         /// </summary>
-        private (int Option, byte[] Payload, bool OverCap, bool SePending)? sbResumeState;
+        private (int Option, byte[] Payload, bool OverCap, bool SePending, bool IacPending)? sbResumeState;
     }
 }

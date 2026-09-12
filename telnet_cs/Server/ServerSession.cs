@@ -215,13 +215,15 @@
         /// <param name="data">The byte array to send.</param>
         /// <param name="cancellationToken">A token to cancel the write.</param>
         /// <returns>An awaitable Task.</returns>
-        public Task WriteAsync(byte[] data, CancellationToken cancellationToken = default)
+        public async Task WriteAsync(byte[] data, CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(data);
             // RFC 854: a literal IAC byte in user data must be escaped by
             // doubling (telnetlib3 write() parity). Protocol frames bypass
             // this method and write to the byte stream directly.
-            return WriteRawAsync(ByteStringConverter.EscapeIacBytes(data), cancellationToken);
+            var escaped = ByteStringConverter.EscapeIacBytes(data);
+            await WriteRawAsync(escaped, cancellationToken).ConfigureAwait(false);
+            Context.NoteWritten(data.Length);
         }
 
         private async Task WriteRawAsync(byte[] data, CancellationToken cancellationToken)

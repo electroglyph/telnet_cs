@@ -306,6 +306,12 @@ namespace telnet_cs.Protocol
 
                         table[key] = this.ParseValue();
                     }
+                    else
+                    {
+                        // Skip malformed bytes so a network parser terminates
+                        // instead of looping on input the table grammar rejects.
+                        this.idx++;
+                    }
                 }
 
                 if (this.idx < this.buf.Length)
@@ -351,7 +357,7 @@ namespace telnet_cs.Protocol
             private string ReadKey()
             {
                 var start = this.idx;
-                while (this.idx < this.buf.Length && this.buf[this.idx] is not (MsdpVal or MsdpVar))
+                while (this.idx < this.buf.Length && this.buf[this.idx] is not (MsdpVar or MsdpVal or MsdpTableOpen or MsdpTableClose or MsdpArrayOpen or MsdpArrayClose))
                 {
                     this.idx++;
                 }

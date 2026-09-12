@@ -55,7 +55,7 @@
         private MccpDecompressor? mccpStream;
         // Subnegotiation continuation stashed by the last read, fed into the
         // next per-read handler (telnetlib3 _sb_buffer parity).
-        private (int Option, byte[] Payload, bool OverCap, bool SePending)? sbResumeState;        // MUD stores survive across per-read handlers: append collections are
+        private (int Option, byte[] Payload, bool OverCap, bool SePending, bool IacPending)? sbResumeState;        // MUD stores survive across per-read handlers: append collections are
         // injected into each handler, and the replaced MSSP mapping is
         // captured through the MSSP hook.
         private IReadOnlyDictionary<string, object>? mudMsspData;
@@ -646,8 +646,11 @@
 
         /// <summary>
         /// Asks the peer for its X display location (RFC 1096: <c>SEND</c>, one
-        /// <c>IS</c>). Returns the display string, or null on timeout or a
-        /// malformed answer. Also feeds the effective-display recency rule (see
+        /// <c>IS</c>). Returns the display string, or null on timeout, on a
+        /// malformed answer, or when a previous request is still outstanding
+        /// (single-active rule, like <see cref="RequestTerminalSpeedAsync"/>:
+        /// overlapping calls share the in-flight SEND). Also feeds the
+        /// effective-display recency rule (see
         /// <see cref="ClientEffectiveDisplay"/>).
         /// </summary>
         /// <param name="timeout">The maximum time to wait for the answer.</param>
@@ -656,6 +659,11 @@
         {
             lock (collectorLock)
             {
+                if (expectingXDisplay)
+                {
+                    return null;
+                }
+
                 clientXDisplay = null;
                 expectingXDisplay = true;
             }
@@ -1049,7 +1057,7 @@
             var isNew = inputOption == (int)Options.NewEnvironment;
             lock (collectorLock)
             {
-                if (!isInfo && !expectingEnvironment && !expectingNewEnvironment)
+                if (!isInfo && (isNew ? !expectingNewEnvironment : !expectingEnvironment))
                 {
                     return false;
                 }
@@ -1149,7 +1157,17 @@
                 expectingCharset = false;
                 if (payload[0] == CharsetProtocol.Accepted)
                 {
-                    clientCharset = System.Text.Encoding.ASCII.GetString([.. payload.Skip(1)]);
+                    var name = System.Text.Encoding.ASCII.GetString([.. payload.Skip(1)]);
+                    if (name.Length == 0)
+                    {
+                        // RFC 2066 section 2: ACCEPTED carries a charset
+                        // identical to one of the requested names, so an empty
+                        // name matches nothing and takes the rejection path.
+                        clientCharset = null;
+                        return true;
+                    }
+
+                    clientCharset = name;
                     forceBinaryDecoding = true;
                     try
                     {

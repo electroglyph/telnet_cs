@@ -2,6 +2,7 @@ namespace telnet_cs.Client
 {
     using System;
     using System.Collections.Generic;
+    using System.Collections.Frozen;
 
     /// <summary>
     /// Byte-level input translation for retro terminal input (the reference
@@ -33,7 +34,7 @@ namespace telnet_cs.Client
             [0x08] = 0x7E,
             [0x0D] = 0x9B,
             [0x0A] = 0x9B,
-        };
+        }.ToFrozenDictionary();
 
         /// <summary>
         /// Gets the PETSCII single-byte map (the reference
@@ -43,7 +44,7 @@ namespace telnet_cs.Client
         {
             [0x7F] = 0x14,
             [0x08] = 0x14,
-        };
+        }.ToFrozenDictionary();
 
         /// <summary>
         /// Gets the ATASCII escape-sequence map (the reference
@@ -169,7 +170,9 @@ namespace telnet_cs.Client
                 list.Add(new KeyValuePair<byte[], byte[]>(from, to));
             }
 
-            return list;
+            // Freeze the shared table so process-wide state cannot be
+            // mutated through a cast; instances sort a private copy.
+            return list.AsReadOnly();
         }
 
         private byte[] Drain(bool holdPartial)

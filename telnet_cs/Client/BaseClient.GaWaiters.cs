@@ -52,17 +52,19 @@ namespace telnet_cs.Client
             }
 
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
-            if (ByteStream.Connected && !linked.Token.IsCancellationRequested)
+            if (!ByteStream.Connected || linked.Token.IsCancellationRequested)
             {
-                await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
-                try
-                {
-                    await ByteStream.WriteAsync([(byte)Commands.InterpretAsCommand, (byte)Commands.GoAhead], 0, 2, linked.Token).ConfigureAwait(false);
-                }
-                finally
-                {
-                    SendRateLimit.Release();
-                }
+                return false;
+            }
+
+            await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
+            try
+            {
+                await ByteStream.WriteAsync([(byte)Commands.InterpretAsCommand, (byte)Commands.GoAhead], 0, 2, linked.Token).ConfigureAwait(false);
+            }
+            finally
+            {
+                SendRateLimit.Release();
             }
 
             return true;
@@ -85,30 +87,45 @@ namespace telnet_cs.Client
         {
             ArgumentNullException.ThrowIfNull(condition);
             var deadline = DateTimeOffset.UtcNow + timeout;
-            while (!cancellationToken.IsCancellationRequested)
+            var buffered = string.Empty;
+            try
             {
-                if (condition(SessionNegotiation))
+                while (!cancellationToken.IsCancellationRequested)
                 {
-                    return true;
+                    if (condition(SessionNegotiation))
+                    {
+                        return true;
+                    }
+
+                    var remaining = deadline - DateTimeOffset.UtcNow;
+                    if (remaining <= TimeSpan.Zero)
+                    {
+                        return false;
+                    }
+
+                    try
+                    {
+                        var pumped = await ReadAsync(remaining < NegotiationPollSlice ? remaining : NegotiationPollSlice, cancellationToken).ConfigureAwait(false);
+                        if (!string.IsNullOrEmpty(pumped))
+                        {
+                            buffered += pumped;
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return false;
+                    }
                 }
 
-                var remaining = deadline - DateTimeOffset.UtcNow;
-                if (remaining <= TimeSpan.Zero)
+                return false;
+            }
+            finally
+            {
+                if (!string.IsNullOrEmpty(buffered))
                 {
-                    return false;
-                }
-
-                try
-                {
-                    await ReadAsync(remaining < NegotiationPollSlice ? remaining : NegotiationPollSlice, cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    return false;
+                    PendingText = buffered + PendingText;
                 }
             }
-
-            return false;
         }
 
         /// <summary>

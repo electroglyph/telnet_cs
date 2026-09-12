@@ -55,6 +55,12 @@
           string? columns = null,
           string? lines = null)
         {
+            // RFC 1572 section 2: SEND is a request; responses are IS and INFO only.
+            if (verb is not (Is or Info))
+            {
+                throw new ArgumentOutOfRangeException(nameof(verb), verb, "ENVIRON response verb must be IS or INFO.");
+            }
+
             var entries = new List<(byte Type, byte[] Name, byte[] Value)>();
             var seenAny = false;
             var seenTypes = new HashSet<byte>();

@@ -2,6 +2,7 @@ namespace telnet_cs.Client
 {
     using System;
     using System.Collections.Generic;
+    using System.Collections.Frozen;
     using System.Text;
     using telnet_cs.Protocol;
 
@@ -39,7 +40,7 @@ namespace telnet_cs.Client
             [LinemodeProtocol.SlcEraseCharacter] = 0x7F,
             [LinemodeProtocol.SlcEraseLine] = 0x15,
             [SlcEraseWord] = 0x17,
-        };
+        }.ToFrozenDictionary();
 
         private readonly Dictionary<int, int> slcValues;
         private readonly HashSet<int> forwardMask;

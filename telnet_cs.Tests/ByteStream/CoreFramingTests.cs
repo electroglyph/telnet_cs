@@ -153,15 +153,15 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SplitCrNul_LeaksNulAsData()
         {
-            // CR NUL collapses only when the NUL is already available at the
-            // peek; a split CR…NUL surfaces the NUL as data on the next read.
+            // RFC 854 NVT rule: CR NUL collapses to a single CR even when the
+            // two bytes arrive in different reads, so the NUL is swallowed.
             using var stream = new ScriptedStream(65, 13);
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("A\r");
             stream.Enqueue(0);
             var second = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
-            second.Should().Be("\0");
+            second.Should().BeEmpty();
         }
 
         [Fact]

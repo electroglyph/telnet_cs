@@ -424,12 +424,14 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task TerminatedReadAsync_ReturnsAvailableText()
         {
-            // Termination stops further polling; it does not truncate what the
-            // read already delivered (same semantics as Client).
+            // Termination stops at the first terminator and stashes the tail
+            // for the next read — the same cut-and-stash semantics as the
+            // client reader and telnetlib3's readuntil, which consumes
+            // through the separator and buffers the remainder.
             using var stream = new ScriptedStream("hi\nrest");
             using var session = NewSession(stream);
             var line = await session.TerminatedReadAsync("\n", TimeSpan.FromSeconds(5));
-            line.Should().Be("hi\nrest");
+            line.Should().Be("hi\n");
         }
 
         // NOTE: multi-line auth conversations need later lines Enqueued after

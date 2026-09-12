@@ -39,8 +39,8 @@ namespace telnet_cs.Server
         public long CharsReceived { get; private set; }
 
         /// <summary>
-        /// Gets the count of text characters written. Raw-byte writes bypass
-        /// accounting (only the string write paths note their text).
+        /// Gets the count of text characters written. Both the string and the
+        /// byte write paths note their length here.
         /// </summary>
         public long CharsSent { get; private set; }
 
@@ -76,6 +76,13 @@ namespace telnet_cs.Server
             LastActivityUtc = DateTimeOffset.UtcNow;
             CharsSent += text.Length;
             RecordTranscript(text);
+        }
+
+        internal void NoteWritten(int byteCount)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(byteCount);
+            LastActivityUtc = DateTimeOffset.UtcNow;
+            CharsSent += byteCount;
         }
 
         private void RecordTranscript(string text)

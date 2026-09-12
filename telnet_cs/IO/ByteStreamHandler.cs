@@ -22,13 +22,29 @@
         private readonly IByteStream byteStream;
 
         /// <summary>
-        /// Single-byte lookahead stash. Used by CR handling to peek at the byte
-        /// following a CR without blocking: CR NUL collapses to CR only when
-        /// the NUL is already available at the peek — a split CR…NUL leaks a
-        /// literal NUL. CR LF stays CR LF (the LF is pushed back and processed
-        /// on the next pass).
+        /// Single-byte lookahead stash for bytes that belong to the subsequent
+        /// stream (RFC 859 bare-SE terminator lookahead and RFC 854 CR LF requeue).
         /// </summary>
         private int? pushbackByte;
+
+        /// <summary>
+        /// RFC 854 command framing split across reads: a trailing IAC was
+        /// consumed with no verb yet. The verb arrives with the continuation.
+        /// </summary>
+        private bool pendingIac;
+
+        /// <summary>
+        /// RFC 854 command framing split across reads: IAC and verb were
+        /// consumed with no option byte yet. The option arrives with the continuation.
+        /// </summary>
+        private int? pendingVerb;
+
+        /// <summary>
+        /// RFC 854 NVT printer rule: CR NUL collapses to CR. Set after a CR;
+        /// the next byte decides (NUL is swallowed, anything else is requeued).
+        /// Persists across reads so a split CR and NUL still collapse.
+        /// </summary>
+        private bool sawCrAwaitingNul;
 
         /// <summary>
         /// Subnegotiation continuation stashed when the wire stalls mid-frame:
@@ -50,13 +66,20 @@
         private bool sbResumeSePending;
 
         /// <summary>
+        /// An IAC was consumed at the end of an SB scan with no following byte
+        /// yet (RFC 854 IAC SE framing split across reads). The next byte
+        /// decides: SE terminates, IAC escapes, SB starts a nested frame.
+        /// </summary>
+        private bool sbResumeIacPending;
+
+        /// <summary>
         /// Gets or sets the stashed subnegotiation continuation for the
         /// session round-trip: fed in before each read, captured after.
         /// </summary>
-        internal (int Option, byte[] Payload, bool OverCap, bool SePending)? SbResumeState
+        internal (int Option, byte[] Payload, bool OverCap, bool SePending, bool IacPending)? SbResumeState
         {
             get => sbResumeOption.HasValue
-              ? (sbResumeOption.Value, [.. sbResumePayload!], sbResumeOverCap, sbResumeSePending)
+              ? (sbResumeOption.Value, [.. sbResumePayload!], sbResumeOverCap, sbResumeSePending, sbResumeIacPending)
               : null;
             set
             {
@@ -64,6 +87,7 @@
                 sbResumePayload = value is null ? null : [.. value.Value.Payload];
                 sbResumeOverCap = value?.OverCap ?? false;
                 sbResumeSePending = value?.SePending ?? false;
+                sbResumeIacPending = value?.IacPending ?? false;
             }
         }
 
@@ -912,6 +936,38 @@
                 return synch.Value;
             }
 
+            if (sawCrAwaitingNul && (pushbackByte.HasValue || MccpHasOutput || byteStream.Available > 0))
+            {
+                // RFC 854 CR NUL collapses across segment boundaries.
+                var followingCr = ReadNextByte();
+                if (followingCr == -1)
+                {
+                    return false;
+                }
+
+                sawCrAwaitingNul = false;
+                if (followingCr == 0)
+                {
+                    await FlushMccpShutdownAsync().ConfigureAwait(false);
+                    return true;
+                }
+
+                pushbackByte = followingCr;
+                await FlushMccpShutdownAsync().ConfigureAwait(false);
+                return true;
+            }
+
+            if (!pushbackByte.HasValue && (pendingIac || pendingVerb.HasValue) && (MccpHasOutput || byteStream.Available > 0))
+            {
+                // RFC 854 command split across reads completes here.
+                if (await ResumePendingCommandAsync(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false))
+                {
+                    return true;
+                }
+
+                return false;
+            }
+
             if (!pushbackByte.HasValue && sbResumeOption.HasValue && (MccpHasOutput || byteStream.Available > 0))
             {
                 // A subnegotiation stalled on an earlier read resumes here:
@@ -932,7 +988,8 @@
                         var inputVerb = TryReadByte();
                         if (inputVerb == -1)
                         {
-                            // do nothing
+                            // RFC 854 framing split: the verb arrives with the continuation.
+                            pendingIac = true;
                         }
                         else if (inputVerb == IacByte)
                         {
@@ -989,18 +1046,9 @@
                     case 12: // Form Feed
                         AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, Environment.NewLine, (byte)input);
                         break;
-                    case 13: // Carriage Return: NUL after CR is ignored (CR NUL -> CR);
-                             // LF after CR is data (CR LF stays CR LF).
+                    case 13: // Carriage Return: RFC 854 CR NUL -> CR; CR LF stays CR LF.
                         AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "\r", 13);
-                        if (byteStream.Available > 0 || MccpHasOutput)
-                        {
-                            var following = TryReadByte();
-                            if (following != 0 && following != -1)
-                            {
-                                pushbackByte = following;
-                            }
-                        }
-
+                        sawCrAwaitingNul = true;
                         break;
                     case 21:
                         AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "NAK: Retransmit last message.", 21);
@@ -1259,29 +1307,36 @@
             List<byte> payload;
             bool overCap;
             bool sePending;
+            bool iacPending;
             if (sbResumeOption.HasValue)
             {
                 // Resuming a subnegotiation stalled mid-scan on an earlier
-                // read: the continuation bytes belong to this frame. (A fresh
-                // IAC SB arriving instead would abort the reference buffer;
-                // merging here is the documented edge — protocol peers never
-                // interleave a new frame inside an open one.)
+                // read: the continuation bytes belong to this frame.
                 inputOption = sbResumeOption.Value;
                 payload = sbResumePayload!;
                 overCap = sbResumeOverCap;
                 sePending = sbResumeSePending;
+                iacPending = sbResumeIacPending;
                 sbResumeOption = null;
                 sbResumePayload = null;
                 sbResumeOverCap = false;
                 sbResumeSePending = false;
+                sbResumeIacPending = false;
             }
             else
             {
                 var option = TryReadByte();
-                if (option == -1 || option == IacByte)
+                if (option == -1)
                 {
-                    // Truncated subnegotiation, or an IAC where the option byte belongs:
-                    // either way we cannot frame the payload, so ignore it.
+                    // RFC 854 framing split: the option byte arrives with the continuation.
+                    pendingVerb = (int)Commands.Subnegotiation;
+                    return;
+                }
+
+                if (option == IacByte)
+                {
+                    // An IAC where the option byte belongs: not a real option,
+                    // so there is nothing to frame.
                     return;
                 }
 
@@ -1289,8 +1344,14 @@
                 payload = [];
                 overCap = false;
                 sePending = false;
+                iacPending = false;
             }
 
+            await ScanAndDispatchSbAsync(inputOption, payload, overCap, sePending, iacPending).ConfigureAwait(false);
+        }
+
+        private async Task ScanAndDispatchSbAsync(int inputOption, List<byte> payload, bool overCap, bool sePending, bool iacPending)
+        {
             // Scan to IAC SE. The payload is capped: over-long input keeps being
             // consumed (so the stream resynchronises) but is then ignored.
             // STATUS (RFC 859) uses inner framing — a bare SE byte terminates
@@ -1305,7 +1366,7 @@
                 var lookahead = TryReadByte();
                 if (lookahead == -1)
                 {
-                    StashSbResume(inputOption, payload, overCap, seAwait: true);
+                    StashSbResume(inputOption, payload, overCap, seAwait: true, iacAwait: false);
                     return;
                 }
 
@@ -1322,6 +1383,38 @@
                 }
             }
 
+            if (!scanDone && iacPending)
+            {
+                // RFC 854 IAC SE split: the IAC was consumed, its following byte arrives now.
+                var followingSplit = TryReadByte();
+                if (followingSplit == -1)
+                {
+                    StashSbResume(inputOption, payload, overCap, seAwait: false, iacAwait: true);
+                    return;
+                }
+
+                if (followingSplit == SeByte)
+                {
+                    scanDone = true;
+                }
+                else if (followingSplit == IacByte)
+                {
+                    AddPayloadByte(IacByte);
+                }
+                else if (followingSplit == (int)Commands.Subnegotiation)
+                {
+                    // RFC 854 defines no nesting: drop the outer frame but
+                    // dispatch the inner one.
+                    await PerformNegotiation().ConfigureAwait(false);
+                    return;
+                }
+                else
+                {
+                    // IAC followed by anything else: framing is lost, give up.
+                    return;
+                }
+            }
+
             if (!scanDone)
             {
                 while (true)
@@ -1329,7 +1422,7 @@
                     var b = TryReadByte();
                     if (b == -1)
                     {
-                        StashSbResume(inputOption, payload, overCap, seAwait: false);
+                        StashSbResume(inputOption, payload, overCap, seAwait: false, iacAwait: false);
                         return;
                     }
 
@@ -1338,7 +1431,7 @@
                         var following = TryReadByte();
                         if (following == -1)
                         {
-                            StashSbResume(inputOption, payload, overCap, seAwait: true);
+                            StashSbResume(inputOption, payload, overCap, seAwait: true, iacAwait: false);
                             return;
                         }
 
@@ -1361,7 +1454,7 @@
                         var following = TryReadByte();
                         if (following == -1)
                         {
-                            StashSbResume(inputOption, payload, overCap, seAwait: false);
+                            StashSbResume(inputOption, payload, overCap, seAwait: false, iacAwait: true);
                             return;
                         }
 
@@ -1375,6 +1468,14 @@
                             // Escaped literal IAC inside the payload.
                             AddPayloadByte(IacByte);
                             continue;
+                        }
+
+                        if (following == (int)Commands.Subnegotiation)
+                        {
+                            // RFC 854 defines no nesting: drop the outer frame but
+                            // dispatch the inner one.
+                            await PerformNegotiation().ConfigureAwait(false);
+                            return;
                         }
 
                         // IAC followed by anything else: framing is lost, give up.
@@ -1402,12 +1503,13 @@
                 }
             }
 
-            void StashSbResume(int option, List<byte> body, bool capped, bool seAwait)
+            void StashSbResume(int option, List<byte> body, bool capped, bool seAwait, bool iacAwait)
             {
                 sbResumeOption = option;
                 sbResumePayload = body;
                 sbResumeOverCap = capped;
                 sbResumeSePending = seAwait;
+                sbResumeIacPending = iacAwait;
             }
 
             if (overCap)
@@ -1774,17 +1876,29 @@
         /// <param name="inputOption">The option under negotiation.</param>
         private void ReplyEmptySb(int inputOption)
         {
-            if (inputOption == (int)Options.Mccp2)
+            if (inputOption is (int)Options.Mccp2 or (int)Options.Mccp3)
             {
-                WriteLog("MCCP2 compression started; inflating inbound bytes.");
-                Mccp2Active = true;
-                ArmMccpStream(inputOption);
-                Mccp2StartReceived?.Invoke();
-                return;
-            }
+                // MCCP starts only after WILL/DO agreement with compression
+                // allowed (never over TLS); otherwise the empty SB is ignored.
+                if (!EnableMccp || IsTlsActive)
+                {
+                    return;
+                }
 
-            if (inputOption == (int)Options.Mccp3)
-            {
+                if (!Negotiation.IsEnabledByPeer(inputOption) && !Negotiation.IsEnabledByUs(inputOption))
+                {
+                    return;
+                }
+
+                if (inputOption == (int)Options.Mccp2)
+                {
+                    WriteLog("MCCP2 compression started; inflating inbound bytes.");
+                    Mccp2Active = true;
+                    ArmMccpStream(inputOption);
+                    Mccp2StartReceived?.Invoke();
+                    return;
+                }
+
                 WriteLog("MCCP3 compression started; inflating inbound bytes.");
                 Mccp3Active = true;
                 ArmMccpStream(inputOption);
@@ -2269,23 +2383,123 @@
         }
 
         /// <summary>
-        /// Send TELNET command response to the server.
-        /// The reply (if any) comes from the persistent <see cref="Negotiation"/>
-        /// state machine (RFC 1143): repeats of an answered command and
-        /// refusals without new stimulus get no reply, which also keeps
-        /// option bytes out of the data stream.
+        /// Completes an RFC 854 command split across reads: a stashed IAC or
+        /// IAC-plus-verb consumes its continuation bytes and dispatches exactly
+        /// as if the three bytes arrived together.
         /// </summary>
-        /// <param name="inputVerb">The TELNET command we received.</param>
+        /// <param name="sb">The incoming message.</param>
+        /// <param name="rawBytes">The raw data bytes backing <paramref name="sb"/>.</param>
+        /// <param name="opByteCounts">Parallel to <paramref name="sb"/>: bytes of <paramref name="rawBytes"/> per appended char.</param>
+        /// <param name="echoBytes">Parallel to <paramref name="sb"/>: the original data byte to echo per char.</param>
+        private async Task<bool> ResumePendingCommandAsync(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes)
+        {
+            if (pendingIac)
+            {
+                pendingIac = false;
+                var verb = TryReadByte();
+                if (verb == -1)
+                {
+                    pendingIac = true;
+                    return false;
+                }
+
+                if (verb == IacByte)
+                {
+                    AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, (char)IacByte);
+                    return true;
+                }
+
+                if (verb is (int)Commands.Dont or (int)Commands.Wont or (int)Commands.Do or (int)Commands.Will)
+                {
+                    var stashedOption = TryReadByte();
+                    if (stashedOption == -1)
+                    {
+                        pendingVerb = verb;
+                        return true;
+                    }
+
+                    if (stashedOption == IacByte)
+                    {
+                        return true;
+                    }
+
+                    await ReplyToCommandWithOption(verb, stashedOption).ConfigureAwait(false);
+                    return true;
+                }
+
+                if (verb == (int)Commands.Subnegotiation)
+                {
+                    var sbOption = TryReadByte();
+                    if (sbOption == -1)
+                    {
+                        pendingVerb = verb;
+                        return true;
+                    }
+
+                    if (sbOption == IacByte)
+                    {
+                        return true;
+                    }
+
+                    await ScanAndDispatchSbAsync(sbOption, [], false, false, false).ConfigureAwait(false);
+                    return true;
+                }
+
+                await InterpretNextAsCommand(sb, rawBytes, opByteCounts, echoBytes, verb).ConfigureAwait(false);
+                return true;
+            }
+
+            if (pendingVerb.HasValue)
+            {
+                var stashedVerb = pendingVerb.Value;
+                pendingVerb = null;
+                var stashedOption = TryReadByte();
+                if (stashedOption == -1)
+                {
+                    pendingVerb = stashedVerb;
+                    return false;
+                }
+
+                if (stashedOption == IacByte)
+                {
+                    return true;
+                }
+
+                if (stashedVerb == (int)Commands.Subnegotiation)
+                {
+                    await ScanAndDispatchSbAsync(stashedOption, [], false, false, false).ConfigureAwait(false);
+                    return true;
+                }
+
+                await ReplyToCommandWithOption(stashedVerb, stashedOption).ConfigureAwait(false);
+                return true;
+            }
+
+            return false;
+        }
+
         private async Task ReplyToCommand(int inputVerb)
         {
             var inputOption = TryReadByte();
-            if (inputOption == -1 || inputOption == IacByte)
+            if (inputOption == -1)
             {
-                // Truncated command, or an IAC where the option byte belongs:
-                // not a real option, so there is nothing to reply to.
+                // RFC 854 framing split: the option byte arrives with the continuation.
+                pendingVerb = inputVerb;
                 return;
             }
 
+            if (inputOption == IacByte)
+            {
+                // An IAC where the option byte belongs: not a real option,
+                // so there is nothing to reply to.
+                return;
+            }
+
+            await ReplyToCommandWithOption(inputVerb, inputOption).ConfigureAwait(false);
+        }
+
+        private async Task ReplyToCommandWithOption(int inputVerb, int inputOption)
+        {
             WriteLog(Enum.GetName(typeof(Options), inputOption) ?? inputOption.ToString());
             var reply = inputVerb switch
             {

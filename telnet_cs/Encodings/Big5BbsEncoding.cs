@@ -395,7 +395,9 @@ namespace telnet_cs.Encodings
         public override int GetMaxByteCount(int charCount)
         {
             ArgumentOutOfRangeException.ThrowIfNegative(charCount);
-            return checked(charCount * 2);
+            // Each input char can expand through the replacement text, with
+            // the double-byte case needing two bytes per char.
+            return checked(charCount * Math.Max(2, EncoderFallback.MaxCharCount));
         }
 
         /// <inheritdoc/>

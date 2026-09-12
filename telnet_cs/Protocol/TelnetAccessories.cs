@@ -29,7 +29,8 @@ namespace telnet_cs.Protocol
 
             var encoding = lang[(dot + 1)..];
             var at = encoding.IndexOf('@');
-            return at < 0 ? encoding : encoding[..at];
+            var codeset = at < 0 ? encoding : encoding[..at];
+            return codeset.Length == 0 ? null : codeset;
         }
 
         /// <summary>

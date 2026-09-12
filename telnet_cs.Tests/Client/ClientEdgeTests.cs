@@ -257,10 +257,14 @@
         [Fact]
         public async Task TerminatedReadEmptyTerminatorReturnsAfterFirstRead()
         {
+            // An empty terminator is meaningless (String.IndexOf("") is 0,
+            // yet the located-check never matches ""), so the reader fails
+            // fast like telnetlib3's readuntil, which raises ValueError on
+            // an empty separator.
             using var stream = new DummyByteStream();
             using var sut = new Client(stream, new CancellationToken());
-            var s = await sut.TerminatedReadAsync(string.Empty, TimeSpan.FromMilliseconds(500), 1);
-            s.Should().NotBeNull();
+            Func<Task<string>> read = () => sut.TerminatedReadAsync(string.Empty, TimeSpan.FromMilliseconds(500), 1);
+            await read.Should().ThrowAsync<ArgumentException>();
         }
 
         [Fact]
@@ -438,7 +442,10 @@
             sut.Settings.UseTls.Should().BeTrue();
             sut.Settings.TlsHost.Should().Be("example.com");
             sut.Settings.TlsValidationCallback.Should().NotBeNull();
-            sut.Settings.TlsClientCertificates.Should().BeSameAs(certs);
+            // The method documents collections as re-seated, not shared, so the
+            // mutable certificate collection is defensively copied with equal content.
+            sut.Settings.TlsClientCertificates.Should().NotBeSameAs(certs);
+            sut.Settings.TlsClientCertificates.Should().BeEquivalentTo(certs);
             sut.Settings.TlsProtocols.Should().Be(SslProtocols.Tls13);
         }
 

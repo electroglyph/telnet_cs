@@ -22,6 +22,10 @@
         /// <inheritdoc/>
         public async Task<bool> TryLoginAsync(string userName, string password, int loginTimeoutMs, string terminator, string lineFeed = Rfc854LineFeed)
         {
+            ArgumentNullException.ThrowIfNull(userName);
+            ArgumentNullException.ThrowIfNull(password);
+            ArgumentNullException.ThrowIfNull(terminator);
+            ArgumentNullException.ThrowIfNull(lineFeed);
             var result = await TrySendUsernameAndPasswordAsync(userName, password, loginTimeoutMs, lineFeed).ConfigureAwait(false);
             if (result)
             {
@@ -34,12 +38,15 @@
         /// <inheritdoc/>
         public Task WriteLineAsync(string command)
         {
+            ArgumentNullException.ThrowIfNull(command);
             return WriteAsync(string.Format("{0}{1}", command, Rfc854LineFeed));
         }
 
         /// <inheritdoc/>
         public Task WriteLineAsync(string command, string lineFeed = Rfc854LineFeed)
         {
+            ArgumentNullException.ThrowIfNull(command);
+            ArgumentNullException.ThrowIfNull(lineFeed);
             return WriteAsync(string.Format("{0}{1}", command, lineFeed));
         }
 
@@ -232,7 +239,7 @@
         /// <inheritdoc/>
         public async Task<string> TerminatedReadAsync(string terminator, TimeSpan timeout, int millisecondSpin, CancellationToken cancellationToken)
         {
-            ArgumentNullException.ThrowIfNull(terminator);
+            ArgumentException.ThrowIfNullOrEmpty(terminator);
             bool isTerminated(string x) => Client.IsTerminatorLocated(terminator, x);
             var s = await TerminatedReadAsync(isTerminated, timeout, millisecondSpin, cancellationToken).ConfigureAwait(false);
             s = CutAtFirstTerminator(s, terminator);
@@ -294,6 +301,10 @@
         public async Task<string> TerminatedReadAsync(IEnumerable<string> terminators, TimeSpan timeout, int millisecondSpin, CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(terminators);
+            foreach (var terminator in terminators)
+            {
+                ArgumentException.ThrowIfNullOrEmpty(terminator, nameof(terminators));
+            }
             bool isTerminated(string x) => Client.IsAnyTerminatorLocated(terminators, x);
             var s = await TerminatedReadAsync(isTerminated, timeout, millisecondSpin, cancellationToken).ConfigureAwait(false);
             int cut = -1;
@@ -325,6 +336,10 @@
         public async Task<string> TerminatedReadAsync(IEnumerable<Regex> regexes, TimeSpan timeout, int millisecondSpin, CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(regexes);
+            foreach (var regex in regexes)
+            {
+                ArgumentNullException.ThrowIfNull(regex, nameof(regexes));
+            }
             bool isTerminated(string x) => Client.IsAnyRegexLocated(regexes, x);
             var s = await TerminatedReadAsync(isTerminated, timeout, millisecondSpin, cancellationToken).ConfigureAwait(false);
             int cut = -1;
