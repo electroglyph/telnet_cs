@@ -79,6 +79,37 @@
         }
 
         [Fact]
+        public async Task DoEchoTwice_WithOptIn_RepliesWillOnce()
+        {
+            // Port of test_iac_do_twice_replies_once (agree half): repeated
+            // DO ECHO with the echo opt-in agrees exactly once (RFC 1143:
+            // no reply to an ACK).
+            using var stream = new ScriptedStream(255, 253, 1, 255, 253, 1);
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            sut.AllowRemoteEcho = true;
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            CountWrites(stream, 251, 1).Should().Be(1);
+            sut.Negotiation.IsEnabledByUs(1).Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task DontEcho_WhenUsEnabled_RepliesWontOnce_ThenSilent()
+        {
+            // Port of test_iac_wont_and_dont_suppressed_when_remote_false
+            // (grant half): revoking an agreed us-side grant answers a single
+            // WONT; the repeated DONT is silent.
+            using var stream = new ScriptedStream(255, 253, 1, 255, 254, 1, 255, 254, 1);
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            sut.AllowRemoteEcho = true;
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            CountWrites(stream, 251, 1).Should().Be(1);
+            CountWrites(stream, 252, 1).Should().Be(1);
+            sut.Negotiation.IsEnabledByUs(1).Should().BeFalse();
+        }
+
+        [Fact]
         public async Task DoEcho_AfterWillEcho_EvenWithOptIn_RepliesWont()
         {
             using var stream = new ScriptedStream();

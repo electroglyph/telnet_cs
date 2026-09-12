@@ -291,6 +291,67 @@
         }
 
         [Fact]
+        public async Task TerminatedRead_Regex_MultiPromptChain()
+        {
+            // Port of test_telnet_reader_readuntil_pattern_success: the
+            // Router>/Router#/Router(config)# banner chain with re \S+[>#].
+            using var stream = new ScriptedStream("Router> enable\nRouter#");
+            using var sut = new Client(stream, new CancellationToken());
+            var prompt = new Regex(@"\S+[>#]");
+            (await sut.TerminatedReadAsync(prompt, TimeSpan.FromMilliseconds(500), 1)).Should().Be("Router>");
+            (await sut.TerminatedReadAsync(prompt, TimeSpan.FromMilliseconds(500), 1)).Should().Be(" enable\nRouter#");
+        }
+
+        [Fact]
+        public async Task TerminatedRead_Regex_CutsBeforeRemainder()
+        {
+            // Port of test_readuntil_pattern_success_and_eof_incomplete
+            // (success half): "aaXYZbb" with pattern XYZ.
+            using var stream = new ScriptedStream("aaXYZbb");
+            using var sut = new Client(stream, new CancellationToken());
+            (await sut.TerminatedReadAsync(new Regex("XYZ"), TimeSpan.FromMilliseconds(500), 1)).Should().Be("aaXYZ");
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().Be("bb");
+        }
+
+        [Fact]
+        public async Task TerminatedRead_PipelinedNewline_LeavesRest()
+        {
+            // Port of test_readuntil_success_consumes_and_returns:
+            // feed "abc\nrest", take "abc\n", buffer keeps "rest".
+            using var stream = new ScriptedStream("abc\nrest");
+            using var sut = new Client(stream, new CancellationToken());
+            (await sut.TerminatedReadAsync("\n", TimeSpan.FromMilliseconds(500), 1)).Should().Be("abc\n");
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().Be("rest");
+        }
+
+        [Fact]
+        public async Task ReadAsync_DataArrivingMidWait_IsReturned()
+        {
+            // Port of test_read_until_wait_path_then_data_arrives: a blocked
+            // read resolves with bytes enqueued mid-wait.
+            using var stream = new ScriptedStream();
+            using var sut = new Client(stream, new CancellationToken());
+            var pending = sut.ReadAsync(TimeSpan.FromSeconds(5));
+            stream.Enqueue(120, 121, 122);
+            (await pending).Should().Be("xyz");
+        }
+
+        [Fact]
+        public async Task TerminatedRead_NullRegex_RejectsWithoutReading()
+        {
+            // Rejection half of test_telnet_reader_readuntil_pattern_invalid_arguments
+            // and test_readuntil_pattern_invalid_types: a null pattern is
+            // refused (ArgumentNullException:regex, cf. ValueError) before any
+            // stream I/O happens.
+            var fake = A.Fake<IByteStream>();
+            A.CallTo(() => fake.Connected).Returns(true);
+            using var sut = new Client(fake, TimeSpan.FromMilliseconds(1), default) { MillisecondReadDelay = 1 };
+            Func<Task> act = () => sut.TerminatedReadAsync((Regex)null!, TimeSpan.FromMilliseconds(60), 1);
+            await act.Should().ThrowAsync<ArgumentNullException>().WithParameterName("regex");
+            A.CallTo(() => fake.ReadByte()).MustNotHaveHappened();
+        }
+
+        [Fact]
         public async Task TerminatedRead_Unterminated_StashesNothing()
         {
             using var stream = new ScriptedStream("AB");
@@ -449,6 +510,20 @@
         }
 
         [Fact]
+        public async Task WriteAsync_ByteArray_DoublesIacOnTheWire()
+        {
+            // Port of test_write_escapes_iac_and_send_iac_verbatim, data half:
+            // a literal IAC in outbound user data is escaped by doubling.
+            using (GlobalStateGuard.SkipProactive(true))
+            {
+                using var stream = new ScriptedStream();
+                using var sut = new Client(stream, TimeSpan.FromMilliseconds(50), default);
+                await sut.WriteAsync(new byte[] { 65, 255, 66 });
+                stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 65, 255, 255, 66 });
+            }
+        }
+
+        [Fact]
         public void IsConnectedReflectsStream()
         {
             var fake = A.Fake<IByteStream>();
@@ -457,6 +532,41 @@
             sut.IsConnected.Should().BeTrue();
             A.CallTo(() => fake.Connected).Returns(false);
             sut.IsConnected.Should().BeFalse();
+        }
+
+        [Fact]
+        public async Task ConsecutiveWriteAsync_CallsConcatenateToAbcd()
+        {
+            // Port of test_writelines (bytes + unicode halves): sequential
+            // string and byte writes land on the wire in order, ASCII
+            // byte-identical (IAC doubling lives in ByteStringConverter).
+            // (The scripted fake records string and byte writes on separate
+            // lists, so both are pinned; a real stream serialises "abcd".)
+            using (GlobalStateGuard.SkipProactive(true))
+            {
+                using var stream = new ScriptedStream();
+                using var sut = new Client(stream, TimeSpan.FromMilliseconds(50), default);
+                await sut.WriteAsync("a");
+                await sut.WriteAsync("b");
+                await sut.WriteAsync(new byte[] { (byte)'c', (byte)'d' });
+                stream.StringWrites.Should().Equal("a", "b");
+                stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { (byte)'c', (byte)'d' });
+            }
+        }
+
+        [Fact]
+        public async Task ReadAsync_AfterStreamClose_ReturnsEmpty()
+        {
+            // Port of test_telnet_client_open_close_by_write (read half): a
+            // closed stream reads empty and IsConnected follows the stream.
+            using (GlobalStateGuard.SkipProactive(true))
+            {
+                using var stream = new ScriptedStream();
+                using var sut = new Client(stream, TimeSpan.FromMilliseconds(50), default);
+                stream.Close();
+                (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+                sut.IsConnected.Should().BeFalse();
+            }
         }
     }
 }

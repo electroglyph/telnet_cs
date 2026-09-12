@@ -1,5 +1,6 @@
 ﻿namespace telnet_cs.IO
 {
+    using System;
     using System.Text;
     using telnet_cs.Protocol;
 
@@ -60,6 +61,46 @@
             }
 
             return encoding.GetBytes(escaped);
+        }
+
+        /// <summary>
+        /// Escapes literal IAC bytes (255) in outbound user data by doubling
+        /// them (RFC 854, telnetlib3 <c>write()</c> parity). Returns
+        /// <paramref name="data"/> unchanged when it holds no IAC byte, so the
+        /// common path allocates nothing. Protocol frames must not pass
+        /// through here — they carry meaningful IAC bytes and write to the
+        /// byte stream directly.
+        /// </summary>
+        /// <param name="data">The user bytes to send.</param>
+        internal static byte[] EscapeIacBytes(byte[] data)
+        {
+            ArgumentNullException.ThrowIfNull(data);
+            int extra = 0;
+            foreach (byte b in data)
+            {
+                if (b == (byte)Commands.InterpretAsCommand)
+                {
+                    extra++;
+                }
+            }
+
+            if (extra == 0)
+            {
+                return data;
+            }
+
+            var escaped = new byte[data.Length + extra];
+            int dst = 0;
+            foreach (byte b in data)
+            {
+                escaped[dst++] = b;
+                if (b == (byte)Commands.InterpretAsCommand)
+                {
+                    escaped[dst++] = b;
+                }
+            }
+
+            return escaped;
         }
 
         public static string ToString(byte[] bytes)

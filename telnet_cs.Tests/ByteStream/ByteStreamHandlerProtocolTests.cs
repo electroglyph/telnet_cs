@@ -56,6 +56,28 @@
             return (output, stream.ByteWrites);
         }
 
+        private static Task<string> ReadScriptedTextAsync(string text) =>
+            ReadScriptedAsync(Encoding.Latin1.GetBytes(text).Select(b => (int)b).ToArray());
+
+        [Theory]
+        // Port of test_telnet_reader_using_readline_unicode and
+        // test_telnet_reader_using_readline_bytes (same 9 vectors, bytes and
+        // unicode): strict-NVT line-break handling. telnetlib3 blocks on
+        // unterminated tails until EOF; C# returns what arrived when the read
+        // ends (CONFLICT on "---\r"/"xxxxxxxxxxx", left failing if it diverges).
+        [InlineData("alpha\r\0", "alpha\r")]
+        [InlineData("bravo\r\n", "bravo\r\n")]
+        [InlineData("charlie\n", "charlie\n")]
+        [InlineData("---\r", "---\r")]
+        [InlineData("\r\0", "\r")]
+        [InlineData("\n", "\n")]
+        [InlineData("\r\n", "\r\n")]
+        [InlineData("xxxxxxxxxxx", "xxxxxxxxxxx")]
+        public async Task ReadlineVectors_MatchStrictNvtTable(string input, string expected)
+        {
+            (await ReadScriptedTextAsync(input)).Should().Be(expected);
+        }
+
         [Theory]
         [InlineData(1, "\n \n")]   // SOH
         [InlineData(2, "\t")]     // STX
@@ -83,6 +105,18 @@
             // as data — the orphaned option byte 65 surfaces as "A", the trailing
             // stray IAC SE delivers 0xF0, then the trailing text.
             var (output, writes) = await ReadScriptedWithWritesAsync(255, 250, 5, 1, 255, 253, 65, 255, 240, 66, 67);
+            output.Should().Be("AðBC");
+            writes.Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task MidSbTm_AbortsFramingWithoutReply()
+        {
+            // Port of test_sb_interrupted (TM half): IAC TM inside SB STATUS
+            // aborts framing exactly like the DO variant — the partial is
+            // discarded, the TM itself is consumed by the abort (never a
+            // command, never data), and the stream resyncs as data.
+            var (output, writes) = await ReadScriptedWithWritesAsync(255, 250, 5, 1, 255, 6, 65, 255, 240, 66, 67);
             output.Should().Be("AðBC");
             writes.Should().BeEmpty();
         }
@@ -198,8 +232,9 @@
         [InlineData(251, 32, 253)]  // WILL TS -> DO
         [InlineData(253, 1, 252)]   // DO Echo without opt-in -> WONT (see EchoTests)
         [InlineData(251, 1, 253)]   // WILL Echo -> DO; local echo suppressed instead (see EchoTests)
-        [InlineData(253, 99, 252)]  // DO unknown -> WONT
-        [InlineData(251, 99, 254)]  // WILL unknown -> DONT
+        [InlineData(253, 99, 252)]   // DO unknown -> WONT
+        [InlineData(251, 99, 254)]   // WILL unknown -> DONT
+        [InlineData(253, 241, 252)]  // DO NOP (command-as-option) -> WONT
         public async Task ReplyToCommandTable(int verb, int option, int expectedReply)
         {
             var fake = FakeStreamOnce(new[] { 255, verb, option });

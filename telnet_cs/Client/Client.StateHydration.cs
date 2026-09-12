@@ -93,11 +93,19 @@
             handler.EnableComPort = Settings.EnableComPort;
             handler.Linemode = linemodeState;
             handler.GoAheadReceived = OnGoAheadReceived;
+            handler.SbResumeState = sbResumeState;
         }
 
         private TerminalTypeCycler? terminalTypeCycler;
         private bool mccp2Agreed;
         private bool mccp3Agreed;
         private MccpDecompressor? mccpStream;
+
+        /// <summary>
+        /// Subnegotiation continuation stashed by the last read, fed into the
+        /// next per-read handler so a frame split across reads reassembles
+        /// (telnetlib3 _sb_buffer parity).
+        /// </summary>
+        private (int Option, byte[] Payload, bool OverCap, bool SePending)? sbResumeState;
     }
 }

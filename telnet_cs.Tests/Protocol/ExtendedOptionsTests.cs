@@ -136,6 +136,26 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task SendEor_AfterDoEor_EmitsBareMarkerInlineWithData()
+        {
+            // Port of test_send_eor ("<" + IAC CMD_EOR + ">"): the EOR marker
+            // is a bare 2-byte write with no SB framing, so it lands inline
+            // in the data stream.
+            using var stream = new ScriptedStream(Iac, Do, 25);
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            await stream.WriteAsync([(byte)'<'], 0, 1, cts.Token);
+            (await sut.SendEorAsync()).Should().BeTrue();
+            await stream.WriteAsync([(byte)'>'], 0, 1, cts.Token);
+            stream.ByteWrites.Should().HaveCount(4);
+            stream.ByteWrites[0].Should().Equal(Iac, Will, 25);
+            stream.ByteWrites[1].Should().Equal((byte)'<');
+            stream.ByteWrites[2].Should().Equal(Iac, 239);
+            stream.ByteWrites[3].Should().Equal((byte)'>');
+        }
+
+        [Fact]
         public async Task WillLineflow_AsServer_SendsRestartXonByDefault()
         {
             var (output, writes, _) = await ReadOnceAsync(h => h.SendLineflowAsServer = true, Iac, Will, 33);
@@ -189,6 +209,21 @@ namespace telnet_cs.Tests
             output.Should().BeEmpty();
             writes.Should().BeEmpty();
             received.Should().Equal(5, 3);
+        }
+
+        [Fact]
+        public async Task WillComPort_AgreesWithDo_ThenSbSignatureRequest_SurfacesWithoutReply()
+        {
+            // Port of test_handle_will_comport_accepted_and_signature_requested:
+            // WILL COMPORT is answered DO (agreed, not rejected), and the
+            // follow-up signature-request SB is surfaced with no reply.
+            byte[]? received = null;
+            var (output, writes, _) = await ReadOnceAsync(
+              h => h.ComPortReceived += payload => received = payload,
+              Iac, Will, 44, Iac, Sb, 44, 0, Iac, Se);
+            output.Should().BeEmpty();
+            writes.Should().ContainSingle().Which.Should().Equal(Iac, Do, 44);
+            received.Should().Equal(0);
         }
 
         [Fact]
@@ -315,6 +350,26 @@ namespace telnet_cs.Tests
             output.Should().BeEmpty();
             writes.Should().HaveCount(1);
             writes[0].Should().Equal(Iac, Sb, 42, 7, Iac, Se);
+        }
+
+        [Fact]
+        public async Task SbCharsetIllegalVerb_IgnoredWithoutReplyOrEvent()
+        {
+            // Port of test_handle_sb_charset_illegal_raises (DIVERGENCE):
+            // an unknown CHARSET verb raises ValueError in the reference but
+            // is silently ignored here (no reply, no event) — the read loop
+            // must survive malformed peer input.
+            var fired = 0;
+            var (output, writes, _) = await ReadOnceAsync(
+              h =>
+              {
+                  h.CharsetAccepted += _ => fired++;
+                  h.CharsetRejected += () => fired++;
+              },
+              Iac, Sb, 42, 0x99, Iac, Se);
+            output.Should().BeEmpty();
+            writes.Should().BeEmpty();
+            fired.Should().Be(0);
         }
 
         [Fact]

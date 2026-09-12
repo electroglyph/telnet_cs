@@ -200,6 +200,16 @@
         }
 
         [Fact]
+        public void ParseEntries_BareDelimiters_SkipsEmptyName()
+        {
+            // Port of test_decode_env_buf_bare_delimiters (DIVERGENCE): bare
+            // VAR + USERVAR decodes to {"":""} in the reference, but entries
+            // with empty names are skipped here, so nothing is stored.
+            var entries = EnvironmentProtocol.ParseEntries(new byte[] { 0, 0, 3 });
+            entries.Should().BeEmpty();
+        }
+
+        [Fact]
         public async Task EnvironSend_StrayIs_GetsWont()
         {
             var (output, stream) = await ReadHandlerOnceAsync(ConfigureFull, 255, 250, 36, 0, 255, 240);

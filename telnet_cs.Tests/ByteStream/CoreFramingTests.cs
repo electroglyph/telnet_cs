@@ -6,6 +6,7 @@ namespace telnet_cs.Tests
     using System.Threading.Tasks;
     using FluentAssertions;
     using Xunit;
+    using telnet_cs.Client;
     using telnet_cs.IO;
     using telnet_cs.Transport;
 
@@ -60,6 +61,21 @@ namespace telnet_cs.Tests
         {
             var (output, writes) = await ReadScriptedAsync(255, 250, 5, 255, 240, 65);
             output.Should().Be("A");
+            writes.Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task EmptySb_WithNoOptionByte_IsDiscardedWithoutReply()
+        {
+            // Port of test_sb_empty_subnegotiation: IAC SB IAC SE (no option
+            // byte at all) is discarded without a reply. Mechanism: the SB
+            // branch consumes IAC SB IAC as an unframeable abort, and the
+            // orphaned bare 0xF0 is dropped by the 8-bit gate (unframed bytes
+            // >127 need BINARY) — so all four bytes vanish, exactly like the
+            // reference. (A framed IAC SE pair would still deliver ð; see
+            // StraySeOutsideSb_IsDeliveredAsData.)
+            var (output, writes) = await ReadScriptedAsync(255, 250, 255, 240, 111, 107);
+            output.Should().Be("ok");
             writes.Should().BeEmpty();
         }
 
@@ -156,6 +172,35 @@ namespace telnet_cs.Tests
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task ReadAfterPeerCloseMidSession_ReturnsEmpty()
+        {
+            // Peer-close after data (not pre-closed): the first read drains
+            // the queued text, the post-close read is empty.
+            using var stream = new ScriptedStream();
+            stream.Enqueue(72, 105);
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("Hi");
+            stream.Close();
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task SendGa_AfterClose_WritesNothing()
+        {
+            // Port of test_send_iac_skipped_when_closing_or_closed: once the
+            // stream is closed the GA send is skipped (no ByteWrites).
+            using (GlobalStateGuard.SkipProactive(true))
+            {
+                using var stream = new ScriptedStream();
+                using var sut = new Client(stream, TimeSpan.FromMilliseconds(50), default);
+                stream.Close();
+                await sut.SendGaAsync();
+                stream.ByteWrites.Should().BeEmpty();
+            }
         }
 
         [Fact]

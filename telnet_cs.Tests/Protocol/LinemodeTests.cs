@@ -77,6 +77,23 @@
         }
 
         [Fact]
+        public async Task SplitSbLinemodeMode_ReassemblesAcrossReads_AndReplies()
+        {
+            // Port of test_client_process_chunk_split_sb_linemode: IAC SB
+            // LINEMODE MODE split across reads must be stashed, then
+            // answered once the mode byte and IAC SE arrive.
+            using var stream = new ScriptedStream(255, 250, 34, 1);
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+            stream.Enqueue(3, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.ByteWrites.Should().ContainSingle().Which.Should()
+              .Equal(new byte[] { 255, 250, 34, 1, 7, 255, 240 });
+        }
+
+        [Fact]
         public async Task ModeRepeatAcrossReads_RepliesOnce()
         {
             using (GlobalStateGuard.SkipProactive(true))

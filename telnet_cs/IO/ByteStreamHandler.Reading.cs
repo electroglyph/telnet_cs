@@ -86,7 +86,8 @@
             {
                 do
                 {
-                    if (await RetrieveAndParseResponse(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false))
+                    bool got = await RetrieveAndParseResponse(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
+                    if (got)
                     {
                         rollingTimeout = ExtendRollingTimeout(timeout);
                     }

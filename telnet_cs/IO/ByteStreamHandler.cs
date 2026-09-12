@@ -31,6 +31,43 @@
         private int? pushbackByte;
 
         /// <summary>
+        /// Subnegotiation continuation stashed when the wire stalls mid-frame:
+        /// the option byte plus the payload scanned so far. The next
+        /// <c>PerformNegotiation</c> resumes the scan instead of dropping the
+        /// frame (telnetlib3 <c>_sb_buffer</c> parity). Round-tripped through
+        /// the session on every read, because clients and sessions build one
+        /// handler per read.
+        /// </summary>
+        private int? sbResumeOption;
+
+        private List<byte>? sbResumePayload;
+        private bool sbResumeOverCap;
+
+        /// <summary>
+        /// A bare STATUS SE was consumed just before the stall; its lookahead
+        /// byte arrives with the continuation.
+        /// </summary>
+        private bool sbResumeSePending;
+
+        /// <summary>
+        /// Gets or sets the stashed subnegotiation continuation for the
+        /// session round-trip: fed in before each read, captured after.
+        /// </summary>
+        internal (int Option, byte[] Payload, bool OverCap, bool SePending)? SbResumeState
+        {
+            get => sbResumeOption.HasValue
+              ? (sbResumeOption.Value, [.. sbResumePayload!], sbResumeOverCap, sbResumeSePending)
+              : null;
+            set
+            {
+                sbResumeOption = value?.Option;
+                sbResumePayload = value is null ? null : [.. value.Value.Payload];
+                sbResumeOverCap = value?.OverCap ?? false;
+                sbResumeSePending = value?.SePending ?? false;
+            }
+        }
+
+        /// <summary>
         /// Gets whether the handler is discarding data in an RFC 854 Synch
         /// scan: set by the urgent-data trigger (or <see cref="EnterSynchDiscard"/>
         /// in tests) and cleared by in-band <c>IAC DM</c>.
@@ -694,13 +731,6 @@
             return sb.Length > 0;
         }
 
-        private async Task<bool> IsWaitForIncrementalResponse(DateTime rollingTimeout)
-        {
-            var result = DateTime.UtcNow < rollingTimeout;
-            await Task.Delay(MillisecondReadDelay, internalCancellation.Token).ConfigureAwait(false);
-            return result;
-        }
-
         private void WriteLog(string message)
         {
             if (Log != null)
@@ -880,6 +910,15 @@
             if (synch.HasValue)
             {
                 return synch.Value;
+            }
+
+            if (!pushbackByte.HasValue && sbResumeOption.HasValue && (MccpHasOutput || byteStream.Available > 0))
+            {
+                // A subnegotiation stalled on an earlier read resumes here:
+                // the newly arrived bytes continue its frame (telnetlib3
+                // _sb_buffer parity) instead of being parsed as fresh input.
+                await PerformNegotiation().ConfigureAwait(false);
+                return true;
             }
 
             if (IsResponsePending)
@@ -1216,76 +1255,134 @@
         /// </summary>
         private async Task PerformNegotiation()
         {
-            var inputOption = TryReadByte();
-            if (inputOption == -1 || inputOption == IacByte)
+            int inputOption;
+            List<byte> payload;
+            bool overCap;
+            bool sePending;
+            if (sbResumeOption.HasValue)
             {
-                // Truncated subnegotiation, or an IAC where the option byte belongs:
-                // either way we cannot frame the payload, so ignore it.
-                return;
+                // Resuming a subnegotiation stalled mid-scan on an earlier
+                // read: the continuation bytes belong to this frame. (A fresh
+                // IAC SB arriving instead would abort the reference buffer;
+                // merging here is the documented edge — protocol peers never
+                // interleave a new frame inside an open one.)
+                inputOption = sbResumeOption.Value;
+                payload = sbResumePayload!;
+                overCap = sbResumeOverCap;
+                sePending = sbResumeSePending;
+                sbResumeOption = null;
+                sbResumePayload = null;
+                sbResumeOverCap = false;
+                sbResumeSePending = false;
+            }
+            else
+            {
+                var option = TryReadByte();
+                if (option == -1 || option == IacByte)
+                {
+                    // Truncated subnegotiation, or an IAC where the option byte belongs:
+                    // either way we cannot frame the payload, so ignore it.
+                    return;
+                }
+
+                inputOption = option;
+                payload = [];
+                overCap = false;
+                sePending = false;
             }
 
             // Scan to IAC SE. The payload is capped: over-long input keeps being
             // consumed (so the stream resynchronises) but is then ignored.
             // STATUS (RFC 859) uses inner framing — a bare SE byte terminates
             // and SE SE escapes a literal SE — so the scan is option-aware.
-            var payload = new List<byte>();
-            var overCap = false;
+            // A stall mid-scan stashes the frame; the next read resumes it.
             var statusFraming = inputOption == (int)Options.Status;
-            while (true)
+            bool scanDone = false;
+            if (sePending)
             {
-                var b = TryReadByte();
-                if (b == -1)
+                // A bare STATUS SE was consumed just before the stall; its
+                // lookahead byte arrives now.
+                var lookahead = TryReadByte();
+                if (lookahead == -1)
                 {
+                    StashSbResume(inputOption, payload, overCap, seAwait: true);
                     return;
                 }
 
-                if (statusFraming && b == SeByte)
+                if (lookahead == SeByte)
                 {
-                    var following = TryReadByte();
-                    if (following == -1)
-                    {
-                        return;
-                    }
-
-                    if (following == SeByte)
-                    {
-                        AddPayloadByte((byte)SeByte);
-                        continue;
-                    }
-
+                    AddPayloadByte((byte)SeByte);
+                }
+                else
+                {
                     // Bare SE terminates STATUS; the following byte belongs to
                     // the subsequent stream, so stash it for the next read.
-                    // (The scan path always consumes a pending pushback before
-                    // reaching SB, so the stash is free here.)
-                    pushbackByte = following;
-                    break;
+                    pushbackByte = lookahead;
+                    scanDone = true;
                 }
+            }
 
-                if (b == IacByte)
+            if (!scanDone)
+            {
+                while (true)
                 {
-                    var following = TryReadByte();
-                    if (following == -1)
+                    var b = TryReadByte();
+                    if (b == -1)
                     {
+                        StashSbResume(inputOption, payload, overCap, seAwait: false);
                         return;
                     }
 
-                    if (following == SeByte)
+                    if (statusFraming && b == SeByte)
                     {
+                        var following = TryReadByte();
+                        if (following == -1)
+                        {
+                            StashSbResume(inputOption, payload, overCap, seAwait: true);
+                            return;
+                        }
+
+                        if (following == SeByte)
+                        {
+                            AddPayloadByte((byte)SeByte);
+                            continue;
+                        }
+
+                        // Bare SE terminates STATUS; the following byte belongs to
+                        // the subsequent stream, so stash it for the next read.
+                        // (The scan path always consumes a pending pushback before
+                        // reaching SB, so the stash is free here.)
+                        pushbackByte = following;
                         break;
                     }
 
-                    if (following == IacByte)
+                    if (b == IacByte)
                     {
-                        // Escaped literal IAC inside the payload.
-                        AddPayloadByte(IacByte);
-                        continue;
+                        var following = TryReadByte();
+                        if (following == -1)
+                        {
+                            StashSbResume(inputOption, payload, overCap, seAwait: false);
+                            return;
+                        }
+
+                        if (following == SeByte)
+                        {
+                            break;
+                        }
+
+                        if (following == IacByte)
+                        {
+                            // Escaped literal IAC inside the payload.
+                            AddPayloadByte(IacByte);
+                            continue;
+                        }
+
+                        // IAC followed by anything else: framing is lost, give up.
+                        return;
                     }
 
-                    // IAC followed by anything else: framing is lost, give up.
-                    return;
+                    AddPayloadByte((byte)b);
                 }
-
-                AddPayloadByte((byte)b);
             }
 
             void AddPayloadByte(byte value)
@@ -1303,6 +1400,14 @@
                 {
                     overCap = true;
                 }
+            }
+
+            void StashSbResume(int option, List<byte> body, bool capped, bool seAwait)
+            {
+                sbResumeOption = option;
+                sbResumePayload = body;
+                sbResumeOverCap = capped;
+                sbResumeSePending = seAwait;
             }
 
             if (overCap)
@@ -2311,8 +2416,20 @@
 
         private async Task<bool> IsResponseAnticipated(bool isInitialResponseReceived, DateTime endInitialTimeout, DateTime rollingTimeout)
         {
-            return IsResponsePending || IsWaitForInitialResponse(endInitialTimeout, isInitialResponseReceived) ||
-              await IsWaitForIncrementalResponse(rollingTimeout).ConfigureAwait(false);
+            // Drain immediately while bytes wait. Otherwise yield every idle
+            // pass: an earlier form short-circuited on the open initial window
+            // and never reached the delay, busy-spinning the calling thread
+            // for the whole window and starving same-thread producers of
+            // mid-read bytes (#62: a blocked read never observed an Enqueue).
+            if (IsResponsePending)
+            {
+                return true;
+            }
+
+            bool continueWaiting = IsWaitForInitialResponse(endInitialTimeout, isInitialResponseReceived) ||
+              !IsTimeoutExpired(rollingTimeout);
+            await Task.Delay(MillisecondReadDelay, internalCancellation.Token).ConfigureAwait(false);
+            return continueWaiting;
         }
     }
 }

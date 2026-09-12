@@ -53,7 +53,9 @@
         private bool mccp2Agreed;
         private bool mccp3Agreed;
         private MccpDecompressor? mccpStream;
-        // MUD stores survive across per-read handlers: append collections are
+        // Subnegotiation continuation stashed by the last read, fed into the
+        // next per-read handler (telnetlib3 _sb_buffer parity).
+        private (int Option, byte[] Payload, bool OverCap, bool SePending)? sbResumeState;        // MUD stores survive across per-read handlers: append collections are
         // injected into each handler, and the replaced MSSP mapping is
         // captured through the MSSP hook.
         private IReadOnlyDictionary<string, object>? mudMsspData;
@@ -614,7 +616,9 @@
         /// <summary>
         /// Asks the peer for its terminal speed (RFC 1079: <c>SEND</c>, one
         /// <c>IS</c>). Returns the verbatim validated <c>"&lt;tx&gt;,&lt;rx&gt;"</c>
-        /// shape, or null on timeout or a malformed answer.
+        /// shape, or null on timeout, on a malformed answer, or when a previous
+        /// request is still outstanding (single-active rule, like the reference
+        /// <c>request_tspeed</c> returning false while pending).
         /// </summary>
         /// <param name="timeout">The maximum time to wait for the answer.</param>
         /// <param name="cancellationToken">A token to cancel the wait.</param>
@@ -622,6 +626,11 @@
         {
             lock (collectorLock)
             {
+                if (expectingTerminalSpeed)
+                {
+                    return null;
+                }
+
                 clientTerminalSpeed = null;
                 expectingTerminalSpeed = true;
             }

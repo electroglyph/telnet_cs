@@ -64,6 +64,77 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task WaitForOptionEnabledAsync_AlreadyEnabled_ReturnsTrueWithoutWaiting()
+        {
+            // Port of test_wait_for_immediate_return: once the peer's WILL
+            // is processed, the waiter is already satisfied (a short deadline
+            // proves no further wire wait is needed).
+            using var stream = new ScriptedStream(255, 251, 24);
+            using var session = NewSession(stream);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
+            (await session.WaitForOptionEnabledAsync(Options.TerminalType, local: false, TimeSpan.FromMilliseconds(50))).Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task WaitForOptionEnabledAsync_RemoteStateSetDirectly_ReturnsTrue()
+        {
+            // Port of test_wait_for_remote_option (delayed half): the waiter
+            // observes a remotely-granted option set outside the wire pump.
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
+            (await session.WaitForOptionEnabledAsync(Options.TerminalType, local: false, TimeSpan.FromSeconds(5))).Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task WaitForOptionEnabledAsync_LocalSgaAgreed_ReturnsTrue()
+        {
+            // Port of test_wait_for_local_option: our preset WILL SGA plus
+            // the peer's DO SGA enables our side.
+            using var stream = new ScriptedStream(255, 253, 3);
+            using var session = NewSession(stream);
+            await session.SendOpeningPresetAsync();
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
+            (await session.WaitForOptionEnabledAsync(Options.SuppressGoAhead, local: true, TimeSpan.FromSeconds(5))).Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task WaitForNegotiationAsync_PeerWillSatisfiesPredicate_ReturnsTrue()
+        {
+            // Port of test_wait_for_condition_waits: the predicate form of
+            // the remote-option wait.
+            using var stream = new ScriptedStream(255, 251, 24);
+            using var session = NewSession(stream);
+            (await session.WaitForNegotiationAsync(
+                n => n.IsEnabledByPeer((int)Options.TerminalType),
+                TimeSpan.FromSeconds(5))).Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task WaitForNegotiationAsync_CombinedPeerPredicates_ReturnsTrue()
+        {
+            // Port of test_wait_for_combined_conditions: one waiter observes
+            // two peer grants before succeeding.
+            using var stream = new ScriptedStream(255, 251, 24, 255, 251, 32);
+            using var session = NewSession(stream);
+            (await session.WaitForNegotiationAsync(
+                n => n.IsEnabledByPeer((int)Options.TerminalType) &&
+                     n.IsEnabledByPeer((int)Options.TerminalSpeed),
+                TimeSpan.FromSeconds(5))).Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task WaitForOptionEnabledAsync_InvalidOption_ThrowsOutOfRange()
+        {
+            // Port of test_wait_for_invalid_option (KeyError): an
+            // out-of-range option fails validation instead of waiting.
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            Func<Task> act = () => session.WaitForOptionEnabledAsync((Options)999, local: false, TimeSpan.FromMilliseconds(100));
+            await act.Should().ThrowAsync<ArgumentOutOfRangeException>();
+        }
+
+        [Fact]
         public async Task WaitForNegotiationAsync_Timeout_ReturnsFalse()
         {
             using var stream = new ScriptedStream();
@@ -325,6 +396,21 @@ namespace telnet_cs.Tests
             session.Context.ConnectedAtUtc.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromMinutes(1));
             (DateTimeOffset.UtcNow - session.Context.ConnectedAtUtc).Should().BeGreaterThanOrEqualTo(TimeSpan.Zero);
             session.Context.Idle.Should().BeLessThan(TimeSpan.FromMinutes(1));
+        }
+
+        [Fact]
+        public async Task Context_Idle_And_Duration_AreFresh_AfterRead()
+        {
+            // Reference idle/duration window: right after traffic both the
+            // idle gap and the total connected span are sub-second.
+            using var server = new TelnetServer(0, new TelnetServerOptions());
+            server.Start();
+            var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
+            using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
+            using var session = await acceptTask;
+            await session.ReadAsync(TimeSpan.FromMilliseconds(100));
+            session.Context.Idle.Should().BeLessThan(TimeSpan.FromSeconds(1));
+            (DateTimeOffset.UtcNow - session.Context.ConnectedAtUtc).Should().BeLessThan(TimeSpan.FromSeconds(1));
         }
 
         [Fact]

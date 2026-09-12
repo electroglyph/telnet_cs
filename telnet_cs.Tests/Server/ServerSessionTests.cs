@@ -48,6 +48,16 @@ namespace telnet_cs.Tests
             await session.WriteAsync(received);
             var echo = await client.TerminatedReadAsync("hello", TimeSpan.FromSeconds(10));
             echo.Should().Contain("hello");
+
+            // Port of test_telnet_server_open_close: WONT TTYPE is consumed
+            // silently — never surfaces as data.
+            await client.RequestDisableAsync(Options.TerminalType);
+            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().BeEmpty();
+
+            // Port of test_telnet_server_closed_by_server: "quit\r\n" behind
+            // a WONT TTYPE preamble reads as a clean line, preamble excluded.
+            await client.WriteAsync("quit\r\n");
+            (await session.TerminatedReadAsync("\n", TimeSpan.FromSeconds(10))).Should().Be("quit\r\n");
         }
 
         [Fact]
@@ -112,6 +122,30 @@ namespace telnet_cs.Tests
         private static byte[] OutboundBytes(ScriptedStream stream)
         {
             return stream.ByteWrites.SelectMany(static b => b).ToArray();
+        }
+
+        private static int CountFrame(byte[] haystack, byte[] needle)
+        {
+            int count = 0;
+            for (int i = 0; i + needle.Length <= haystack.Length; i++)
+            {
+                bool match = true;
+                for (int j = 0; j < needle.Length; j++)
+                {
+                    if (haystack[i + j] != needle[j])
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+
+                if (match)
+                {
+                    count++;
+                }
+            }
+
+            return count;
         }
 
         [Fact]
@@ -255,6 +289,74 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             await session.RequestDisableAsync(Options.SuppressGoAhead);
             stream.ByteWrites.Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task OpeningPreset_PeerWillTtype_AgreesWithoutSecondDo()
+        {
+            // Port of test_telnet_server_advanced_negotiation: the preset opens
+            // with IAC DO TTYPE; the peer's WILL TTYPE agrees (him-side YES)
+            // without a second DO (RFC 1143: no reply to an ACK).
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            await session.SendOpeningPresetAsync();
+            stream.Enqueue(255, 251, 24);
+            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            session.Negotiation.IsEnabledByPeer((int)Options.TerminalType).Should().BeTrue();
+            CountFrame(OutboundBytes(stream), [255, 253, 24]).Should().Be(1);
+        }
+
+        [Fact]
+        public async Task RequestTerminalTypesAsync_NoAnswers_ReturnsEmptyWithTtypeOutstanding()
+        {
+            // Port of test_telnet_server_negotiation_fail: the preset's IAC DO
+            // TTYPE goes unanswered, so the him-side stays WantYes (outstanding)
+            // and the collection times out empty. (The collector sends SB SEND
+            // directly; the outstanding DO comes from the preset.)
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            await session.SendOpeningPresetAsync();
+            (await session.RequestTerminalTypesAsync(TimeSpan.FromMilliseconds(300))).Should().BeEmpty();
+            session.Negotiation.GetStates((int)Options.TerminalType).Him
+                .Should().Be(NegotiationState.SideState.WantYes);
+        }
+
+        [Fact]
+        public async Task OpeningPreset_AllTogglesOff_PeerWillTtype_GetsExactlyOneDo()
+        {
+            // EXTEND of SendOpeningPresetAsync_AllTogglesOff_SendsNothing: with
+            // SGA/ECHO offers off, the peer's WILL TTYPE still gets exactly one
+            // IAC DO TTYPE and no WILL SGA / WILL ECHO.
+            var options = new TelnetServerOptions
+            {
+                OfferEcho = false,
+                OfferSuppressGoAhead = false,
+                OfferBinary = false,
+                RequestTerminalType = false,
+                RequestTerminalSpeed = false,
+                RequestWindowSize = false,
+                RequestEnvironment = false,
+                RequestLinemode = false,
+            };
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream, options);
+            await session.SendOpeningPresetAsync();
+            stream.Enqueue(255, 251, 24);
+            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            OutboundBytes(stream).Should().Equal(255, 253, 24);
+        }
+
+        [Fact]
+        public async Task OpeningPreset_OfferSga_SentExactlyOnceAndOutstanding()
+        {
+            // Port of test_default_sends_will_sga: the default preset offers
+            // WILL SGA exactly once; the us-side stays WantYes until answered.
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            await session.SendOpeningPresetAsync();
+            CountFrame(OutboundBytes(stream), [255, 251, 3]).Should().Be(1);
+            session.Negotiation.GetStates((int)Options.SuppressGoAhead).Us
+                .Should().Be(NegotiationState.SideState.WantYes);
         }
 
         [Fact]
@@ -745,6 +847,21 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task RequestTerminalSpeedAsync_SecondCallWhileOutstanding_ReturnsNullWithSingleSend()
+        {
+            // Port of test_request_tspeed_and_charset_pending_branches TSPEED
+            // half: a second request while one is outstanding returns null
+            // with a single SEND on the wire (single-active rule).
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            var first = session.RequestTerminalSpeedAsync(TimeSpan.FromMilliseconds(300));
+            var second = session.RequestTerminalSpeedAsync(TimeSpan.FromMilliseconds(300));
+            (await first).Should().BeNull();
+            (await second).Should().BeNull();
+            CountSubsequence(OutboundBytes(stream), [255, 250, 32, 1]).Should().Be(1);
+        }
+
+        [Fact]
         public async Task RequestEnvironmentAsync_ParsesRequestedEntries()
         {
             using var stream = new ScriptedStream();
@@ -1086,12 +1203,42 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task ForwardMask_WillWithoutLinemode_IsIgnored()
+        {
+            // Port of test_handle_sb_forwardmask_server_without_linemode
+            // (DIVERGENCE on the state half): an inbound WILL FORWARDMASK
+            // with no LINEMODE agreement is ignored — no reply, no data —
+            // instead of setting a remote-forwardmask flag (no such state
+            // exists here).
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            stream.Enqueue([255, 250, 34, 251, 2, 255, 240]);
+            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+        }
+
+        [Fact]
         public async Task SendForwardMaskAsync_WithoutAgreement_SendsNothing()
         {
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             await session.SendForwardMaskAsync([0xFF]);
             stream.ByteWrites.Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task SendModeAsync_AfterClose_WritesNothing()
+        {
+            // Port of test_send_linemode_skipped_when_closing: the linemode
+            // frame send is gated on the live stream, so nothing is written
+            // once closed.
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            await AgreeLinemodeAsync(session, stream);
+            int agreed = stream.ByteWrites.Count;
+            stream.Close();
+            await session.SendModeAsync(3);
+            stream.ByteWrites.Should().HaveCount(agreed);
         }
 
         [Fact]

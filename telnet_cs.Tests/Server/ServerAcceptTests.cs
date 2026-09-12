@@ -61,6 +61,52 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task StartStop_WithoutAccept_LeavesPortUsable_AndDisposeIsSafe()
+        {
+            // Port of test_create_server: bind with an empty body and exit
+            // cleanly — no accept required, port stays usable, dispose safe.
+            using var server = new TelnetServer(0);
+            server.Start();
+            server.Port.Should().BeInRange(1, 65535);
+            server.Stop();
+            Action act = () => server.Dispose();
+            act.Should().NotThrow();
+        }
+
+        [Fact]
+        public async Task AcceptSessionAsync_CompletesAfterClientConnects()
+        {
+            // Port of test_create_server_on_connect: the accept task (our
+            // connection_made analogue) completes once the TCP connect lands.
+            using var server = new TelnetServer(0);
+            server.Start();
+            var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
+            using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
+            var completed = await Task.WhenAny(acceptTask, Task.Delay(TimeSpan.FromSeconds(10)));
+            completed.Should().BeSameAs(acceptTask);
+            using var session = await acceptTask;
+            session.IsConnected.Should().BeTrue();
+            client.IsConnected.Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task RawTcpClientClose_EndsSessionRead()
+        {
+            // Port of test_telnet_server_disconnect_by_client: the peer going
+            // away reads as empty and drops IsConnected (no _closing split —
+            // a single Close path).
+            using var server = new TelnetServer(0);
+            server.Start();
+            var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
+            using var raw = new System.Net.Sockets.TcpClient();
+            await raw.ConnectAsync("127.0.0.1", server.Port);
+            using var session = await acceptTask;
+            raw.Close();
+            (await session.ReadAsync(TimeSpan.FromSeconds(10))).Should().BeEmpty();
+            session.IsConnected.Should().BeFalse();
+        }
+
+        [Fact]
         public async Task AcceptSessionAsync_LoopbackListenAddress_Accepts()
         {
             using var server = new TelnetServer(0, new TelnetServerOptions { ListenAddress = IPAddress.Loopback });

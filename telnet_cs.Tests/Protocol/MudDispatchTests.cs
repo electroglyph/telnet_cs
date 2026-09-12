@@ -355,6 +355,32 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task SendMsdp_NotNegotiated_ReturnsFalseWithoutWrites()
+        {
+            // Port of test_send_mud_protocol_returns_early_without_negotiation
+            // (MSDP half): no agreement means no bytes on the wire.
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            var sent = await sut.SendMsdpAsync(new Dictionary<string, object?> { ["HEALTH"] = 100 });
+            sent.Should().BeFalse();
+            stream.ByteWrites.Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task SendMssp_NotNegotiated_ReturnsFalseWithoutWrites()
+        {
+            // Port of test_send_mud_protocol_returns_early_without_negotiation
+            // (MSSP half): no agreement means no bytes on the wire.
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            var sent = await sut.SendMsspAsync(new Dictionary<string, object> { ["NAME"] = "test" });
+            sent.Should().BeFalse();
+            stream.ByteWrites.Should().BeEmpty();
+        }
+
+        [Fact]
         public async Task SendGmcp_Negotiated_SendsJsonFrame()
         {
             using var stream = new ScriptedStream(Iac, Will, Gmcp);

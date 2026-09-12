@@ -56,7 +56,8 @@
             if (Settings.TextEncoding != null)
             {
                 // Custom encoding: pre-encode here so the exact bytes hit the stream.
-                await WriteAsync(ByteStringConverter.ConvertStringToByteArray(command, Settings.TextEncoding), cancellationToken).ConfigureAwait(false);
+                // Already IAC-escaped by the converter, so send raw.
+                await WriteRawAsync(ByteStringConverter.ConvertStringToByteArray(command, Settings.TextEncoding), cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -76,9 +77,17 @@
         }
 
         /// <inheritdoc/>
-        public async Task WriteAsync(byte[] data, CancellationToken cancellationToken = default)
+        public Task WriteAsync(byte[] data, CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(data);
+            // RFC 854: a literal IAC byte in user data must be escaped by
+            // doubling (telnetlib3 write() parity). Protocol frames bypass
+            // this method and write to the byte stream directly.
+            return WriteRawAsync(ByteStringConverter.EscapeIacBytes(data), cancellationToken);
+        }
+
+        private async Task WriteRawAsync(byte[] data, CancellationToken cancellationToken)
+        {
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
             if (ByteStream.Connected && !linked.Token.IsCancellationRequested)
             {
@@ -405,6 +414,10 @@
                         // (timeout/cancel/EOF/dispose all yield empty): a reset
                         // connection is "no data", not an error.
                         return string.Empty;
+                    }
+                    finally
+                    {
+                        sbResumeState = handler.SbResumeState;
                     }
                 }
             }
