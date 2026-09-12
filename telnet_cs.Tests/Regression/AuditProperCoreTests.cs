@@ -176,27 +176,29 @@ namespace telnet_cs.Tests
             // framing state (stream_writer.py iac_received/cmd_received/_sb_buffer) that
             // survives across data_received calls. RFC 854 defines WILL = 251 and
             // DO = 253 (see telnet_cs/Protocol/Commands.cs:39,43); a peer WILL SGA is
-            // answered with DO SGA.
+            // answered with DO SGA when no request is outstanding (RFC 1143 NO + WILL
+            // -> YES + DO). A WILL that merely acks an outstanding DO is silent, so
+            // the default proactive DO SGA (Client.Connect.cs:299-302) must be
+            // suppressed here; otherwise the split WILL would correctly earn no reply
+            // and a count of 2 could never pass even with perfect reassembly.
             // Our code: telnet_cs/IO/ByteStreamHandler.cs:34,40 keeps pendingIac and
             // pendingVerb per handler instance, but telnet_cs/Client/Client.cs builds a
             // new handler per top-level ReadAsync and round-trips only SbResumeState
             // (see StateHydration.cs), so a trailing IAC in one read plus WILL SGA in
-            // the next is lost and never answered. The constructor also sends a
-            // proactive IAC DO SGA (Client.Connect.cs:299-302), hence the count of 2:
-            // one proactive plus one answer to the split WILL.
-            // Proof: feed [255] in one ReadAsync then [251, 3] (IAC WILL SGA split) in
-            // the next; the reference reassembles and answers DO SGA, giving two DO SGA
-            // frames total. Counting only one proves the split state was lost. This
-            // test previously enqueued [253, 3] (DO, not WILL) which would earn WILL,
-            // never a second DO, so it could not pass even after a correct split fix;
-            // it now enqueues the intended WILL bytes. This test is correct as fixed.
+            // the next is lost and never answered.
+            // Proof: with proactive suppressed, feed [255] in one ReadAsync then
+            // [251, 3] (IAC WILL SGA split) in the next; the reference reassembles and
+            // answers a single DO SGA. Zero answers proves the split state was lost.
+            // This setup previously used the default proactive client and expected 2,
+            // which conflated the ack-silence rule with the split bug; it now isolates
+            // the split path. This test is correct as fixed.
             using var stream = new ScriptedStream(255);
-            using var client = new Client(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None);
+            using var client = new Client(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None, [], skipProactiveNegotiation: true);
             (await client.ReadAsync(TimeSpan.FromMilliseconds(200))).Should().BeEmpty();
             stream.Enqueue(251, 3);
             await client.ReadAsync(TimeSpan.FromMilliseconds(200));
             byte[] writes = stream.ByteWrites.SelectMany(w => w).ToArray();
-            CountOccurrences(writes, new byte[] { 255, 253, 3 }).Should().Be(2, "proactive DO SGA plus the DO SGA answer to split WILL SGA");
+            CountOccurrences(writes, new byte[] { 255, 253, 3 }).Should().Be(1, "split WILL SGA reassembled across reads earns one DO SGA");
         }
 
         [Fact]

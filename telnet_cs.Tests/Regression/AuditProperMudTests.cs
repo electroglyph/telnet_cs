@@ -56,21 +56,28 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Mccp3Corrupt_AnsweredWithWont()
         {
-            // Source of truth: direction matters on MCCP failure. docs/mud-protocols/
-            // mccp.md requires server-side decompression errors to send IAC WONT MCCP3
-            // while client-side errors send IAC DONT MCCP2. The reference itself sends
-            // nothing (it clears the decompressor and resumes plaintext), but it never
-            // sends DONT 87 for an MCCP3 failure.
-            // Our code: telnet_cs/IO/ByteStreamHandler.cs latches the arming option and
-            // always flushes SendDont(mccpShutdownOption), so an MCCP3 failure emits
-            // FF FE 57 (DONT 87) — the wrong verb for a server disable.
-            // Proof: agree MCCP3, arm empty SB 87, feed corrupt deflate; correct bytes
-            // contain FF FC 57 and never FF FE 57. Observing DONT proves the verb is
-            // latched instead of sided (MCCP3 -> WONT, MCCP2 -> DONT). This test is
-            // correct per the spec direction rule.
+            // Source of truth: direction matters on MCCP failure.
+            // docs/mud-protocols/mccp.md Compression Errors (MCCP3): server-side zlib
+            // errors send IAC WONT MCCP3 (server revokes its WILL; client disables and
+            // continues plaintext). Client-side MCCP2 errors send IAC DONT MCCP2.
+            // RFC 1143 polarity: WONT revokes our WILL (us-side), DONT revokes our DO
+            // (him-side). The reference itself sends nothing on corrupt (it clears the
+            // decompressor and resumes plaintext), but it never sends DONT 87 for an
+            // MCCP3 failure; the spec WONT is the interop-safe wire behavior (silent
+            // resume would leave the compressor sending).
+            // Setup polarity matters: the server must be WILL-side (us YES) for WONT
+            // to be correct. Peer DO 87 earns server WILL 87 (us YES), then empty
+            // SB 87 arms decompression (IsEnabledByUs). A peer WILL setup would make
+            // the server DO-side (him YES), where DONT would be the RFC-correct
+            // revoke, so this uses DO to pin the spec WONT path.
+            // Our code latches the arming option but always flushes DONT, so an MCCP3
+            // failure emits FF FE 57 (DONT 87).
+            // Proof: DO 87 + empty SB 87 + corrupt deflate must contain FF FC 57 and
+            // never FF FE 57. Observing DONT proves the verb is latched instead of
+            // sided (MCCP3 -> WONT, MCCP2 -> DONT). This test is correct as fixed.
             var options = new TelnetServerOptions { EnableMccp = true };
             using var stream = new ScriptedStream(
-                [255, 251, 87, 255, 250, 87, 255, 240, 0x78, 0x9C, 0xFF, 0xFF, 0xFF, 0xFF]);
+                [255, 253, 87, 255, 250, 87, 255, 240, 0x78, 0x9C, 0xFF, 0xFF, 0xFF, 0xFF]);
             using var session = new ServerSession(stream, options, CancellationToken.None);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
