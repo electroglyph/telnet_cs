@@ -80,10 +80,10 @@
         {
             // IAC DO inside SB STATUS loses framing: the partial is discarded, the
             // verb never dispatches (no negotiation reply), and the stream resyncs
-            // as data — the orphaned option byte 65 surfaces as "A" followed by the
-            // trailing text.
+            // as data — the orphaned option byte 65 surfaces as "A", the trailing
+            // stray IAC SE delivers 0xF0, then the trailing text.
             var (output, writes) = await ReadScriptedWithWritesAsync(255, 250, 5, 1, 255, 253, 65, 255, 240, 66, 67);
-            output.Should().Be("ABC");
+            output.Should().Be("AðBC");
             writes.Should().BeEmpty();
         }
 

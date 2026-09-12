@@ -27,14 +27,15 @@
         }
 
         [Theory]
-        [InlineData(100)]
-        [InlineData(150)]
-        [InlineData(200)]
-        public async Task UndefinedCommand_IsSwallowedAsNop(int command)
+        [InlineData(100, "\u0064")]
+        [InlineData(150, "\u0096")]
+        [InlineData(200, "È")]
+        public async Task UndefinedCommand_IsDeliveredAsDataWithoutReply(int command, string expected)
         {
-            // RFC 856 §5: IAC followed by an undefined command ≡ IAC NOP.
+            // telnetlib3 parity: IAC followed by a byte with no defined
+            // command meaning falls through as in-band data (never a reply).
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, command);
-            output.Should().BeEmpty();
+            output.Should().Be(expected);
             stream.ByteWrites.Should().BeEmpty();
         }
 
@@ -42,7 +43,7 @@
         public async Task UndefinedCommand_DoesNotDisturbFollowingData()
         {
             var (output, _) = await ReadHandlerOnceAsync(static _ => { }, 255, 200, 72);
-            output.Should().Be("H");
+            output.Should().Be("ÈH");
         }
 
         [Fact]

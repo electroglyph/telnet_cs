@@ -255,9 +255,10 @@
         {
             // RFC 859 inner framing: a bare SE ends a STATUS payload, so the
             // bytes after it (here "AB") belong to the subsequent stream.
-            // Payload [IS] is a stray IS and earns WONT.
+            // Payload [IS] is a stray IS and earns WONT. The trailing stray
+            // IAC SE delivers 0xF0 as data (never-drop-bytes).
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 250, 5, 0, 240, 65, 66, 255, 240);
-            output.Should().Be("AB");
+            output.Should().Be("ABð");
             stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 252, 5 });
         }
 
@@ -266,6 +267,7 @@
         {
             // SE SE inside STATUS escapes a literal SE data byte (RFC 859):
             // payload [IS, SE] is still a stray IS, and nothing leaks to data.
+            // (The final IAC SE here is the SB's own terminator, not a stray.)
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 250, 5, 0, 240, 240, 255, 240);
             output.Should().BeEmpty();
             stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 252, 5 });

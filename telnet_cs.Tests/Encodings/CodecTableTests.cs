@@ -74,21 +74,21 @@ namespace telnet_cs.Tests
             "0070,0071,0072,0073,0074,0075,0076,0077,0078,0079,007A,2660,007C,21B0,25C0,25B6"
         ];
 
-        // telnetlib3 DECODING_TABLE cells, all except 0x05/0x1B/0x85.
+        // telnetlib3 DECODING_TABLE cells, all 256 (conflict 17 decided:
+        // match telnetlib3 — 0x05/0x85 U+2510, 0x1B U+241B).
         [Fact]
-        public void Atascii_FullTable_MatchesReferenceExceptFlaggedCells()
+        public void Atascii_FullTable_MatchesReference()
         {
-            ShouldMatchExcept(new AtasciiEncoding(), new HashSet<int> { 0x05, 0x1B, 0x85 }, AtasciiHex);
+            ShouldMatchExcept(new AtasciiEncoding(), new HashSet<int>(), AtasciiHex);
         }
 
-        // Flagged (conflict 17): 0x05 and 0x85 decode to U+2514 here, but
-        // telnetlib3 maps both to U+2510; 0x1B decodes to U+239B here vs
-        // U+241B there. Pinned as-is until the owner decides.
+        // Decided (conflict 17): match telnetlib3 — 0x05 and 0x85 decode to
+        // U+2510, 0x1B decodes to U+241B (the visible ESC glyph).
         [Theory]
-        [InlineData(0x05, "\u2514")]
-        [InlineData(0x85, "\u2514")]
-        [InlineData(0x1B, "\u239B")]
-        public void Atascii_FlaggedCells_DecodeAsImplemented(int byteValue, string expected)
+        [InlineData(0x05, "\u2510")]
+        [InlineData(0x85, "\u2510")]
+        [InlineData(0x1B, "\u241B")]
+        public void Atascii_DecidedCells_DecodeAsReference(int byteValue, string expected)
         {
             new AtasciiEncoding().GetString([(byte)byteValue]).Should().Be(expected);
         }
@@ -113,24 +113,22 @@ namespace telnet_cs.Tests
             "25E4,258C,2597,2514,2510,2582,250C,2534,252C,2524,251C,2586,2585,2590,2588,03C0"
         ];
 
-        // telnetlib3 DECODING_TABLE cells, all except 0x7A/0xB4/0xE0/0xF4.
+        // telnetlib3 DECODING_TABLE cells, all 256 (0x7A U+2666, 0xB4/0xF4
+        // U+2510, 0xE0 U+00A0 — matches the reference, no exceptions).
         [Fact]
-        public void Petscii_FullTable_MatchesReferenceExceptFlaggedCells()
+        public void Petscii_FullTable_MatchesReference()
         {
             ShouldMatchExcept(
-                new PetsciiEncoding(), new HashSet<int> { 0x7A, 0xB4, 0xE0, 0xF4 }, PetsciiHex);
+                new PetsciiEncoding(), new HashSet<int>(), PetsciiHex);
         }
 
-        // Flagged (conflict 18): 0x7A decodes to U+25C6 here vs U+2666 in
-        // telnetlib3; 0xB4/0xF4 decode to U+2518 here vs U+2510 there; 0xE0
-        // decodes to U+00E0 here vs U+00A0 there. Pinned as-is until the
-        // owner decides.
+        // Reference cells: 0x7A U+2666, 0xB4/0xF4 U+2510, 0xE0 U+00A0.
         [Theory]
-        [InlineData(0x7A, "\u25C6")]
-        [InlineData(0xB4, "\u2518")]
-        [InlineData(0xF4, "\u2518")]
-        [InlineData(0xE0, "\u00E0")]
-        public void Petscii_FlaggedCells_DecodeAsImplemented(int byteValue, string expected)
+        [InlineData(0x7A, "\u2666")]
+        [InlineData(0xB4, "\u2510")]
+        [InlineData(0xF4, "\u2510")]
+        [InlineData(0xE0, "\u00A0")]
+        public void Petscii_ReferenceCells_DecodeAsReference(int byteValue, string expected)
         {
             new PetsciiEncoding().GetString([(byte)byteValue]).Should().Be(expected);
         }

@@ -21,25 +21,37 @@ namespace telnet_cs.Tests
         }
 
         [Theory]
-        [InlineData(3)]   // SGA option number: illegal as a 2-byte command.
-        [InlineData(5)]   // STATUS option number.
-        [InlineData(7)]   // BEL: no command meaning after IAC.
-        [InlineData(200)] // Unassigned value.
-        public async Task IllegalTwoByteIac_IsConsumedSilentlyWithoutReply(int verb)
+        [InlineData(3, "\u0003A")]   // SGA option number: data, not a command.
+        [InlineData(5, "\u0005A")]   // STATUS option number: data.
+        [InlineData(7, "\u0007A")]   // BEL: no command meaning after IAC.
+        [InlineData(200, "ÈA")]      // Unassigned value: data (never-drop-bytes).
+        public async Task IllegalTwoByteIac_IsDeliveredAsDataWithoutReply(int verb, string expected)
         {
-            // RFC 856 §5: IAC followed by a byte that is not a defined TELNET
-            // command has the same meaning as IAC NOP — consume it silently
-            // (never data, never a reply).
+            // telnetlib3 parity: IAC followed by a byte with no defined
+            // command meaning falls through as in-band data (never a reply).
             var (output, writes) = await ReadScriptedAsync(255, verb, 65);
+            output.Should().Be(expected);
+            writes.Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task IllegalTwoByteTm_IsConsumedSilentlyWithoutReply()
+        {
+            // Byte 6 (TM) is not a defined RFC 854 command, but telnetlib3
+            // registers a NOP callback for it — so unlike other undefined
+            // bytes it never becomes data.
+            var (output, writes) = await ReadScriptedAsync(255, 6, 65);
             output.Should().Be("A");
             writes.Should().BeEmpty();
         }
 
         [Fact]
-        public async Task StraySeOutsideSb_IsConsumedSilently()
+        public async Task StraySeOutsideSb_IsDeliveredAsData()
         {
+            // Decided: a bare IAC SE with no open SB block delivers 0xF0 as
+            // data (telnetlib3 parity, never-drop-bytes) — never a reply.
             var (output, writes) = await ReadScriptedAsync(255, 240, 65);
-            output.Should().Be("A");
+            output.Should().Be("ðA");
             writes.Should().BeEmpty();
         }
 

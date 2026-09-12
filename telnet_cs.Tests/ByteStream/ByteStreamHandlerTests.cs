@@ -205,8 +205,11 @@
         }
 
         [Fact]
-        public async Task WhenIac2ByteStreamShouldReturnEmptyAndNotReply()
+        public async Task WhenIac2ByteStreamShouldReturnDataAndNotReply()
         {
+            // Byte 2 has no command meaning and no registered callback, so
+            // IAC 2 falls through as in-band data (telnetlib3 parity) — never
+            // a reply.
             var socket = A.Fake<ISocket>();
             using (var networkStream = A.Fake<INetworkStream>())
             {
@@ -230,7 +233,7 @@
                     {
                         var response = await sut.ReadAsync(TimeSpan.FromMilliseconds(10));
 
-                        response.Should().BeEmpty();
+                        response.Should().Be("\u0002");
                         A.CallTo(() => networkStream
                             .WriteByteAsync(A<byte>._, A<CancellationToken>._)
                         ).MustNotHaveHappened();

@@ -90,12 +90,25 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task IacEor_SurfacesEvent_WithoutReplyOrData()
+        public async Task IacEor_WithoutAgreement_IsNop()
         {
+            // RFC 885: EOR not in effect means received IAC EOR is a NOP —
+            // no hook, no reply, no data.
             var fired = 0;
             var (output, writes, _) = await ReadOnceAsync(h => h.EorReceived += () => fired++, Iac, 239);
             output.Should().BeEmpty();
             writes.Should().BeEmpty();
+            fired.Should().Be(0);
+        }
+
+        [Fact]
+        public async Task IacEor_WhenAgreed_SurfacesEvent_WithoutReplyOrData()
+        {
+            var fired = 0;
+            var (output, writes, _) = await ReadOnceAsync(
+              h => h.EorReceived += () => fired++, Iac, Will, 25, Iac, 239);
+            output.Should().BeEmpty();
+            Concat(writes).Should().Equal(Iac, Do, 25);
             fired.Should().Be(1);
         }
 

@@ -23,13 +23,15 @@ namespace telnet_cs.Encodings
 
         private static string[] BuildDecodeTable()
         {
-            // Control ranges (0x00-0x1F, 0x80-0x9F) and the shifted spaces
-            // (0xA0, 0xE0) decode to the identical code point.
+            // Control ranges (0x00-0x1F, 0x80-0x9F) decode to the identical
+            // code point; the shifted spaces (0xA0, 0xE0) decode to NBSP.
             var table = new string[256];
             for (var i = 0; i < 256; i++)
             {
                 table[i] = ((char)i).ToString();
             }
+
+            table[0xE0] = "\u00A0";
 
             table[0x0A] = "\n";
             table[0x0D] = "\r";
@@ -52,7 +54,7 @@ namespace telnet_cs.Encodings
             // 0xE1-0xFE, and pi at 0x7E/0xDE/0xFF.
             const string graphics60 =
                 "─♠│─▗▖▘▝▙▟▞▕▏▄▀█" +
-                "▄▛▃♥▜╭╳○♣▚◆┼│╱π◥";
+                "▄▛▃♥▜╭╳○♣▚♦┼│╱π◥";
             for (var i = 0; i < graphics60.Length; i++)
             {
                 table[0x60 + i] = graphics60[i].ToString();
@@ -60,7 +62,7 @@ namespace telnet_cs.Encodings
 
             const string graphicsA1 =
                 "▄▀───│││╮╰╯╲╱╳•" +
-                "◤▌▗└┘▂┌┴┬┤├▆▅▐█╲";
+                "◤▌▗└┐▂┌┴┬┤├▆▅▐█╲";
             for (var i = 0; i < graphicsA1.Length; i++)
             {
                 table[0xA1 + i] = graphicsA1[i].ToString();

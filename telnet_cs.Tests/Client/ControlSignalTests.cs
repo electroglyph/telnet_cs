@@ -154,13 +154,22 @@
         }
 
         [Theory]
-        [InlineData(240)] // stray SE
         [InlineData(241)] // NOP
         [InlineData(242)] // DM in normal mode stays a NOP
         public async Task SwallowedCommands_StaySilent(int verb)
         {
             var (output, stream) = await ReadWithStreamAsync(255, verb);
             output.Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task StraySe_IsDeliveredAsDataWithoutReply()
+        {
+            // Decided (conflict 16): a bare IAC SE with no open SB block
+            // delivers 0xF0 as data (telnetlib3 parity), never a reply.
+            var (output, stream) = await ReadWithStreamAsync(255, 240);
+            output.Should().Be("ð");
             stream.ByteWrites.Should().BeEmpty();
         }
 

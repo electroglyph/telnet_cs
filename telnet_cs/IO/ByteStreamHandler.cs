@@ -1132,15 +1132,39 @@
                     return;
                 case (int)Commands.EndOfRecord:
                     // RFC 885: IAC EOR marks a prompt boundary with no
-                    // subnegotiation. Surfaced through the hook like GA; the
-                    // boundary itself never enters the data stream.
+                    // subnegotiation. Surfaced through the hook like GA, but
+                    // only when EOR is in effect on the peer's transmit path
+                    // (peer's WILL + our DO); otherwise it is a NOP and the
+                    // boundary never enters the data stream either way.
+                    if (!Negotiation.IsEnabledByPeer((int)Options.EndOfRecord))
+                    {
+                        WriteLog("EOR received without agreement; treating as NOP.");
+                        return;
+                    }
+
                     WriteLog("End of record (EOR) received.");
                     EorReceived?.Invoke();
                     return;
                 case (int)Commands.SubnegotiationEnd:
+                    // A bare IAC SE with no open SB block is delivered as data
+                    // byte 0xF0 instead of being consumed. The RFCs give SE no
+                    // standalone meaning (it only terminates an SB block), so
+                    // either treatment is standards-compliant; delivering keeps
+                    // the never-drop-bytes invariant (unparseable framed bytes
+                    // fall through to the reader, exactly like the IAC IAC
+                    // escape path, which likewise bypasses the 8-bit gate)
+                    // and matches telnetlib3's parser.
+                    WriteLog("Stray SE outside subnegotiation; delivering 0xF0 as data.");
+                    AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, (char)Commands.SubnegotiationEnd);
+                    return;
                 case (int)Commands.NoOperation:
                 case (int)Commands.DataMark:
-                    // Stray SE, NOP, and DM in normal mode carry no data: consume silently.
+                case (int)Options.TimingMark:
+                    // Stray NOP, and DM in normal mode (RFC 854: DM is a NOP
+                    // outside Synch processing), carry no data: consume silently.
+                    // Byte 6 (TM) rides along: it is not a defined RFC 854
+                    // command, but telnetlib3 registers a NOP callback for it,
+                    // so it must not fall into the data default below.
                     return;
                 case (int)Commands.GoAhead:
                     // RFC 858 §5: GA is a NOP only while Suppress-GA is in effect on
@@ -1168,9 +1192,18 @@
                     await PerformNegotiation().ConfigureAwait(false);
                     return;
                 default:
-                    // RFC 856 §5: IAC followed by a byte that is not a defined TELNET
-                    // command has the same meaning as IAC NOP — consume it silently
-                    // (never data, never a reply).
+                    // IAC followed by a byte with no defined TELNET command
+                    // meaning and no registered callback is delivered as
+                    // in-band data instead of being consumed. Every command
+                    // this parser handles (including TM, which telnetlib3
+                    // answers with a NOP callback) has an explicit case above,
+                    // so anything reaching here is one of telnetlib3's "not a
+                    // legal 2-byte cmd" bytes, which its parser feeds through
+                    // as data (never-drop-bytes); like the IAC IAC escape this
+                    // bypasses the 8-bit gate because the peer framed the byte
+                    // explicitly.
+                    WriteLog($"Illegal 2-byte IAC {inputVerb}; delivering as data.");
+                    AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, (char)inputVerb);
                     return;
             }
         }
