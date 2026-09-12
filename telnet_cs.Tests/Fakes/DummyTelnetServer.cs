@@ -7,7 +7,7 @@
     public class DummyTelnetServer : DummyTelnetServerBase
     {
         public DummyTelnetServer()
-          : base(Client.LegacyLineFeed)
+          : base(Client.Rfc854LineFeed)
         { }
     }
 }

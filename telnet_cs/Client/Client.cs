@@ -14,13 +14,13 @@
     public partial class Client : BaseClient, IClient
     {
         /// <inheritdoc/>
-        public Task<bool> TryLoginAsync(string userName, string password, int loginTimeoutMs, string lineFeed = LegacyLineFeed)
+        public Task<bool> TryLoginAsync(string userName, string password, int loginTimeoutMs, string lineFeed = Rfc854LineFeed)
         {
             return TryLoginAsync(userName, password, loginTimeoutMs, ">", lineFeed);
         }
 
         /// <inheritdoc/>
-        public async Task<bool> TryLoginAsync(string userName, string password, int loginTimeoutMs, string terminator, string lineFeed = LegacyLineFeed)
+        public async Task<bool> TryLoginAsync(string userName, string password, int loginTimeoutMs, string terminator, string lineFeed = Rfc854LineFeed)
         {
             var result = await TrySendUsernameAndPasswordAsync(userName, password, loginTimeoutMs, lineFeed).ConfigureAwait(false);
             if (result)
@@ -34,17 +34,11 @@
         /// <inheritdoc/>
         public Task WriteLineAsync(string command)
         {
-            return WriteAsync(string.Format("{0}{1}", command, LegacyLineFeed));
-        }
-
-        /// <inheritdoc/>
-        public Task WriteLineRfc854Async(string command)
-        {
             return WriteAsync(string.Format("{0}{1}", command, Rfc854LineFeed));
         }
 
         /// <inheritdoc/>
-        public Task WriteLineAsync(string command, string lineFeed = LegacyLineFeed)
+        public Task WriteLineAsync(string command, string lineFeed = Rfc854LineFeed)
         {
             return WriteAsync(string.Format("{0}{1}", command, lineFeed));
         }

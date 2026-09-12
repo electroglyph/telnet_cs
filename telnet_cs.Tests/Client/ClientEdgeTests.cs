@@ -130,22 +130,23 @@
         }
 
         [Fact]
-        public async Task WriteLineAppendsLegacyFeed()
+        public async Task WriteLineAppendsRfc854FeedByDefault()
         {
             var fake = ConnectedFake();
             using var sut = new Client(fake, TimeSpan.FromMilliseconds(10), default);
             A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored));
             await sut.WriteLineAsync("cmd");
-            A.CallTo(() => fake.WriteAsync("cmd\n", A<CancellationToken>.Ignored)).MustHaveHappened();
+            A.CallTo(() => fake.WriteAsync("cmd\r\n", A<CancellationToken>.Ignored)).MustHaveHappened();
         }
 
         [Fact]
-        public async Task WriteLineRfc854AppendsCrLf()
+        public async Task WriteLineExplicitLegacyFeedSendsBareLf()
         {
             var fake = ConnectedFake();
             using var sut = new Client(fake, TimeSpan.FromMilliseconds(10), default);
-            await sut.WriteLineRfc854Async("cmd");
-            A.CallTo(() => fake.WriteAsync("cmd\r\n", A<CancellationToken>.Ignored)).MustHaveHappened();
+            A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored));
+            await sut.WriteLineAsync("cmd", Client.LegacyLineFeed);
+            A.CallTo(() => fake.WriteAsync("cmd\n", A<CancellationToken>.Ignored)).MustHaveHappened();
         }
 
         [Fact]

@@ -242,15 +242,15 @@
         }
 
         /// <summary>
-        /// Writes the specified <paramref name="command"/> plus a legacy
-        /// <c>"\n"</c> line feed to the peer.
+        /// Writes the specified <paramref name="command"/> plus an RFC 854
+        /// compliant <c>"\r\n"</c> line feed to the peer.
         /// </summary>
         /// <param name="command">The command.</param>
         /// <param name="cancellationToken">A token to cancel the write.</param>
         /// <returns>An awaitable Task.</returns>
         public Task WriteLineAsync(string command, CancellationToken cancellationToken = default)
         {
-            return WriteLineAsync(command, LineFeed.Legacy, cancellationToken);
+            return WriteLineAsync(command, LineFeed.Rfc854, cancellationToken);
         }
 
         /// <summary>
@@ -258,7 +258,7 @@
         /// <paramref name="lineFeed"/> to the peer.
         /// </summary>
         /// <param name="command">The command.</param>
-        /// <param name="lineFeed">The type of lineFeed to use. For legacy reasons the default "\n" is supplied, but to be RFC854 compliant "\r\n" should be supplied.</param>
+        /// <param name="lineFeed">The type of lineFeed to use. RFC 854 CR+LF by default; pass <c>LineFeed.Legacy</c> for bare "\n".</param>
         /// <returns>An awaitable Task.</returns>
         public Task WriteLineAsync(string command, string lineFeed)
         {
@@ -270,24 +270,12 @@
         /// <paramref name="lineFeed"/> to the peer.
         /// </summary>
         /// <param name="command">The command.</param>
-        /// <param name="lineFeed">The type of lineFeed to use. For legacy reasons the default "\n" is supplied, but to be RFC854 compliant "\r\n" should be supplied.</param>
+        /// <param name="lineFeed">The type of lineFeed to use. RFC 854 CR+LF by default; pass <c>LineFeed.Legacy</c> for bare "\n".</param>
         /// <param name="cancellationToken">A token to cancel the write.</param>
         /// <returns>An awaitable Task.</returns>
         public Task WriteLineAsync(string command, string lineFeed, CancellationToken cancellationToken = default)
         {
             return WriteAsync($"{command}{lineFeed}", cancellationToken);
-        }
-
-        /// <summary>
-        /// Writes the specified <paramref name="command"/> plus an RFC 854
-        /// compliant <c>"\r\n"</c> line feed to the peer.
-        /// </summary>
-        /// <param name="command">The command.</param>
-        /// <param name="cancellationToken">A token to cancel the write.</param>
-        /// <returns>An awaitable Task.</returns>
-        public Task WriteLineRfc854Async(string command, CancellationToken cancellationToken = default)
-        {
-            return WriteLineAsync(command, LineFeed.Rfc854, cancellationToken);
         }
 
         private void FeedSession(ByteStreamHandler handler)

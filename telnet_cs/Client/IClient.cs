@@ -135,9 +135,9 @@
         /// <param name="userName">The user name.</param>
         /// <param name="password">The password.</param>
         /// <param name="loginTimeoutMs">The login timeout ms.</param>
-        /// <param name="lineFeed">The line feed to use. Issue 38: According to RFC 854, CR+LF should be the default a client sends. For backward compatibility \n maintained.</param>
+        /// <param name="lineFeed">The line feed to use. RFC 854 CR+LF by default; pass <c>Client.LegacyLineFeed</c> for bare "\n".</param>
         /// <returns>True if successful.</returns>
-        Task<bool> TryLoginAsync(string userName, string password, int loginTimeoutMs, string lineFeed = Client.LegacyLineFeed);
+        Task<bool> TryLoginAsync(string userName, string password, int loginTimeoutMs, string lineFeed = Client.Rfc854LineFeed);
 
         /// <summary>
         /// Syntactic sugar; tries to login asynchronously. 
@@ -150,9 +150,9 @@
         /// <param name="password">The password.</param>
         /// <param name="loginTimeoutMs">The login timeout ms.</param>
         /// <param name="terminator">The prompt terminator to anticipate.</param>
-        /// <param name="lineFeed">The line feed to use. Issue 38: According to RFC 854, CR+LF should be the default a client sends. For backward compatibility \n maintained.</param>
+        /// <param name="lineFeed">The line feed to use. RFC 854 CR+LF by default; pass <c>Client.LegacyLineFeed</c> for bare "\n".</param>
         /// <returns>True if successful.</returns>
-        Task<bool> TryLoginAsync(string userName, string password, int loginTimeoutMs, string terminator, string lineFeed = Client.LegacyLineFeed);
+        Task<bool> TryLoginAsync(string userName, string password, int loginTimeoutMs, string terminator, string lineFeed = Client.Rfc854LineFeed);
 
         /// <summary>
         /// Writes the specified <paramref name="data"/> to the server.
@@ -181,16 +181,9 @@
         /// Writes the specified <paramref name="command"/> to the server.
         /// </summary>
         /// <param name="command">The command.</param>
-        /// <param name="lineFeed">The type of lineFeed to use. For legacy reasons the default "\n" is supplied, but to be RFC854 compliant "\r\n" should be supplied.</param>
+        /// <param name="lineFeed">The type of lineFeed to use. RFC 854 CR+LF by default; pass <c>Client.LegacyLineFeed</c> for bare "\n".</param>
         /// <returns>An awaitable Task.</returns>
-        Task WriteLineAsync(string command, string lineFeed = Client.LegacyLineFeed);
-
-        /// <summary>
-        /// Writes the specified <paramref name="command"/> to the server.
-        /// </summary>
-        /// <param name="command">The command.</param>
-        /// <returns>An awaitable Task.</returns>
-        Task WriteLineRfc854Async(string command);
+        Task WriteLineAsync(string command, string lineFeed = Client.Rfc854LineFeed);
 
         /// <summary>
         /// Sends a standalone TELNET control command as an <c>IAC &lt;cmd&gt;</c>

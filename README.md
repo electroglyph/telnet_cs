@@ -69,6 +69,7 @@ speed), 1091 (terminal type), 1096 (X display), 1184 (linemode), 1372
     `Server.TelnetSessionContext` (activity timestamps, rx/tx counters,
     typescript recorder, property bag), `IdleTimeout` (default 300 s),
     `StatusInterval` (default 20 s), and opt-in `TlsAutoDetect` peek.
-- 999 tests, full suite green with warnings-as-errors. Requires the
+- 997 tests, full suite green with warnings-as-errors. Requires the
   .NET 10 SDK and runtime; build with
   `dotnet build telnet_cs.sln -c Release`.
+- Usage guides: [client](docs/client.md), [server](docs/server.md).

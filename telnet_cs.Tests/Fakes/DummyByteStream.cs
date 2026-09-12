@@ -17,16 +17,16 @@
         private readonly Queue<WriteHandlerBase> handlers;
 
         /// <summary>
-        /// Supplies the lineFeed character expected: default = "\n")
+        /// Supplies the lineFeed character expected: default = "\r\n" (RFC 854).
         /// </summary>
         public DummyByteStream()
-          : this(Client.LegacyLineFeed)
+          : this(Client.Rfc854LineFeed)
         { }
 
         /// <summary>
         ///
         /// </summary>
-        /// <param name="lineFeed">The lineFeed character expected: default = "\n")</param>
+        /// <param name="lineFeed">The lineFeed character expected.</param>
         public DummyByteStream(string lineFeed)
         {
             Connected = true;

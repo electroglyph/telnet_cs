@@ -58,7 +58,7 @@ namespace telnet_cs.Tests
             using var tcp = new telnet_cs.Transport.TcpClient(server.IPAddress.ToString(), server.Port);
             tcp.ReceiveTimeout = 2000;
             using var stream = tcp.GetStream();
-            var login = Encoding.ASCII.GetBytes("username\n");
+            var login = Encoding.ASCII.GetBytes("username\r\n");
             await stream.WriteAsync(login, 0, login.Length, CancellationToken.None);
             var sb = new StringBuilder();
             var sw = Stopwatch.StartNew();
@@ -99,8 +99,8 @@ namespace telnet_cs.Tests
             sut.ReceiveTimeout.Should().Be(500);
             sut.ReadByte().Should().Be((byte)'A');
             // Covers the real TcpByteStream.WriteAsync(string) path; the server
-            // consumes "username\n" and replies with the (unread) Password prompt.
-            await sut.WriteAsync("username\n", CancellationToken.None);
+            // consumes "username\r\n" and replies with the (unread) Password prompt.
+            await sut.WriteAsync("username\r\n", CancellationToken.None);
             server.IsListening.Should().BeTrue();
         }
 

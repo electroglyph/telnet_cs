@@ -17,12 +17,14 @@
     public partial class Client
     {
         /// <summary>
-        /// Prior to v0.9.0 LegacyLineFeed was the default. To be Rfc854 compliant you should prefer Rfc854LineFeed.
+        /// Legacy <c>"\n"</c> line feed, kept for explicit opt-in (e.g. binary-mode
+        /// peers). It is no longer any write-path default.
         /// </summary>
         public const string LegacyLineFeed = LineFeed.Legacy;
 
         /// <summary>
-        /// Post to v0.9.0 LegacyLineFeed has been retained as the default, but to be Rfc854 compliant you should prefer this.
+        /// RFC 854 compliant <c>"\r\n"</c> line feed. This is the default for
+        /// <c>WriteLineAsync</c> and <c>TryLoginAsync</c>.
         /// </summary>
         public const string Rfc854LineFeed = LineFeed.Rfc854;
 

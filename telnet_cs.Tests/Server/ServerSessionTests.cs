@@ -647,12 +647,17 @@ namespace telnet_cs.Tests
             var options = new TelnetServerOptions { RequestCharacterSet = true, Log = msg => { lock (log) log.Add(msg); } };
             using var stream = new ScriptedStream();
             using var session = new ServerSession(stream, options, CancellationToken.None);
-            // Concurrent requesters use disjoint expecting-flags; both poll to
-            // their timeouts (no dispose-while-reading: both are awaited).
-            var charsetTask = session.RequestCharsetAsync(TimeSpan.FromMilliseconds(300));
+            // The charset requester gets a far-future timeout (cancelled below),
+            // so it is deterministically still outstanding when the TTYPE final
+            // wait ends. Two equal timeouts would race their cleanups: whichever
+            // task clears its expecting-flag first decides whether the warning
+            // fires (20/20 failure under CPU load with 300 ms vs 300 ms).
+            using var charsetCts = new CancellationTokenSource();
+            var charsetTask = session.RequestCharsetAsync(TimeSpan.FromSeconds(30), charsetCts.Token);
             (await session.RequestTerminalTypesAsync(TimeSpan.FromMilliseconds(300))).Should().BeEmpty();
-            (await charsetTask).Should().BeNull();
             lock (log) log.Should().ContainSingle(m => m.Contains("Waiting for critical subnegotiation", StringComparison.Ordinal));
+            charsetCts.Cancel();
+            (await charsetTask).Should().BeNull();
         }
 
         [Fact]
