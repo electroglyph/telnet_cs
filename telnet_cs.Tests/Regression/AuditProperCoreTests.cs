@@ -82,7 +82,22 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task HighBytes_PreservedWithoutBinary()
         {
-            // F-C2: the bytes path never drops; BINARY only gates decoding.
+            // Source of truth: telnetlib3 never drops data bytes in the framing path.
+            // ~/telnetlib3/telnetlib3/_base.py _process_data_chunk scans only for IAC (255)
+            // and forwards every other byte to reader.feed_data, including bytes > 127.
+            // BINARY (RFC 856) only selects the unicode decoder:
+            // ~/telnetlib3/telnetlib3/server.py encoding() returns "US-ASCII" unless
+            // BINARY was negotiated, but the raw bytes are already buffered in
+            // TelnetReader._buffer either way. RFC 854 NVT printer takes no action on
+            // remaining codes; it never deletes them.
+            // Our code: telnet_cs/IO/ByteStreamHandler.cs:1036 drops input > 127 when
+            // BINARY was not agreed and no TextEncoding/ForceBinaryDecoding is set, and
+            // telnet_cs/IO/ByteStringConverter.cs:11-15 claims the null-encoding path is
+            // 8-bit-clean, so the drop contradicts our own converter contract.
+            // Proof: wire [200, 65] (0xC8 'A') must arrive as two chars "\u00C8A";
+            // returning only "A" proves a data-loss drop. This test is correct per the
+            // reference bytes path; the fix is to gate only charset decoding, never the
+            // byte delivery itself.
             var (output, _, _) = await ReadScriptedAsync(200, 65);
             output.Should().Be("ÈA");
         }
@@ -102,7 +117,18 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task CrNul_PreservedInRawRead()
         {
-            // F-C8: CR NUL collapsing belongs to line-oriented reads only.
+            // Source of truth: telnetlib3 splits raw read vs line read.
+            // ~/telnetlib3/telnetlib3/stream_reader.py read() drains TelnetReader._buffer
+            // verbatim with no CR handling; only readline() trims CR NUL to CR while
+            // preserving CR LF. RFC 854 p.11 defines CR NUL as the wire spelling of a
+            // lone CR for the NVT printer, i.e. a presentation mapping, not a transport
+            // deletion.
+            // Our code: telnet_cs/IO/ByteStreamHandler.cs:1031-1033 appends "\r" and sets
+            // sawCrAwaitingNul, then swallows a following NUL even in raw ReadAsync, so
+            // raw consumers lose a byte that the reference preserves.
+            // Proof: wire [65, 13, 0] ("A" CR NUL) must read back as three chars
+            // "A\r\0" in a raw read; collapsing to "A\r" belongs only in the line
+            // helper (TerminatedReadAsync), matching readline(). This test is correct.
             var (output, _, _) = await ReadScriptedAsync(65, 13, 0);
             output.Should().Be("A\r\0");
         }
@@ -120,8 +146,18 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task LargeSubnegotiation_Dispatched()
         {
-            // F-C4: a 600-byte SB (well under the 1 MiB reference bound) must
-            // be dispatched, not silently dropped.
+            // Source of truth: telnetlib3 caps subnegotiation at 1 MiB.
+            // ~/telnetlib3/telnetlib3/stream_writer.py:112 _MAX_SUBNEGOTIATION = 1 << 20,
+            // with consume-to-IAC-SE resync past the cap and dispatch to
+            // handle_subnegotiation on IAC SE below the cap.
+            // Our code: telnet_cs/IO/ByteStreamHandler.cs:20 caps at 512 bytes with the
+            // same resync shape at :1452/1471, so frames of 513..1048576 bytes that the
+            // reference dispatches are silently dropped here (large NEW-ENVIRON IS,
+            // MSSP, GMCP, MSDP).
+            // Proof: SB TTYPE SEND + 600 x 'A' + IAC SE is well under 1 MiB, so the
+            // reference answers SB TTYPE IS; asserting ContainsFrame(... [255,250,24,0])
+            // fails only while the 512 cap is in place. This test is correct; the fix
+            // is to raise the cap to the reference value while keeping resync.
             using var stream = new ScriptedStream([255, 253, 24]);
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
@@ -135,12 +171,29 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task ClientSplitIacWill_RepliedOnSecondRead()
         {
-            // F-C7: a split IAC WILL across two top-level reads must still be
-            // answered; the pending-IAC state must survive the handler swap.
+            // Source of truth: Telnet framing is stream-oriented, so a command split
+            // across TCP segments must reassemble. telnetlib3 keeps per-connection
+            // framing state (stream_writer.py iac_received/cmd_received/_sb_buffer) that
+            // survives across data_received calls. RFC 854 defines WILL = 251 and
+            // DO = 253 (see telnet_cs/Protocol/Commands.cs:39,43); a peer WILL SGA is
+            // answered with DO SGA.
+            // Our code: telnet_cs/IO/ByteStreamHandler.cs:34,40 keeps pendingIac and
+            // pendingVerb per handler instance, but telnet_cs/Client/Client.cs builds a
+            // new handler per top-level ReadAsync and round-trips only SbResumeState
+            // (see StateHydration.cs), so a trailing IAC in one read plus WILL SGA in
+            // the next is lost and never answered. The constructor also sends a
+            // proactive IAC DO SGA (Client.Connect.cs:299-302), hence the count of 2:
+            // one proactive plus one answer to the split WILL.
+            // Proof: feed [255] in one ReadAsync then [251, 3] (IAC WILL SGA split) in
+            // the next; the reference reassembles and answers DO SGA, giving two DO SGA
+            // frames total. Counting only one proves the split state was lost. This
+            // test previously enqueued [253, 3] (DO, not WILL) which would earn WILL,
+            // never a second DO, so it could not pass even after a correct split fix;
+            // it now enqueues the intended WILL bytes. This test is correct as fixed.
             using var stream = new ScriptedStream(255);
             using var client = new Client(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None);
             (await client.ReadAsync(TimeSpan.FromMilliseconds(200))).Should().BeEmpty();
-            stream.Enqueue(253, 3);
+            stream.Enqueue(251, 3);
             await client.ReadAsync(TimeSpan.FromMilliseconds(200));
             byte[] writes = stream.ByteWrites.SelectMany(w => w).ToArray();
             CountOccurrences(writes, new byte[] { 255, 253, 3 }).Should().Be(2, "proactive DO SGA plus the DO SGA answer to split WILL SGA");
@@ -149,8 +202,21 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RawDeflateStream_ResumesPlaintext()
         {
-            // F-C14: raw-deflate end must be detected so following plaintext
-            // resumes instead of entering the inflater.
+            // Source of truth: telnetlib3 detects deflate-stream end via zlib eof and
+            // unused_data, then resumes plaintext. See
+            // ~/telnetlib3/telnetlib3/client_base.py _mccp2 path and server_base.py:
+            // on decompressor.eof the wrapper ends MCCP and reprocesses unused bytes as
+            // plaintext; the next chunk with no decompressor goes straight to the
+            // reader. The bundled MCCP spec (docs/mud-protocols/mccp.md) defines zlib
+            // framing with resume; raw-deflate here exercises the reference raw
+            // fallback (wbits=-MAX) which also sets eof on the final block.
+            // Our code: telnet_cs/IO/MccpDecompressor.cs never sets StreamEnded for raw
+            // deflate (no footer to confirm), so Mccp2Active stays set and the trailing
+            // "YO" enters the inflater instead of the reader.
+            // Proof: WILL 86 + empty SB 86 (MCCP2 handshake) + raw-deflate("HI") must
+            // read "HI", then plaintext [89, 79] ("YO") must read "YO"; returning
+            // garbage/empty for the second read proves end-detection is missing. This
+            // test is correct per the reference resume behavior.
             using var stream = new ScriptedStream();
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1) { EnableMccp = true };
