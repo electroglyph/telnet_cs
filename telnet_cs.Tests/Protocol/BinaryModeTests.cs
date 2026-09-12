@@ -48,22 +48,34 @@
         [Fact]
         public async Task HighBytes_PassThroughAfterBinaryAgreement()
         {
-            // DO TransmitBinary is answered WILL; the following high bytes
-            // (including a doubled IAC) arrive as Latin-1 chars.
+            // Peer's WILL TransmitBinary is answered DO; the following high
+            // bytes (including a doubled IAC) arrive as Latin-1 chars. Only
+            // the inbound direction (peer's WILL) opens inbound 8-bit data.
             var (output, stream) = await ReadHandlerOnceAsync(
-              static _ => { }, 255, 253, 0, 128, 200, 254, 255, 255);
+              static _ => { }, 255, 251, 0, 128, 200, 254, 255, 255);
             output.Should().Be("\u0080\u00c8\u00fe\u00ff");
-            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 251, 0 });
+            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 253, 0 });
         }
 
         [Fact]
-        public async Task HighBytes_PassThroughWithoutAgreement_DocumentedDeviation()
+        public async Task HighBytes_WithoutAgreement_AreDropped()
         {
-            // Strict 7-bit NVT would not carry these; this library passes them
-            // through even when BINARY was never negotiated (see P8).
+            // RFC 856: NVT is 7-bit until BINARY is agreed for the inbound
+            // direction, so a bare 8-bit byte earns no action (neither data
+            // nor echo). The doubled IAC still decodes: it is an explicit
+            // peer framing act, not a bare byte.
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 200, 255, 255);
-            output.Should().Be("\u00c8\u00ff");
+            output.Should().Be("\u00ff");
             stream.ByteWrites.Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task HighBytes_WithoutAgreement_DecodedWhenEncodingExplicit()
+        {
+            // An explicitly configured TextEncoding opts into 8-bit decoding.
+            var (output, _) = await ReadHandlerOnceAsync(
+              static h => h.TextEncoding = System.Text.Encoding.Latin1, 200, 255, 255);
+            output.Should().Be("\u00c8\u00ff");
         }
 
         [Fact]

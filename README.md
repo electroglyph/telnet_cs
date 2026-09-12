@@ -1,5 +1,7 @@
 # telnet_cs
 
+What this is: a C# telnet server/client library, async only.
+
 Fair warning: this is 100% GMO, non-organic clanker generated code.
 
 This should be considered experimental for now, I will continue to add
@@ -16,16 +18,13 @@ Thanks and respect to jquast and all the other contributors of telnetlib3.
 
 Mostly AI generated text follows:
 
-
 A Telnet client **and** server library for .NET 10 (C# 14), implemented
 directly from the protocol specifications: RFC 854 (base protocol, NVT,
 commands, Synch), RFC 855 (option negotiation framework), RFC 1143
 (negotiation state machine), plus the option RFCs 856 (binary), 857 (echo),
 858 (suppress go-ahead), 859 (status), 860 (timing mark), 1073 (window size),
 1079 (terminal speed), 1091 (terminal type), 1184 (linemode), and 1408
-(environment). See `docs/rfcs.md` for the per-RFC coverage matrix
-(verbatim RFC texts in `docs/telnet-rfcs/`), `docs/client.md`,
-`docs/server.md`, and `docs/wire.md` for behavior notes.
+(environment).
 
 - **Client:** `telnet_cs.Client.Client` — connect, negotiate (RFC 1143 state
   machine), read/write, login, NAWS, terminal type/speed, environment,

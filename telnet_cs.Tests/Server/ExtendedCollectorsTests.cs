@@ -60,6 +60,39 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task SpontaneousCharsetAccepted_IsLatchedWithoutRequest()
+        {
+            using var stream = new ScriptedStream(Iac, Sb, 42, 2, 85, 84, 70, 45, 56, Iac, Se);
+            using var session = NewSession(stream);
+            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().BeEmpty();
+            session.ClientCharset.Should().Be("UTF-8");
+            stream.ByteWrites.Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task AcceptedCharset_SwitchesReadDecodingWithoutBinary()
+        {
+            using var stream = new ScriptedStream(
+              Iac, Sb, 42, 2, 85, 84, 70, 45, 56, Iac, Se);
+            using var session = NewSession(stream);
+            (await session.RequestCharsetAsync(TimeSpan.FromSeconds(5))).Should().Be("UTF-8");
+            stream.Enqueue(0xC3, 0xA9);
+            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().Be("é");
+        }
+
+        [Fact]
+        public async Task SimultaneousCharsetRequest_WhileOursOutstanding_AnswersRejected()
+        {
+            using var stream = new ScriptedStream(
+              Iac, Sb, 42, 1, 32, 85, 84, 70, 45, 56, Iac, Se);
+            using var session = NewSession(stream);
+            (await session.RequestCharsetAsync(TimeSpan.FromMilliseconds(200))).Should().BeNull();
+            stream.ByteWrites.Should().HaveCount(2);
+            stream.ByteWrites[0].Take(5).Should().Equal(Iac, Sb, 42, 1, 32);
+            stream.ByteWrites[1].Should().Equal(Iac, Sb, 42, 3, Iac, Se);
+        }
+
+        [Fact]
         public async Task RequestNewEnvironmentAsync_ReturnsIsEntries()
         {
             using var stream = new ScriptedStream(Iac, Sb, 39, 0, 0, 65, 1, 66, Iac, Se);

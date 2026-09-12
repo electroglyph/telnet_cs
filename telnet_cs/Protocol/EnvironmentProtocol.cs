@@ -30,18 +30,30 @@
         /// an empty request selects the defaults (well-known variables, then
         /// user variables). Entries with no configured value are omitted; when
         /// nothing is configured the payload is the bare verb (valid empty IS).
+        /// A <c>VAR</c> request (or an empty one) also volunteers the session
+        /// parameters <c>TERM</c>, <c>LANG</c>, <c>COLUMNS</c> and <c>LINES</c>,
+        /// matching telnetlib3's auto-sent <c>send_env</c> set; a
+        /// <c>USERVAR</c>-only request answers user variables alone.
         /// </summary>
         /// <param name="verb">The subnegotiation verb (<see cref="Is"/> or <see cref="Info"/>).</param>
         /// <param name="requestedTypes">The type bytes from the SEND request, verb excluded.</param>
         /// <param name="user">Value for the well-known <c>USER</c> variable, or null to omit.</param>
         /// <param name="display">Value for the well-known <c>DISPLAY</c> variable, or null to omit.</param>
         /// <param name="userVars">User-defined <c>USERVAR</c> entries.</param>
+        /// <param name="term">Value volunteered for <c>TERM</c>, or null to omit.</param>
+        /// <param name="lang">Value volunteered for <c>LANG</c>, or null to omit.</param>
+        /// <param name="columns">Value volunteered for <c>COLUMNS</c>, or null to omit.</param>
+        /// <param name="lines">Value volunteered for <c>LINES</c>, or null to omit.</param>
         internal static byte[] BuildResponse(
           byte verb,
           IEnumerable<byte> requestedTypes,
           string? user,
           string? display,
-          IReadOnlyDictionary<string, string>? userVars)
+          IReadOnlyDictionary<string, string>? userVars,
+          string? term = null,
+          string? lang = null,
+          string? columns = null,
+          string? lines = null)
         {
             var entries = new List<(byte Type, byte[] Name, byte[] Value)>();
             var seenAny = false;
@@ -58,7 +70,7 @@
                 seenAny = true;
                 if (type == Var)
                 {
-                    AddWellKnown(entries, user, display);
+                    AddWellKnown(entries, user, display, term, lang, columns, lines);
                 }
                 else if (type == UserVar && userVars is not null)
                 {
@@ -71,7 +83,7 @@
 
             if (!seenAny)
             {
-                AddWellKnown(entries, user, display);
+                AddWellKnown(entries, user, display, term, lang, columns, lines);
                 if (userVars is not null)
                 {
                     foreach (var pair in userVars)
@@ -91,6 +103,58 @@
             }
 
             return [.. payload];
+        }
+
+        /// <summary>
+        /// Builds the default NEW_ENVIRON SEND type/name sequence: one
+        /// <c>VAR "name"</c> pair per requested well-known variable, closed by
+        /// bare <c>VAR</c> and <c>USERVAR</c> markers inviting the client to
+        /// volunteer anything else. Mirrors telnetlib3's
+        /// <c>on_request_environ</c> default list. <c>USER</c> is excluded when
+        /// the TTYPE cycle identified Microsoft telnet (exactly
+        /// <c>ANSI</c>/<c>VT100</c>, case-sensitive): requesting it crashes
+        /// <c>telnet.exe</c>.
+        /// </summary>
+        /// <param name="ttype1">First TTYPE answer, or null when unknown.</param>
+        /// <param name="ttype2">Second TTYPE answer, or null when unknown.</param>
+        internal static byte[] BuildDefaultSendRequest(string? ttype1, string? ttype2)
+        {
+            var names = new List<string>();
+            if (ttype1 != "ANSI" || ttype2 != "VT100")
+            {
+                names.Add("USER");
+            }
+
+            names.AddRange(["LOGNAME", "DISPLAY", "LANG", "TERM", "TERM_PROGRAM", "COLUMNS", "LINES", "COLORTERM", "EDITOR", "IPADDRESS"]);
+
+            var request = new List<byte>();
+            foreach (var name in names)
+            {
+                request.Add(Var);
+                request.AddRange(Encode(name));
+            }
+
+            request.Add(Var);
+            request.Add(UserVar);
+            return [.. request];
+        }
+
+        /// <summary>
+        /// Reports whether a received environment map presumes BINARY
+        /// capability even without explicit BINARY negotiation: a
+        /// <c>CHARSET</c> entry, or a <c>LANG</c> entry carrying an encoding
+        /// suffix (a dot, and anything but <c>C</c>). Mirrors telnetlib3's
+        /// <c>on_environ</c> force-binary rule. Keys must already be
+        /// upper-cased; empty values must already be dropped.
+        /// </summary>
+        internal static bool ShouldForceBinary(IReadOnlyDictionary<string, string> environ)
+        {
+            if (environ.ContainsKey("CHARSET"))
+            {
+                return true;
+            }
+
+            return environ.TryGetValue("LANG", out var lang) && lang.Contains('.') && lang != "C";
         }
 
         /// <summary>
@@ -212,7 +276,14 @@
             return System.Text.Encoding.Latin1.GetString([.. raw]);
         }
 
-        private static void AddWellKnown(List<(byte Type, byte[] Name, byte[] Value)> entries, string? user, string? display)
+        private static void AddWellKnown(
+          List<(byte Type, byte[] Name, byte[] Value)> entries,
+          string? user,
+          string? display,
+          string? term,
+          string? lang,
+          string? columns,
+          string? lines)
         {
             if (user is not null)
             {
@@ -222,6 +293,26 @@
             if (display is not null)
             {
                 entries.Add((Var, (byte[])DisplayName.Clone(), Escape(Encode(display))));
+            }
+
+            if (term is not null)
+            {
+                entries.Add((Var, Encode("TERM"), Escape(Encode(term))));
+            }
+
+            if (lang is not null)
+            {
+                entries.Add((Var, Encode("LANG"), Escape(Encode(lang))));
+            }
+
+            if (columns is not null)
+            {
+                entries.Add((Var, Encode("COLUMNS"), Escape(Encode(columns))));
+            }
+
+            if (lines is not null)
+            {
+                entries.Add((Var, Encode("LINES"), Escape(Encode(lines))));
             }
         }
 

@@ -267,6 +267,15 @@
           new Dictionary<string, string>(StringComparer.Ordinal);
 
         /// <summary>
+        /// Gets or sets whether 8-bit data bytes are decoded even without an
+        /// agreed inbound BINARY direction. The server sets this when the
+        /// peer's environment presumes BINARY capability (a <c>CHARSET</c> or
+        /// encoding-suffixed <c>LANG</c> entry, RFC 1572; telnetlib3's
+        /// force-binary rule).
+        /// </summary>
+        internal bool ForceBinaryDecoding { get; set; }
+
+        /// <summary>
         /// Gets or sets the X display location reported in RFC 1096
         /// X-DISPLAY-LOCATION IS answers. The client feeds its effective
         /// setting before each read. Null answers no SEND (logged, silent).
@@ -346,9 +355,39 @@
         internal IReadOnlyList<string> CharsetOffers { get; set; } = ["UTF-8"];
 
         /// <summary>
+        /// Gets or sets the selector answering an inbound CHARSET REQUEST: it
+        /// receives the peer's offers and returns the selected name, or null
+        /// to REJECT. Defaults to null, which intersects the offers with
+        /// <see cref="CharsetOffers"/> and takes the first resolvable entry
+        /// (preferring an explicitly configured <see cref="TextEncoding"/>).
+        /// This is the offer-vs-send split: <see cref="CharsetOffers"/> builds
+        /// our outbound REQUEST, this answers inbound ones.
+        /// </summary>
+        internal Func<IReadOnlyList<string>, string?>? CharsetSelector { get; set; }
+
+        /// <summary>
+        /// Gets or sets whether this handler answers for a server role. A
+        /// server answers a simultaneous inbound CHARSET REQUEST (one arriving
+        /// while our own REQUEST is outstanding) with REJECTED; a client
+        /// answers the peer's REQUEST normally (RFC 2066 §5).
+        /// </summary>
+        internal bool IsServerRole { get; set; }
+
+        /// <summary>
+        /// Gets or sets whether our own CHARSET REQUEST is outstanding (sent,
+        /// not yet answered). Guards the single-active-subnegotiation rule
+        /// (RFC 2066 §5): no second REQUEST goes out while this is set.
+        /// Session owners feed the long-lived value in (handlers are
+        /// per-read); answer receipt clears it.
+        /// </summary>
+        internal bool CharsetRequestPending { get; set; }
+
+        /// <summary>
         /// Gets the character set agreed via CHARSET ACCEPTED, or null when
-        /// none was negotiated yet. Selecting <see cref="TextEncoding"/> from
-        /// it stays the caller's choice; negotiation never reassigns it silently.
+        /// none was negotiated yet (the wire-effective fallback is US-ASCII:
+        /// without an agreement the binary gate drops bare 8-bit bytes).
+        /// An ACCEPTED name switches <see cref="TextEncoding"/> to the agreed
+        /// encoding and latches <see cref="ForceBinaryDecoding"/>.
         /// </summary>
         internal string? NegotiatedCharset { get; private set; }
 
@@ -672,6 +711,20 @@
                         AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, ",", 31);
                         break;
                     default:
+                        if (input > 127 && !Negotiation.IsEnabledByPeer((int)Options.TransmitBinary) && TextEncoding is null && !ForceBinaryDecoding)
+                        {
+                            // RFC 856: NVT data is 7-bit until BINARY is agreed
+                            // for this direction (peer's WILL + our DO), so bare
+                            // 8-bit bytes earn no action. An explicitly
+                            // configured TextEncoding opts into 8-bit decoding
+                            // (the user asserts the peer sends 8-bit data), as
+                            // does ForceBinaryDecoding (the peer's environment
+                            // presumed BINARY capability). The
+                            // IAC IAC escape path above is unaffected: a doubled
+                            // IAC is an explicit peer framing act.
+                            break;
+                        }
+
                         AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, (char)input);
                         break;
                 }
@@ -1055,7 +1108,7 @@
                     await SendNegotiation(inputOption, TerminalTypeProvider?.Invoke() ?? TerminalType).ConfigureAwait(false);
                     break;
                 case (int)Options.TerminalSpeed:
-                    string? speed = TerminalSpeedProtocol.Normalize(TerminalSpeed);
+                    string? speed = TerminalSpeedProtocol.Validate(TerminalSpeed);
                     if (speed is null)
                     {
                         WriteLog("Skipping TERMINAL-SPEED reply: malformed speed (want \"<tx>,<rx>\" decimal).");
@@ -1154,18 +1207,29 @@
         /// Answer an RFC 1408/1572 ENVIRON SEND with an IS built from the
         /// configured environment values. The SEND type list (after the verb)
         /// is mirrored. Old (36) and new (39) forms share framing and verbs;
-        /// the answer goes out on whichever option asked.
+        /// the answer goes out on whichever option asked. A <c>VAR</c> (or
+        /// empty) request also volunteers the session parameters
+        /// <c>TERM</c>, <c>LANG</c>, <c>COLUMNS</c> and <c>LINES</c>, matching
+        /// telnetlib3's auto-sent <c>send_env</c> set; <c>LANG</c> is
+        /// <c>C</c> without an explicit <see cref="TextEncoding"/>, else
+        /// <c>en_US.&lt;encoding&gt;</c>.
         /// </summary>
         /// <param name="inputOption">The option under negotiation (old or new).</param>
         /// <param name="payload">The full received subnegotiation payload, verb first.</param>
         private Task ReplyEnvironmentAsync(int inputOption, List<byte> payload)
         {
+            var (width, height) = NawsProtocol.GetEffectiveSize(WindowWidth, WindowHeight);
+            var lang = TextEncoding is null ? "C" : "en_US." + TextEncoding.WebName;
             var response = EnvironmentProtocol.BuildResponse(
               EnvironmentProtocol.Is,
               payload.Skip(1),
               EnvironmentUser,
               EnvironmentDisplay,
-              EnvironmentUserVars);
+              EnvironmentUserVars,
+              string.IsNullOrEmpty(TerminalType) ? null : TerminalType,
+              lang,
+              width.ToString(System.Globalization.CultureInfo.InvariantCulture),
+              height.ToString(System.Globalization.CultureInfo.InvariantCulture));
             WriteLog("Sending: " + Enum.GetName(typeof(Options), inputOption));
             return SendNegotiation(inputOption, response);
         }
@@ -1290,18 +1354,31 @@
         }
 
         /// <summary>
-        /// Answers a CHARSET REQUEST (RFC 2066) with ACCEPTED for the first
-        /// offer this runtime supports (preferring <see cref="CharsetOffers"/>
-        /// order when configured) or REJECTED when nothing matches.
+        /// Answers a CHARSET REQUEST (RFC 2066) with ACCEPTED for the selected
+        /// offer or REJECTED when nothing matches. A simultaneous REQUEST
+        /// (one arriving while our own is outstanding) is REJECTED on a
+        /// server role (RFC 2066 §5). ACCEPTED latches
+        /// <see cref="ForceBinaryDecoding"/> and switches
+        /// <see cref="TextEncoding"/> to the agreed encoding.
         /// </summary>
         /// <param name="payload">The received payload, REQUEST first.</param>
         private Task ReplyCharsetRequestAsync(List<byte> payload)
         {
+            if (CharsetRequestPending && IsServerRole)
+            {
+                WriteLog("Rejecting simultaneous CHARSET request: our own REQUEST is outstanding.");
+                var rejected = EnvironmentProtocol.FrameSubnegotiation((int)Options.CharacterSet, [CharsetProtocol.Rejected]);
+                return byteStream.WriteAsync(rejected, 0, rejected.Length, internalCancellation.Token);
+            }
+
             var offers = CharsetProtocol.ParseRequest(payload);
-            var candidates = CharsetOffers.Count > 0
-              ? CharsetOffers.Where(offered => offers.Contains(offered, StringComparer.OrdinalIgnoreCase)).ToList()
-              : offers;
-            var selected = CharsetProtocol.SelectSupported(candidates);
+            var selected = CharsetSelector is not null
+              ? CharsetSelector(offers)
+              : CharsetProtocol.SelectSupported(
+                  CharsetOffers.Count > 0
+                    ? CharsetOffers.Where(offered => offers.Contains(offered, StringComparer.OrdinalIgnoreCase)).ToList()
+                    : offers,
+                  TextEncoding?.WebName);
             if (selected is null)
             {
                 WriteLog("Rejecting CHARSET request: no supported offer.");
@@ -1311,7 +1388,7 @@
             }
 
             WriteLog("Sending: " + nameof(Options.CharacterSet) + " ACCEPTED " + selected);
-            NegotiatedCharset = selected;
+            AdoptCharset(selected);
             CharsetAccepted?.Invoke(selected);
             var accepted = EnvironmentProtocol.FrameSubnegotiation(
               (int)Options.CharacterSet, CharsetProtocol.BuildAccepted(selected));
@@ -1319,11 +1396,36 @@
         }
 
         /// <summary>
-        /// Consumes a CHARSET ACCEPTED/REJECTED answer (RFC 2066) to our own
-        /// REQUEST. ACCEPTED records <see cref="NegotiatedCharset"/> and fires
-        /// <see cref="CharsetAccepted"/>; REJECTED fires
-        /// <see cref="CharsetRejected"/>. Table-transfer verbs (4-7) are
-        /// logged and ignored (unimplemented, like the reference).
+        /// Applies an agreed character set: records <see cref="NegotiatedCharset"/>,
+        /// latches <see cref="ForceBinaryDecoding"/> (the peer presumes BINARY
+        /// capability), and switches <see cref="TextEncoding"/> to the agreed
+        /// encoding when it resolves (keeping the current one otherwise).
+        /// </summary>
+        /// <param name="charset">The agreed character-set name.</param>
+        private void AdoptCharset(string charset)
+        {
+            NegotiatedCharset = charset;
+            ForceBinaryDecoding = true;
+            try
+            {
+                TextEncoding = Encoding.GetEncoding(charset);
+            }
+            catch (ArgumentException)
+            {
+            }
+        }
+
+        /// <summary>
+        /// Consumes a CHARSET answer (RFC 2066) to our own REQUEST. ACCEPTED
+        /// records <see cref="NegotiatedCharset"/>, latches
+        /// <see cref="ForceBinaryDecoding"/>, switches <see cref="TextEncoding"/>,
+        /// and fires <see cref="CharsetAccepted"/>; REJECTED leaves the charset
+        /// null (the wire-effective fallback is US-ASCII via the binary gate)
+        /// and fires <see cref="CharsetRejected"/>. An inbound
+        /// <c>TTABLE-IS</c> is answered <c>TTABLE-REJECTED</c> (table transfer
+        /// declined); <c>TTABLE-REJECTED</c> only clears the outstanding
+        /// request, <c>TTABLE-ACK/NAK</c> and other verbs are logged and
+        /// ignored (never thrown: the read loop must survive them).
         /// </summary>
         /// <param name="payload">The received payload, verb first.</param>
         private Task ReplyCharsetAnswerAsync(List<byte> payload)
@@ -1332,7 +1434,8 @@
             {
                 var charset = CharsetProtocol.ParseAccepted(payload);
                 WriteLog("CHARSET accepted: " + charset);
-                NegotiatedCharset = charset;
+                AdoptCharset(charset);
+                CharsetRequestPending = false;
                 CharsetAccepted?.Invoke(charset);
                 return Task.CompletedTask;
             }
@@ -1340,11 +1443,26 @@
             if (payload[0] == CharsetProtocol.Rejected)
             {
                 WriteLog("CHARSET rejected by peer.");
+                CharsetRequestPending = false;
                 CharsetRejected?.Invoke();
                 return Task.CompletedTask;
             }
 
-            WriteLog("Ignoring unimplemented CHARSET table-transfer verb: " + payload[0]);
+            if (payload[0] == CharsetProtocol.TTableIs)
+            {
+                WriteLog("Declining CHARSET table transfer with TTABLE-REJECTED.");
+                var frame = EnvironmentProtocol.FrameSubnegotiation((int)Options.CharacterSet, CharsetProtocol.BuildTTableRejected());
+                return byteStream.WriteAsync(frame, 0, frame.Length, internalCancellation.Token);
+            }
+
+            if (payload[0] == CharsetProtocol.TTableRejected)
+            {
+                WriteLog("CHARSET table transfer rejected; charset unchanged.");
+                CharsetRequestPending = false;
+                return Task.CompletedTask;
+            }
+
+            WriteLog("Ignoring CHARSET table-transfer verb: " + payload[0]);
             return Task.CompletedTask;
         }
 
@@ -1405,8 +1523,8 @@
         /// <summary>
         /// Sends a CHARSET REQUEST (RFC 2066) offering
         /// <see cref="CharsetOffers"/>. Fails (returns <c>false</c>) unless
-        /// CHARSET is enabled on either side, or an identical request is
-        /// already outstanding.
+        /// CHARSET is enabled on either side, offers are configured, or an
+        /// identical request is already outstanding (single-active rule).
         /// </summary>
         internal async Task<bool> RequestCharsetAsync()
         {
@@ -1414,6 +1532,12 @@
                 !Negotiation.IsEnabledByUs((int)Options.CharacterSet))
             {
                 WriteLog("Cannot request CHARSET without negotiating CHARSET first.");
+                return false;
+            }
+
+            if (CharsetRequestPending)
+            {
+                WriteLog("Cannot request CHARSET: a REQUEST is already outstanding.");
                 return false;
             }
 
@@ -1427,6 +1551,7 @@
             var frame = EnvironmentProtocol.FrameSubnegotiation(
               (int)Options.CharacterSet, CharsetProtocol.BuildRequest(CharsetOffers));
             await byteStream.WriteAsync(frame, 0, frame.Length, internalCancellation.Token).ConfigureAwait(false);
+            CharsetRequestPending = true;
             return true;
         }
 
@@ -1693,8 +1818,9 @@
         /// <summary>
         /// Reports the terminal size per RFC 1073 as Width(16-bit) Height(16-bit),
         /// network byte order. Explicit <see cref="WindowWidth"/>/
-        /// <see cref="WindowHeight"/> win; otherwise the console size is used,
-        /// falling back to 80x24 when unavailable.
+        /// <see cref="WindowHeight"/> win (0 means auto); otherwise the console
+        /// size is used, falling back to 80x24 when unavailable. Each dimension
+        /// is clamped to the 0-65535 wire range.
         /// </summary>
         private Task SendWindowSize()
         {

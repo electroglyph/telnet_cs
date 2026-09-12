@@ -122,6 +122,34 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public void CharsetSelect_SkipsIllegalOffers()
+        {
+            CharsetProtocol.SelectSupported(["illegal", "UTF-8"]).Should().Be("UTF-8");
+            CharsetProtocol.SelectSupported(["illegal", "this-is-no-good-either"]).Should().BeNull();
+        }
+
+        [Fact]
+        public void CharsetSelect_ExplicitPreference_ExactMatchOrReject()
+        {
+            CharsetProtocol.SelectSupported(["UTF-8", "US-ASCII"], "utf-8").Should().Be("UTF-8");
+            CharsetProtocol.SelectSupported(["UTF-8", "US-ASCII"], "utf-16").Should().BeNull();
+        }
+
+        [Fact]
+        public void CharsetSelect_WeakDefaultAcceptsFirstViable()
+        {
+            CharsetProtocol.SelectSupported(["UTF-8"], "iso-8859-1").Should().Be("UTF-8");
+            CharsetProtocol.SelectSupported(["UTF-8"], "latin1").Should().Be("UTF-8");
+        }
+
+        [Fact]
+        public void CharsetSelect_NormalizesNames()
+        {
+            CharsetProtocol.SelectSupported(["US ASCII"], null).Should().Be("US ASCII");
+            CharsetProtocol.SelectSupported(["ISO-8859-01"], null).Should().Be("ISO-8859-01");
+        }
+
+        [Fact]
         public void CharsetRequest_RoundTripsOffers()
         {
             var payload = CharsetProtocol.BuildRequest(["UTF-8", "US-ASCII"]);

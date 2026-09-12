@@ -1,10 +1,12 @@
 ﻿namespace telnet_cs.Protocol
 {
     /// <summary>
-    /// RFC 1079 terminal-speed payload handling: validates the
-    /// <c>"&lt;tx&gt;,&lt;rx&gt;"</c> decimal shape (no leading zeros) and
-    /// rounds each rate to the nearest standard rate, ties up (RFC 1079
-    /// section 5: nearest allowed rate, up when used for padding).
+    /// RFC 1079 terminal-speed payload handling. The wire/store path is
+    /// verbatim: the sender's only duties are the <c>"&lt;tx&gt;,&lt;rx&gt;"</c>
+    /// decimal shape (no leading zeros, no spaces), and the receiver stores
+    /// what it got. Rounding to a standard rate (RFC 1079 section 5) is a
+    /// receiver-local concern for padding decisions, so it lives in
+    /// <see cref="RoundForPadding"/> and never touches the wire.
     /// </summary>
     internal static class TerminalSpeedProtocol
     {
@@ -15,12 +17,13 @@
     ];
 
         /// <summary>
-        /// Normalizes a configured speed to a transmittable IS payload, or
-        /// returns null when the shape is unusable (not two comma-separated
-        /// decimal parts). Leading zeros are stripped; each rate is rounded
-        /// to the nearest standard rate (ties round up).
+        /// Validates a speed for the wire/store path without rounding: returns
+        /// the <c>"&lt;tx&gt;,&lt;rx&gt;"</c> shape (leading zeros stripped for
+        /// RFC 1079 §4 send compliance, values otherwise preserved), or null
+        /// when the shape is unusable (not exactly two comma-separated,
+        /// non-empty, all-ASCII-digit parts).
         /// </summary>
-        internal static string? Normalize(string? configured)
+        internal static string? Validate(string? configured)
         {
             string[]? parts = configured?.Split(',');
             if (parts?.Length != 2)
@@ -28,15 +31,25 @@
                 return null;
             }
 
-            if (!TryNormalizeRate(parts[0], out int tx) || !TryNormalizeRate(parts[1], out int rx))
+            if (!TryParseRate(parts[0], out int tx) || !TryParseRate(parts[1], out int rx))
             {
                 return null;
             }
 
-            return $"{Round(tx)},{Round(rx)}";
+            return $"{tx},{rx}";
         }
 
-        private static bool TryNormalizeRate(string text, out int rate)
+        /// <summary>
+        /// Rounds a rate to the nearest standard rate for local padding
+        /// decisions (RFC 1079 section 5: nearest allowed rate, rounding up
+        /// when used for padding). Ties round up. Never applied to wire bytes.
+        /// </summary>
+        internal static int RoundForPadding(int rate)
+        {
+            return Round(rate);
+        }
+
+        private static bool TryParseRate(string text, out int rate)
         {
             rate = 0;
             if (text.Length == 0)

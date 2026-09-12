@@ -210,21 +210,35 @@
         }
 
         [Fact]
-        public async Task SpeedSend_RoundsToNearest()
+        public async Task SpeedSend_NonStandardRates_SentVerbatim()
         {
+            // RFC 1079 §5 assigns rounding to the receiver for its own local
+            // use: the sender transmits its rates unchanged.
             var (output, stream) = await ReadHandlerOnceAsync(
               static h => h.TerminalSpeed = "1000,1000", SpeedSend);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(SpeedIsFrame("1200,1200"));
+            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(SpeedIsFrame("1000,1000"));
         }
 
         [Fact]
-        public async Task SpeedSend_TieRoundsUp()
+        public async Task SpeedSend_ArbitraryRates_SentVerbatim()
         {
             var (output, stream) = await ReadHandlerOnceAsync(
-              static h => h.TerminalSpeed = "142,142", SpeedSend);
+              static h => h.TerminalSpeed = "1337,1919", SpeedSend);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(SpeedIsFrame("150,150"));
+            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(SpeedIsFrame("1337,1919"));
+        }
+
+        [Fact]
+        public void RoundForPadding_RoundsToNearest()
+        {
+            TerminalSpeedProtocol.RoundForPadding(1000).Should().Be(1200);
+        }
+
+        [Fact]
+        public void RoundForPadding_TieRoundsUp()
+        {
+            TerminalSpeedProtocol.RoundForPadding(142).Should().Be(150);
         }
 
         [Fact]

@@ -256,12 +256,129 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task SbCharsetTableVerb_IgnoredWithoutReply()
+        public async Task SbCharsetTTableIs_AnsweredTTableRejected()
         {
             var (output, writes, _) = await ReadOnceAsync(
               _ => { }, Iac, Sb, 42, 4, Iac, Se);
             output.Should().BeEmpty();
+            writes.Should().HaveCount(1);
+            writes[0].Should().Equal(Iac, Sb, 42, 7, Iac, Se);
+        }
+
+        [Fact]
+        public async Task SbCharsetTTableRejected_ClearsPendingWithoutReply()
+        {
+            var (output, writes, sut) = await ReadOnceAsync(
+              h => h.CharsetRequestPending = true, Iac, Sb, 42, 7, Iac, Se);
+            output.Should().BeEmpty();
             writes.Should().BeEmpty();
+            sut.CharsetRequestPending.Should().BeFalse();
+        }
+
+        [Fact]
+        public async Task SbCharsetAccepted_SwitchesEncodingAndForceBinary()
+        {
+            var (output, writes, sut) = await ReadOnceAsync(
+              _ => { }, Iac, Sb, 42, 2, (byte)'U', (byte)'T', (byte)'F', (byte)'-', (byte)'8', Iac, Se);
+            output.Should().BeEmpty();
+            writes.Should().BeEmpty();
+            sut.NegotiatedCharset.Should().Be("UTF-8");
+            sut.TextEncoding.Should().NotBeNull();
+            sut.TextEncoding!.WebName.Should().Be("utf-8");
+            sut.ForceBinaryDecoding.Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task SbCharsetRequest_Simultaneous_ServerRole_AnswersRejected()
+        {
+            string? accepted = null;
+            var (output, writes, _) = await ReadOnceAsync(
+              h =>
+              {
+                  h.IsServerRole = true;
+                  h.CharsetRequestPending = true;
+                  h.CharsetAccepted += name => accepted = name;
+              },
+              Iac, Sb, 42, 1, 32, (byte)'U', (byte)'T', (byte)'F', (byte)'-', (byte)'8', Iac, Se);
+            output.Should().BeEmpty();
+            writes.Should().HaveCount(1);
+            writes[0].Should().Equal(Iac, Sb, 42, 3, Iac, Se);
+            accepted.Should().BeNull();
+        }
+
+        [Fact]
+        public async Task SbCharsetRequest_Simultaneous_ClientRole_AnswersPeerRequest()
+        {
+            string? accepted = null;
+            var (output, writes, _) = await ReadOnceAsync(
+              h =>
+              {
+                  h.IsServerRole = false;
+                  h.CharsetRequestPending = true;
+                  h.CharsetAccepted += name => accepted = name;
+              },
+              Iac, Sb, 42, 1, 32, (byte)'U', (byte)'T', (byte)'F', (byte)'-', (byte)'8', Iac, Se);
+            output.Should().BeEmpty();
+            writes.Should().HaveCount(1);
+            writes[0].Should().Equal(Iac, Sb, 42, 2, (byte)'U', (byte)'T', (byte)'F', (byte)'-', (byte)'8', Iac, Se);
+            accepted.Should().Be("UTF-8");
+        }
+
+        [Fact]
+        public async Task SbCharsetAccepted_WithoutTtype_IsRecorded()
+        {
+            var (output, writes, sut) = await ReadOnceAsync(
+              _ => { }, Iac, Will, 42, Iac, Wont, 24,
+              Iac, Sb, 42, 2, (byte)'U', (byte)'T', (byte)'F', (byte)'-', (byte)'8', Iac, Se);
+            output.Should().BeEmpty();
+            sut.NegotiatedCharset.Should().Be("UTF-8");
+            writes.Should().ContainSingle().Subject.Should().Equal(Iac, Do, 42);
+        }
+
+        [Fact]
+        public async Task RequestCharsetAsync_SecondCallWhilePending_ReturnsFalse()
+        {
+            using var stream = new ScriptedStream(Iac, Will, 42);
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            Concat([.. stream.ByteWrites]).Should().Equal(Iac, Do, 42);
+            (await sut.RequestCharsetAsync()).Should().BeTrue();
+            (await sut.RequestCharsetAsync()).Should().BeFalse();
+            stream.Enqueue(Iac, Sb, 42, 2, (byte)'U', (byte)'T', (byte)'F', (byte)'-', (byte)'8', Iac, Se);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            sut.NegotiatedCharset.Should().Be("UTF-8");
+            (await sut.RequestCharsetAsync()).Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task CharsetSelector_Hook_OverridesDefaultSelection()
+        {
+            var (output, writes, _) = await ReadOnceAsync(
+              h => h.CharsetSelector = _ => "US-ASCII",
+              Iac, Sb, 42, 1, 32, (byte)'U', (byte)'T', (byte)'F', (byte)'-', (byte)'8', Iac, Se);
+            output.Should().BeEmpty();
+            writes.Should().HaveCount(1);
+            writes[0].Should().Equal(
+              Iac, Sb, 42, 2, (byte)'U', (byte)'S', (byte)'-', (byte)'A', (byte)'S',
+              (byte)'C', (byte)'I', (byte)'I', Iac, Se);
+        }
+
+        [Fact]
+        public async Task CharsetSelector_Hook_ReturningNull_Rejects()
+        {
+            var rejected = 0;
+            var (output, writes, _) = await ReadOnceAsync(
+              h =>
+              {
+                  h.CharsetSelector = _ => null;
+                  h.CharsetRejected += () => rejected++;
+              },
+              Iac, Sb, 42, 1, 32, (byte)'U', (byte)'T', (byte)'F', (byte)'-', (byte)'8', Iac, Se);
+            output.Should().BeEmpty();
+            writes.Should().HaveCount(1);
+            writes[0].Should().Equal(Iac, Sb, 42, 3, Iac, Se);
+            rejected.Should().Be(1);
         }
 
         [Fact]

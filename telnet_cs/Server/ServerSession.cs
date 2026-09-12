@@ -257,6 +257,22 @@
             handler.Negotiation = Negotiation;
             handler.TextEncoding = Settings.TextEncoding;
             handler.Log = Settings.Log;
+            // A received CHARSET (or encoding-suffixed LANG) environment
+            // entry presumes BINARY capability: decode 8-bit data even
+            // without an agreed inbound BINARY direction. An agreed CHARSET
+            // additionally switches the read encoding to the charset.
+            handler.ForceBinaryDecoding = forceBinaryDecoding;
+            if (charsetEncoding is not null)
+            {
+                handler.TextEncoding = charsetEncoding;
+            }
+
+            // Server role: a simultaneous inbound CHARSET REQUEST (one
+            // arriving while our own REQUEST is outstanding) is REJECTED
+            // (RFC 2066 §5); the outstanding flag is session-lived because
+            // handlers are per-read.
+            handler.IsServerRole = true;
+            handler.CharsetRequestPending = IsCharsetOutstanding;
             // Server-role subnegotiation answers (TTYPE/TSPEED/ENVIRON IS and
             // INFO, inbound NAWS) land in the S3 collectors; anything unconsumed
             // falls through to the normal responder path.

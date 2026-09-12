@@ -9,7 +9,10 @@ namespace telnet_cs.Protocol
     /// verbs and framing helpers. Either side may send
     /// <c>IAC SB CHARSET REQUEST &lt;sep&gt;&lt;sep-joined-list&gt; IAC SE</c>;
     /// the peer answers <c>ACCEPTED &lt;charset&gt;</c> or <c>REJECTED</c>.
-    /// Table-transfer verbs (4-7) are not implemented.
+    /// Table transfer (verbs 4-7) is declined: an inbound <c>TTABLE-IS</c> is
+    /// answered <c>TTABLE-REJECTED</c> (RFC 2066 §: the REQUEST/ACCEPTED/
+    /// REJECTED/TTABLE-REJECTED set is the mandatory minimum; the full
+    /// TTABLE-IS/ACK/NAK table exchange is an optional group we do not send).
     /// </summary>
     public static class CharsetProtocol
     {
@@ -21,6 +24,18 @@ namespace telnet_cs.Protocol
 
         /// <summary>Reject a character set (3).</summary>
         public const byte Rejected = 3;
+
+        /// <summary>Offer a translation table (4). Answered with <see cref="TTableRejected"/>.</summary>
+        public const byte TTableIs = 4;
+
+        /// <summary>Acknowledge a translation table (5). Logged and ignored.</summary>
+        public const byte TTableAck = 5;
+
+        /// <summary>Negative-acknowledge a translation table (6). Logged and ignored.</summary>
+        public const byte TTableNak = 6;
+
+        /// <summary>Reject a translation table (7). Leaves the charset unchanged.</summary>
+        public const byte TTableRejected = 7;
 
         /// <summary>
         /// Builds a <c>REQUEST</c> payload (verb first, without IAC SB/SE
@@ -81,13 +96,34 @@ namespace telnet_cs.Protocol
         }
 
         /// <summary>
+        /// Builds a <c>TTABLE-REJECTED</c> payload (verb only).
+        /// </summary>
+        public static byte[] BuildTTableRejected() => [TTableRejected];
+
+        /// <summary>
         /// Selects the first offered character set this runtime can decode, or
         /// null when none is usable (the caller then answers REJECTED).
+        /// Unresolvable ("illegal") offers are skipped, never selected.
         /// </summary>
         /// <param name="offered">The offered character-set names.</param>
-        public static string? SelectSupported(IEnumerable<string> offered)
+        public static string? SelectSupported(IEnumerable<string> offered) =>
+          SelectSupported(offered, preferredEncodingName: null);
+
+        /// <summary>
+        /// Selects from <paramref name="offered"/> using the reference selection
+        /// policy: an offer matching <paramref name="preferredEncodingName"/>
+        /// (canonical name) wins; a null or weak-default (Latin-1 family)
+        /// preference takes the first viable offer; any other explicit
+        /// preference that is not offered is rejected (null) so the caller
+        /// keeps its own encoding. Unresolvable offers are skipped.
+        /// </summary>
+        /// <param name="offered">The offered character-set names.</param>
+        /// <param name="preferredEncodingName">The local encoding preference, or null for none.</param>
+        public static string? SelectSupported(IEnumerable<string> offered, string? preferredEncodingName)
         {
             ArgumentNullException.ThrowIfNull(offered);
+            var preferredCanonical = CanonicalName(preferredEncodingName);
+            string? firstViable = null;
             foreach (var name in offered)
             {
                 if (string.IsNullOrWhiteSpace(name))
@@ -95,10 +131,48 @@ namespace telnet_cs.Protocol
                     continue;
                 }
 
+                var canonical = CanonicalName(name.Trim());
+                if (canonical is null)
+                {
+                    continue;
+                }
+
+                firstViable ??= name.Trim();
+                if (preferredCanonical is not null &&
+                    string.Equals(canonical, preferredCanonical, StringComparison.OrdinalIgnoreCase))
+                {
+                    return name.Trim();
+                }
+            }
+
+            if (preferredCanonical is null || IsWeakDefault(preferredCanonical))
+            {
+                return firstViable;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Resolves a charset name to its canonical <see cref="Encoding.WebName"/>,
+        /// trying progressively simpler variants (spaces to hyphens, leading
+        /// zeros stripped from numeric segments, hyphens removed), or null when
+        /// no variant resolves.
+        /// </summary>
+        /// <param name="name">The charset name to resolve.</param>
+        internal static string? CanonicalName(string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return null;
+            }
+
+            var @base = name.Trim().Replace(' ', '-');
+            foreach (var candidate in new[] { @base, StripLeadingZeros(@base), @base.Replace("-", string.Empty, StringComparison.Ordinal) })
+            {
                 try
                 {
-                    _ = Encoding.GetEncoding(name.Trim());
-                    return name.Trim();
+                    return Encoding.GetEncoding(candidate).WebName;
                 }
                 catch (ArgumentException)
                 {
@@ -107,5 +181,35 @@ namespace telnet_cs.Protocol
 
             return null;
         }
+
+        /// <summary>
+        /// Strips leading zeros from all-digit hyphen segments
+        /// (<c>iso-8859-02</c> to <c>iso-8859-2</c>); other segments pass through.
+        /// </summary>
+        /// <param name="name">The hyphenated charset name.</param>
+        private static string StripLeadingZeros(string name)
+        {
+            var parts = name.Split('-');
+            for (var i = 0; i < parts.Length; i++)
+            {
+                var part = parts[i];
+                var digits = part.TrimStart('0');
+                if (digits.Length != 0 && digits.Length != part.Length && digits.All(char.IsAsciiDigit))
+                {
+                    parts[i] = digits;
+                }
+            }
+
+            return string.Join("-", parts);
+        }
+
+        /// <summary>
+        /// Reports whether a canonical encoding name is the weak default whose
+        /// absence from an offer list still accepts the first viable offer
+        /// (the Latin-1 family, matching the reference client policy).
+        /// </summary>
+        /// <param name="canonicalName">A canonical <see cref="Encoding.WebName"/>.</param>
+        internal static bool IsWeakDefault(string canonicalName) =>
+          string.Equals(canonicalName, "iso-8859-1", StringComparison.OrdinalIgnoreCase);
     }
 }

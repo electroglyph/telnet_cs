@@ -364,6 +364,62 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task RequestTerminalTypesAsync_NonConsecutiveRepeat_StopsAtFirstRepeat()
+        {
+            // A repeat of the first entry looped the cycle: the terminating
+            // duplicate is excluded from the return but kept in the chain.
+            using var stream = new ScriptedStream();
+            stream.Enqueue([.. TtypeIsFrame("ALPHA"), .. TtypeIsFrame("BETA"), .. TtypeIsFrame("GAMMA"), .. TtypeIsFrame("ALPHA")]);
+            using var session = NewSession(stream);
+            var types = await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5));
+            types.Should().Equal("ALPHA", "BETA", "GAMMA");
+            session.ClientTerminalTypes.Should().Equal("ALPHA", "BETA", "GAMMA", "ALPHA");
+            session.ClientEffectiveTerminalType.Should().Be("ALPHA");
+            OutboundBytes(stream).Should().Equal(255, 250, 24, 1, 255, 240);
+        }
+
+        [Fact]
+        public async Task RequestTerminalTypesAsync_SkipsEmptyAnswers()
+        {
+            // An empty IS advances nothing: the next answer fills the same slot.
+            using var stream = new ScriptedStream();
+            stream.Enqueue([.. TtypeIsFrame("ALPHA"), .. TtypeIsFrame(string.Empty), .. TtypeIsFrame("BETA"), .. TtypeIsFrame("BETA")]);
+            using var session = NewSession(stream);
+            var types = await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5));
+            types.Should().Equal("ALPHA", "BETA");
+            session.ClientEffectiveTerminalType.Should().Be("BETA");
+        }
+
+        [Fact]
+        public async Task RequestTerminalTypesAsync_BeyondLoopMax_OverflowSlotKeepsLast()
+        {
+            // Past slot 8, answers keep overwriting the overflow slot, so the
+            // last answer wins there (telnetlib3's ttype{LOOPMAX+1}).
+            using var stream = new ScriptedStream();
+            var script = new System.Collections.Generic.List<int>();
+            for (var i = 1; i <= 12; i++)
+            {
+                script.AddRange(TtypeIsFrame("T" + i));
+            }
+
+            stream.Enqueue([.. script]);
+            using var session = NewSession(stream);
+            await session.RequestTerminalTypesAsync(TimeSpan.FromMilliseconds(300));
+            session.ClientTerminalTypes.Should().Equal("T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T12");
+        }
+
+        [Fact]
+        public async Task RequestTerminalTypesAsync_LowercaseMttsThird_StopsWithSecondEffective()
+        {
+            using var stream = new ScriptedStream();
+            stream.Enqueue([.. TtypeIsFrame("XTERM"), .. TtypeIsFrame("VT100"), .. TtypeIsFrame("mtts 137")]);
+            using var session = NewSession(stream);
+            var types = await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5));
+            types.Should().Equal("XTERM", "VT100", "mtts 137");
+            session.ClientEffectiveTerminalType.Should().Be("VT100");
+        }
+
+        [Fact]
         public async Task RequestTerminalTypesAsync_UnescapesIacInValue()
         {
             using var stream = new ScriptedStream();
@@ -384,13 +440,26 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task RequestTerminalSpeedAsync_NormalizesAnswer()
+        public async Task RequestTerminalSpeedAsync_StripsLeadingZeros()
         {
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 250, 32, 0, .. System.Text.Encoding.Latin1.GetBytes("001200,2400"), 255, 240]);
             using var session = NewSession(stream);
             var speed = await session.RequestTerminalSpeedAsync(TimeSpan.FromSeconds(5));
             speed.Should().Be("1200,2400");
+            OutboundBytes(stream).Should().Equal(255, 250, 32, 1, 255, 240);
+        }
+
+        [Fact]
+        public async Task RequestTerminalSpeedAsync_StoresVerbatimAnswer()
+        {
+            // RFC 1079 §5 rounding is receiver-local: the stored value keeps
+            // the peer's rates unchanged.
+            using var stream = new ScriptedStream();
+            stream.Enqueue([255, 250, 32, 0, .. System.Text.Encoding.Latin1.GetBytes("123,456"), 255, 240]);
+            using var session = NewSession(stream);
+            var speed = await session.RequestTerminalSpeedAsync(TimeSpan.FromSeconds(5));
+            speed.Should().Be("123,456");
             OutboundBytes(stream).Should().Equal(255, 250, 32, 1, 255, 240);
         }
 
@@ -417,6 +486,71 @@ namespace telnet_cs.Tests
             env.Should().Contain("USER", "bob").And.Contain("ROLE", "ops");
             OutboundBytes(stream).Should().Equal(
               255, 250, 36, 1, 0, 3, 255, 240);
+        }
+
+        [Fact]
+        public async Task RequestEnvironmentAsync_UpperCasesKeysDropsEmptyAndKeepsFullRange()
+        {
+            // telnetlib3's on_environ: keys upper-cased (untrusted input must
+            // not override trusted values), empty values dropped, full 0..127
+            // value range preserved (delimiter bytes ESC-escaped on the wire).
+            var gamma = new List<byte>();
+            for (var b = 0; b < 128; b++)
+            {
+                if (b is 0 or 1 or 2 or 3)
+                {
+                    gamma.Add(2);
+                }
+
+                gamma.Add((byte)b);
+            }
+
+            var payload = new List<int> { 255, 250, 36, 0 };
+            payload.AddRange([0, (byte)'a', (byte)'L', (byte)'p', (byte)'H', (byte)'a', 1, (byte)'o', (byte)'M', (byte)'e', (byte)'G', (byte)'a']);
+            payload.AddRange([0, (byte)'b', (byte)'e', (byte)'t', (byte)'a', 1, (byte)'b']);
+            payload.AddRange([0, (byte)'g', (byte)'a', (byte)'m', (byte)'m', (byte)'a', 1]);
+            payload.AddRange(gamma.Select(static b => (int)b));
+            payload.AddRange([0, (byte)'U', (byte)'S', (byte)'E', (byte)'R', 1]);
+            payload.AddRange([0, (byte)'n', (byte)'o', (byte)'t', (byte)'h', (byte)'i', (byte)'n', (byte)'g']);
+            payload.AddRange([255, 240]);
+            using var stream = new ScriptedStream();
+            stream.Enqueue([.. payload]);
+            using var session = NewSession(stream);
+            var env = await session.RequestEnvironmentAsync(TimeSpan.FromSeconds(5), [0, 3]);
+            var fullRange = new string(Enumerable.Range(0, 128).Select(static i => (char)i).ToArray());
+            env.Should().Contain("ALPHA", "oMeGa").And.Contain("BETA", "b").And.Contain("GAMMA", fullRange);
+            env.Should().NotContainKey("USER").And.NotContainKey("NOTHING");
+            session.ClientEnvironment.Should().BeEquivalentTo(env);
+        }
+
+        [Fact]
+        public async Task RequestNewEnvironmentAsync_WithEncodingLang_DecodesHighBytes()
+        {
+            // A LANG entry carrying an encoding suffix presumes BINARY
+            // capability: later bare 8-bit bytes decode instead of dropping.
+            using var stream = new ScriptedStream();
+            stream.Enqueue([255, 250, 39, 0, 0, (byte)'L', (byte)'A', (byte)'N', (byte)'G', 1,
+              .. System.Text.Encoding.Latin1.GetBytes("en_US.UTF-8"), 255, 240]);
+            using var session = NewSession(stream);
+            var env = await session.RequestNewEnvironmentAsync(TimeSpan.FromSeconds(5));
+            env.Should().Contain("LANG", "en_US.UTF-8");
+            stream.Enqueue([0xE9]);
+            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().Be("é");
+        }
+
+        [Fact]
+        public async Task RequestNewEnvironmentAsync_WithPlainLang_DropsHighBytes()
+        {
+            // LANG without an encoding suffix (or "C") presumes nothing: bare
+            // 8-bit bytes still drop until BINARY is agreed.
+            using var stream = new ScriptedStream();
+            stream.Enqueue([255, 250, 39, 0, 0, (byte)'L', (byte)'A', (byte)'N', (byte)'G', 1,
+              (byte)'C', 255, 240]);
+            using var session = NewSession(stream);
+            var env = await session.RequestNewEnvironmentAsync(TimeSpan.FromSeconds(5));
+            env.Should().Contain("LANG", "C");
+            stream.Enqueue([0xE9]);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
         }
 
         [Fact]
@@ -501,7 +635,7 @@ namespace telnet_cs.Tests
         public async Task InboundNaws_ZeroDims_StoredVerbatim()
         {
             // Zero means "unspecified" to the server: stored as-is (advisory).
-            // Clamping to 80x24 is client-send-side only (NawsProtocol).
+            // Range-clamping is client-send-side only (NawsProtocol).
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 250, 31, 0, 0, 0, 0, 0, 255, 240]);
             using var session = NewSession(stream);

@@ -8,27 +8,20 @@
     internal static class NawsProtocol
     {
         /// <summary>
-        /// Computes the effective terminal size. Explicit settings win;
-        /// otherwise the console size is used, falling back to 80x24 when
-        /// unavailable. Each dimension is clamped to 80/24 when outside 1-65535.
+        /// Computes the effective terminal size. Explicit settings win
+        /// (0 means auto: the console size is used, falling back to 80x24
+        /// when unavailable); each dimension is clamped to the 0-65535
+        /// unsigned-short wire range like telnetlib3's NAWS send path
+        /// (<c>max(min(65535, v), 0)</c>). A 0 dimension is "unspecified"
+        /// per RFC 1073 and is sent as-is.
         /// </summary>
         /// <param name="widthSetting">The configured width, or 0 for auto.</param>
         /// <param name="heightSetting">The configured height, or 0 for auto.</param>
         internal static (ushort Width, ushort Height) GetEffectiveSize(int widthSetting, int heightSetting)
         {
-            var width = widthSetting > 0 ? widthSetting : GetConsoleDimension(true);
-            var height = heightSetting > 0 ? heightSetting : GetConsoleDimension(false);
-            if (width <= 0 || width > 65535)
-            {
-                width = 80;
-            }
-
-            if (height <= 0 || height > 65535)
-            {
-                height = 24;
-            }
-
-            return ((ushort)width, (ushort)height);
+            var width = widthSetting != 0 ? widthSetting : GetConsoleDimension(true);
+            var height = heightSetting != 0 ? heightSetting : GetConsoleDimension(false);
+            return ((ushort)Math.Clamp(width, 0, 65535), (ushort)Math.Clamp(height, 0, 65535));
         }
 
         /// <summary>

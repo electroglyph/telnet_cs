@@ -13,9 +13,10 @@
     public class AuditCoverageTopUp3Tests
     {
         [Fact]
-        public async Task NawsOutOfRangeDimensionsClampTo80x24()
+        public async Task NawsOutOfRangeDimensionsClampToUShortRange()
         {
-            // Width/height outside 1..65535 fall back to the 80x24 default.
+            // Dimensions outside 0..65535 clamp to the unsigned-short wire
+            // range (telnetlib3's NAWS send path: max(min(65535, v), 0)).
             using var stream = new ScriptedStream(255, 253, 31);
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
@@ -25,7 +26,8 @@
             stream.ByteWrites.Should().HaveCount(2);
             stream.ByteWrites[1].Should().Equal(new byte[]
             {
-        255, 250, 31, 0, 80, 0, 24, 255, 240,
+        // 65535 encodes as 0xFF 0xFF, doubled per the IAC-escaping rule.
+        255, 250, 31, 255, 255, 255, 255, 0, 0, 255, 240,
             });
         }
 

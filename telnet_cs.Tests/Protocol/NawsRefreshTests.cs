@@ -133,8 +133,10 @@
 
         [Theory]
         [InlineData(100, 30, 100, 30)]
-        [InlineData(70000, 30, 80, 30)]
-        [InlineData(100, 90000, 100, 24)]
+        [InlineData(70000, 30, 65535, 30)]
+        [InlineData(100, 90000, 100, 65535)]
+        [InlineData(9999999, -999999, 65535, 0)]
+        [InlineData(-5, -7, 0, 0)]
         [InlineData(65535, 65535, 65535, 65535)]
         public void GetEffectiveSize_ClampsDimensions(int width, int height, int expectedWidth, int expectedHeight)
         {

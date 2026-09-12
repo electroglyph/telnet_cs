@@ -32,6 +32,8 @@
         private string? clientLocation;
         private readonly Dictionary<string, string> clientEnvironment = new(StringComparer.Ordinal);
         private readonly Dictionary<string, string> clientNewEnvironment = new(StringComparer.Ordinal);
+        private bool forceBinaryDecoding;
+        private System.Text.Encoding? charsetEncoding;
         private (ushort Width, ushort Height)? clientWindowSize;
         // Arrival order shared by option-35 IS and ENVIRON DISPLAY writes, so
         // the effective display resolves last-arrived-wins (RFC 1408 §5). Zero
@@ -123,6 +125,22 @@
         }
 
         /// <summary>
+        /// Reports whether our own CHARSET REQUEST is outstanding (sent, not
+        /// yet answered). Fed into each per-read handler so a simultaneous
+        /// inbound REQUEST is answered REJECTED (RFC 2066 §5).
+        /// </summary>
+        internal bool IsCharsetOutstanding
+        {
+            get
+            {
+                lock (collectorLock)
+                {
+                    return expectingCharset;
+                }
+            }
+        }
+
+        /// <summary>
         /// Gets the location reported by the peer via SNDLOC (RFC 779), or
         /// null when none arrived. Populated by
         /// <see cref="RequestSendLocationAsync"/>.
@@ -139,11 +157,20 @@
         }
 
         /// <summary>
+        /// Maximum terminal-type answers stored in distinct slots, mirroring
+        /// telnetlib3's <c>TTYPE_LOOPMAX</c>: answers past slot 8 keep
+        /// overwriting the overflow slot (<c>ttype9</c>), so the last answer
+        /// always wins there.
+        /// </summary>
+        internal const int TerminalTypeLoopMax = 8;
+
+        /// <summary>
         /// Gets the effective terminal type: when the reported chain reaches
         /// a third entry starting with <c>"MTTS "</c> (MUD Terminal Type
         /// Standard), the second entry names the real terminal and the MTTS
         /// bitmask only lists client capabilities — so the second entry wins.
-        /// Otherwise the first entry wins, or null when nothing arrived.
+        /// Otherwise the last entry wins (the most recently reported type is
+        /// assumed current), or null when nothing arrived.
         /// </summary>
         public string? ClientEffectiveTerminalType
         {
@@ -157,7 +184,7 @@
                         return terminalTypeChain[1];
                     }
 
-                    return terminalTypeChain.Count > 0 ? terminalTypeChain[0] : null;
+                    return terminalTypeChain.Count > 0 ? terminalTypeChain[^1] : null;
                 }
             }
         }
@@ -219,10 +246,14 @@
         /// <summary>
         /// Asks the peer for its terminal-type list (RFC 1091: <c>SEND</c>,
         /// then one <c>IS</c> per entry). The returned list ends at the first
-        /// repeat (same-string-twice terminates the list); the terminating
-        /// duplicate is excluded. A peer that never repeats is cut off after
-        /// 32 entries. Returns whatever arrived when the timeout
-        /// elapses (possibly empty).
+        /// repeat: a reply equal to the first entry (cycle looped) or to the
+        /// previous entry terminates the list, as does an <c>MTTS</c>
+        /// capability vector in the third slot; the terminating duplicate is
+        /// excluded. Empty answers advance nothing (the next answer fills the
+        /// same slot). Answers past slot <see cref="TerminalTypeLoopMax"/>
+        /// keep overwriting the overflow slot, so a peer that never repeats
+        /// is bounded and the last answer wins there. Returns whatever arrived
+        /// when the timeout elapses (possibly empty).
         /// </summary>
         /// <param name="timeout">The maximum time to wait for the full chain.</param>
         /// <param name="cancellationToken">A token to cancel the wait.</param>
@@ -240,8 +271,12 @@
             {
                 expectingTerminalType = false;
                 var result = new List<string>(terminalTypeChain);
-                if (result.Count >= 2 && string.Equals(result[^1], result[^2], StringComparison.OrdinalIgnoreCase))
+                if (result.Count >= 2 &&
+                    (string.Equals(result[^1], result[^2], StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(result[^1], result[0], StringComparison.OrdinalIgnoreCase)))
                 {
+                    // Terminating duplicate excluded: consecutive repeat, or
+                    // the looped repeat of the first entry.
                     result.RemoveAt(result.Count - 1);
                 }
 
@@ -251,7 +286,7 @@
 
         /// <summary>
         /// Asks the peer for its terminal speed (RFC 1079: <c>SEND</c>, one
-        /// <c>IS</c>). Returns the normalized <c>"&lt;tx&gt;,&lt;rx&gt;"</c>
+        /// <c>IS</c>). Returns the verbatim validated <c>"&lt;tx&gt;,&lt;rx&gt;"</c>
         /// shape, or null on timeout or a malformed answer.
         /// </summary>
         /// <param name="timeout">The maximum time to wait for the answer.</param>
@@ -570,16 +605,37 @@
 
                 var text = new byte[payload.Count - 1];
                 payload.CopyTo(1, text, 0, text.Length);
-                terminalTypeChain.Add(System.Text.Encoding.Latin1.GetString(text));
-                if (terminalTypeChain.Count >= 2 && string.Equals(terminalTypeChain[^1], terminalTypeChain[^2], StringComparison.OrdinalIgnoreCase))
+                var answer = System.Text.Encoding.Latin1.GetString(text);
+                if (answer.Length == 0)
                 {
-                    // Same-string-twice ends the list (RFC 1091 §6).
-                    expectingTerminalType = false;
+                    // Empty IS advances nothing: the next answer fills the same
+                    // slot (telnetlib3 stores-then-overwrites to the same net
+                    // effect), so the chain keeps its order.
+                    return true;
                 }
-                else if (terminalTypeChain.Count >= 32)
+
+                if (terminalTypeChain.Count == 0)
                 {
-                    // No end in sight: stop growing, keep consuming.
-                    WriteLog("TERMINAL-TYPE chain exceeded 32 entries without repeating; ignoring the rest.");
+                    terminalTypeChain.Add(answer);
+                    return true;
+                }
+
+                if (terminalTypeChain.Count > TerminalTypeLoopMax)
+                {
+                    // Overflow slot: keep overwriting with the latest answer
+                    // (telnetlib3's ttype{LOOPMAX+1}), staying open until a
+                    // repeat, an MTTS vector, or the timeout ends the wait.
+                    terminalTypeChain[^1] = answer;
+                    return true;
+                }
+
+                terminalTypeChain.Add(answer);
+                if (string.Equals(answer, terminalTypeChain[0], StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(answer, terminalTypeChain[^2], StringComparison.OrdinalIgnoreCase) ||
+                    (terminalTypeChain.Count == 3 && answer.StartsWith("MTTS ", StringComparison.OrdinalIgnoreCase)))
+                {
+                    // Cycle looped (first entry repeated), entry repeated, or
+                    // MTTS capability vector in the third slot: done.
                     expectingTerminalType = false;
                 }
 
@@ -599,7 +655,7 @@
                 expectingTerminalSpeed = false;
                 var text = new byte[payload.Count - 1];
                 payload.CopyTo(1, text, 0, text.Length);
-                clientTerminalSpeed = TerminalSpeedProtocol.Normalize(System.Text.Encoding.Latin1.GetString(text));
+                clientTerminalSpeed = TerminalSpeedProtocol.Validate(System.Text.Encoding.Latin1.GetString(text));
                 return true;
             }
         }
@@ -654,16 +710,31 @@
                 }
 
                 var store = isNew ? clientNewEnvironment : clientEnvironment;
+                Dictionary<string, string>? batch = null;
                 foreach (var entry in EnvironmentProtocol.ParseEntries(payload))
                 {
-                    if (entry.Value is not null)
+                    // Untrusted input: keys are upper-cased so a client cannot
+                    // override trusted mixed-case values, and empty values
+                    // ("no value", possibly withheld) are dropped. Matches
+                    // telnetlib3's on_environ.
+                    if (entry.Value is { Length: > 0 })
                     {
-                        store[entry.Name] = entry.Value;
-                        if (string.Equals(entry.Name, EnvironmentProtocol.DisplayVariableName, StringComparison.Ordinal))
+                        var key = entry.Name.ToUpperInvariant();
+                        store[key] = entry.Value;
+                        (batch ??= new Dictionary<string, string>(StringComparer.Ordinal))[key] = entry.Value;
+                        if (key == EnvironmentProtocol.DisplayVariableName)
                         {
                             environDisplaySeq = ++displayArrivalSeq;
                         }
                     }
+                }
+
+                // A CHARSET entry, or a LANG entry carrying an encoding
+                // suffix, presumes BINARY capability even without explicit
+                // BINARY negotiation (telnetlib3's force-binary rule).
+                if (batch is not null && EnvironmentProtocol.ShouldForceBinary(batch))
+                {
+                    forceBinaryDecoding = true;
                 }
 
                 return true;
@@ -690,28 +761,45 @@
         }
 
         /// <summary>
-        /// Consumes a CHARSET ACCEPTED/REJECTED answer (RFC 2066) while a
-        /// character-set request is outstanding. REJECTED completes with a
-        /// null charset.
+        /// Consumes a CHARSET ACCEPTED/REJECTED answer (RFC 2066). An ACCEPTED
+        /// is latched even when unsolicited (the reference records the peer's
+        /// charset unconditionally): it becomes <see cref="ClientCharset"/>,
+        /// latches BINARY-capable decoding, and switches the read encoding.
+        /// REJECTED completes an outstanding request with a null charset.
         /// </summary>
         private bool TryConsumeCharset(List<byte> payload)
         {
             lock (collectorLock)
             {
-                if (!expectingCharset)
-                {
-                    return false;
-                }
-
                 if (payload[0] != CharsetProtocol.Accepted && payload[0] != CharsetProtocol.Rejected)
                 {
                     return false;
                 }
 
+                if (payload[0] == CharsetProtocol.Rejected && !expectingCharset)
+                {
+                    return false;
+                }
+
                 expectingCharset = false;
-                clientCharset = payload[0] == CharsetProtocol.Accepted
-                  ? System.Text.Encoding.ASCII.GetString([.. payload.Skip(1)])
-                  : null;
+                if (payload[0] == CharsetProtocol.Accepted)
+                {
+                    clientCharset = System.Text.Encoding.ASCII.GetString([.. payload.Skip(1)]);
+                    forceBinaryDecoding = true;
+                    try
+                    {
+                        charsetEncoding = System.Text.Encoding.GetEncoding(clientCharset);
+                    }
+                    catch (ArgumentException)
+                    {
+                        charsetEncoding = null;
+                    }
+                }
+                else
+                {
+                    clientCharset = null;
+                }
+
                 return true;
             }
         }
