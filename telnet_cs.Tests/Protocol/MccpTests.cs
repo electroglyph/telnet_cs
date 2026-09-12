@@ -55,6 +55,17 @@ namespace telnet_cs.Tests
             return ms.ToArray();
         }
 
+        private static byte[] RawCompress(byte[] payload)
+        {
+            using var ms = new MemoryStream();
+            using (var compressor = new DeflateStream(ms, CompressionLevel.Optimal, leaveOpen: true))
+            {
+                compressor.Write(payload, 0, payload.Length);
+            }
+
+            return ms.ToArray();
+        }
+
         private static byte[] GzipCompress(string text)
         {
             using var ms = new MemoryStream();
@@ -221,6 +232,23 @@ namespace telnet_cs.Tests
               h => h.EnableMccp = true,
               Mccp2Stream([0x01, 0x02, 0x00, 0xFD, 0xFF, (byte)'H', (byte)'i']));
             output.Should().Be("Hi");
+            sut.Mccp2Active.Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task RawStreamStartingWithZlibMagic_RetriesRawInsteadOfFailing()
+        {
+            // A raw deflate stream may start with 0x78 and mis-sniff as zlib
+            // (the reference tries zlib first, then raw). Hand-built wire:
+            // non-final stored block with pad bits 11110 (byte 0x78, LEN=2,
+            // "Hi") + final stored block ("!"). Inflates with no DONT.
+            var (output, writes, sut) = await ReadOnceAsync(
+              h => h.EnableMccp = true,
+              Mccp2Stream([0x78, 0x02, 0x00, 0xFD, 0xFF, (byte)'H', (byte)'i', 0x01, 0x01, 0x00, 0xFE, 0xFF, (byte)'!']));
+            output.Should().Be("Hi!");
+            // Only the WILL→DO agreement reply: no DONT (the stream never
+            // failed) and no other negotiation.
+            writes.SelectMany(w => w).Should().Equal(Iac, Do, Mccp2);
             sut.Mccp2Active.Should().BeTrue();
         }
 

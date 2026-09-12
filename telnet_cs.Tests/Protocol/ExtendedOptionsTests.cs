@@ -293,6 +293,21 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task SbCharsetAccepted_NonCanonicalSpelling_SwitchesViaCanonical()
+        {
+            // .NET rejects the raw spelling "latin-1" but resolves the
+            // dehyphenated variant, so adoption must switch through the
+            // canonical name while recording the raw wire spelling.
+            var (output, writes, sut) = await ReadOnceAsync(
+              h => h.TextEncoding = System.Text.Encoding.UTF8,
+              Iac, Sb, 42, 2, (byte)'l', (byte)'a', (byte)'t', (byte)'i', (byte)'n', (byte)'-', (byte)'1', Iac, Se);
+            output.Should().BeEmpty();
+            writes.Should().BeEmpty();
+            sut.NegotiatedCharset.Should().Be("latin-1");
+            sut.TextEncoding?.WebName.Should().Be("iso-8859-1");
+        }
+
+        [Fact]
         public async Task SbCharsetTTableIs_AnsweredTTableRejected()
         {
             var (output, writes, _) = await ReadOnceAsync(

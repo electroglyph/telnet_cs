@@ -241,11 +241,12 @@
         internal LinemodeState Linemode { get; set; } = new();
 
         /// <summary>
-        /// Gets or sets whether inbound LINEMODE MODE masks use the server rules
-        /// (<see cref="LinemodeState.ApplyModeAsServer"/>) instead of the client
-        /// rules (<see cref="LinemodeState.ApplyMode"/>). Set by the server
-        /// session; a client-side handler keeps the default client behavior.
-        /// SLC handling is role-symmetric and needs no flag.
+        /// Gets or sets whether inbound LINEMODE MODE masks and SLC triplets
+        /// use the server rules (<see cref="LinemodeState.ApplyModeAsServer"/>
+        /// and <see cref="LinemodeState.ApplySlcAsServer"/>) instead of the
+        /// client rules (<see cref="LinemodeState.ApplyMode"/> and
+        /// <see cref="LinemodeState.ApplySlc"/>). Set by the server session;
+        /// a client-side handler keeps the default client behavior.
         /// </summary>
         internal bool ApplyLinemodeAsServer { get; set; }
 
@@ -1813,19 +1814,28 @@
         }
 
         /// <summary>
-        /// Applies an agreed character set: records <see cref="NegotiatedCharset"/>,
-        /// latches <see cref="ForceBinaryDecoding"/> (the peer presumes BINARY
-        /// capability), and switches <see cref="TextEncoding"/> to the agreed
-        /// encoding when it resolves (keeping the current one otherwise).
+        /// Applies an agreed character set: records <see cref="NegotiatedCharset"/>
+        /// (the raw wire spelling), latches <see cref="ForceBinaryDecoding"/> (the
+        /// peer presumes BINARY capability), and switches
+        /// <see cref="TextEncoding"/> to the agreed encoding, resolved through
+        /// its canonical name so a spelling .NET does not know (e.g.
+        /// <c>latin-1</c>) still switches when a normalized variant resolves
+        /// (keeping the current encoding only when nothing resolves).
         /// </summary>
         /// <param name="charset">The agreed character-set name.</param>
         private void AdoptCharset(string charset)
         {
             NegotiatedCharset = charset;
             ForceBinaryDecoding = true;
+            var canonical = CharsetProtocol.CanonicalName(charset);
+            if (canonical is null)
+            {
+                return;
+            }
+
             try
             {
-                TextEncoding = Encoding.GetEncoding(charset);
+                TextEncoding = Encoding.GetEncoding(canonical);
             }
             catch (ArgumentException)
             {
@@ -2132,7 +2142,9 @@
             List<byte>? replies = null;
             for (int i = 1; i < payload.Count; i += 3)
             {
-                (byte Modifier, byte Value)? reply = Linemode.ApplySlc(payload[i], payload[i + 1], payload[i + 2]);
+                (byte Modifier, byte Value)? reply = ApplyLinemodeAsServer
+                  ? Linemode.ApplySlcAsServer(payload[i], payload[i + 1], payload[i + 2])
+                  : Linemode.ApplySlc(payload[i], payload[i + 1], payload[i + 2]);
                 if (reply is not null)
                 {
                     replies ??= [];

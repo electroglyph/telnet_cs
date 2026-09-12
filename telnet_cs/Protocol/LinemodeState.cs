@@ -119,12 +119,13 @@
         }
 
         /// <summary>
-        /// Applies one inbound SLC triplet per RFC 1184 §5.5 rules 1–4:
-        /// identical settings are ignored; a <c>DEFAULT</c> level restores the
-        /// row from the configured defaults (telnetlib3 <c>_slc_change</c>:
-        /// mask and value come from the default tab, or NOSUPPORT when the row
-        /// itself is DEFAULT-level, i.e. unsupported) and replies the restored
-        /// row without ACK; same-level ACKed changes switch silently;
+        /// Applies one inbound SLC triplet per the client rules (RFC 1184 §5.5
+        /// rules 1–4): identical settings are ignored; a <c>DEFAULT</c> level
+        /// restores the row from the configured defaults (telnetlib3
+        /// <c>_slc_change</c>: mask and value come from the default tab, or
+        /// NOSUPPORT when the row itself is DEFAULT-level, i.e. unsupported)
+        /// and replies the restored row without ACK; same-level ACKed changes
+        /// switch silently (the client wins a simultaneous change);
         /// agreements switch and reply with ACK set; disagreements (only
         /// possible against a CANTCHANGE row) reply our value at our level
         /// without ACK. Func 0 (an import request) is dropped silently — the
@@ -136,6 +137,33 @@
         /// <param name="value">The proposed character value.</param>
         /// <returns>The reply (modifier, value) triplet tail, or null for no reply.</returns>
         internal (byte Modifier, byte Value)? ApplySlc(byte function, byte modifier, byte value)
+        {
+            return ApplySlcCore(function, modifier, value, asServer: false);
+        }
+
+        /// <summary>
+        /// Applies one inbound SLC triplet per the server rules (RFC 1184 §5.5
+        /// rules 1–4, with the server column of the same-level+ACK row): all
+        /// rules match <see cref="ApplySlc"/> except a same-level ACKed change
+        /// with a different value, which the server <em>ignores</em> (no reply,
+        /// no state change — it stands still while the client switches) instead
+        /// of adopting.
+        /// </summary>
+        /// <param name="function">The SLC function code.</param>
+        /// <param name="modifier">The level plus ACK/FLUSH modifier bits.</param>
+        /// <param name="value">The proposed character value.</param>
+        /// <returns>The reply (modifier, value) triplet tail, or null for no reply.</returns>
+        internal (byte Modifier, byte Value)? ApplySlcAsServer(byte function, byte modifier, byte value)
+        {
+            return ApplySlcCore(function, modifier, value, asServer: true);
+        }
+
+        /// <summary>
+        /// Shared SLC-triplet engine; see <see cref="ApplySlc"/> for the rule
+        /// walk. The only role split is the same-level+ACK row: a client
+        /// switches silently, a server ignores.
+        /// </summary>
+        private (byte Modifier, byte Value)? ApplySlcCore(byte function, byte modifier, byte value, bool asServer)
         {
             lock (sync)
             {
@@ -185,7 +213,16 @@
 
                 if (level == current.Level && (modifier & LinemodeProtocol.FlagAck) != 0)
                 {
-                    table[function] = new SlcEntry(level, value, flags);
+                    // Same level, ACK set, different value (identical rows were
+                    // filtered above): a client switches silently to the peer's
+                    // value, but a server ignores the triplet — RFC 1184 §5.5
+                    // rule 2 gives the client the win in a simultaneous change,
+                    // so the server must stand still instead of adopting.
+                    if (!asServer)
+                    {
+                        table[function] = new SlcEntry(level, value, flags);
+                    }
+
                     return null;
                 }
 

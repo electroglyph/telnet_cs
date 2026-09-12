@@ -199,6 +199,29 @@
         }
 
         [Fact]
+        public async Task SlcAckedChange_AsServer_IgnoresWithoutStoring()
+        {
+            // RFC 1184 §5.5 rule 2, server column: a same-level ACKed change
+            // with a different value is ignored — no reply and no state
+            // change. Same script as SlcAckedChange_SwitchesSilently, but the
+            // handler runs the server rules, so the third read finds the row
+            // still at 9 and stays silent (one reply total, not two).
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            sut.ApplyLinemodeAsServer = true;
+            stream.Enqueue(255, 250, 34, 3, 3, 2, 9, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.Enqueue(255, 250, 34, 3, 3, 130, 10, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            sut.Linemode.GetEntry(3).Should().Be(new SlcEntry(2, 9, 0));
+            stream.Enqueue(255, 250, 34, 3, 3, 2, 9, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.ByteWrites.Should().ContainSingle().Which.Should()
+              .Equal(new byte[] { 255, 250, 34, 3, 3, 130, 9, 255, 240 });
+        }
+
+        [Fact]
         public async Task SlcCantChange_DisagreesWithoutAck()
         {
             using var stream = new ScriptedStream();

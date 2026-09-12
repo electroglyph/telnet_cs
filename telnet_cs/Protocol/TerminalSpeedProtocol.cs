@@ -31,7 +31,9 @@
                 return null;
             }
 
-            if (!TryParseRate(parts[0], out int tx) || !TryParseRate(parts[1], out int rx))
+            string? tx = NormalizeRate(parts[0]);
+            string? rx = NormalizeRate(parts[1]);
+            if (tx is null || rx is null)
             {
                 return null;
             }
@@ -49,23 +51,31 @@
             return Round(rate);
         }
 
-        private static bool TryParseRate(string text, out int rate)
+        /// <summary>
+        /// Normalizes one rate for the wire/store path: all-ASCII-digit input
+        /// with leading zeros stripped (<c>"000"</c> normalizes to
+        /// <c>"0"</c>), or null when empty or non-decimal. String-level on
+        /// purpose: rates are opaque decimal text on the wire (RFC 1079 §4),
+        /// so values wider than <see cref="int"/> pass through instead of
+        /// overflowing into a silent reject.
+        /// </summary>
+        private static string? NormalizeRate(string text)
         {
-            rate = 0;
             if (text.Length == 0)
             {
-                return false;
+                return null;
             }
 
             foreach (char c in text)
             {
                 if (!char.IsAsciiDigit(c))
                 {
-                    return false;
+                    return null;
                 }
             }
 
-            return int.TryParse(text.TrimStart('0') is { Length: > 0 } stripped ? stripped : "0", out rate);
+            var stripped = text.TrimStart('0');
+            return stripped.Length == 0 ? "0" : stripped;
         }
 
         private static int Round(int rate)

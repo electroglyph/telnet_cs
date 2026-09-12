@@ -336,3 +336,5 @@ ASALocalRun/
 # Local correctness audit (working notes, not committed).
 /audit.md
 /test.md
+/test_audit.md
+

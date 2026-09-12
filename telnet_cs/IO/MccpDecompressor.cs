@@ -13,7 +13,10 @@ using System.IO.Compression;
 /// the footer surface as trailing plaintext).
 /// Format sniffing mirrors the reference autodetect: a leading
 /// <c>0x78</c> byte selects RFC 1950 zlib, <c>0x1F 0x8B</c> selects gzip,
-/// anything else is raw deflate. gzip and raw carry no
+/// anything else is raw deflate — and a zlib-sniffed stream that fails to
+/// inflate is retried as raw before being called corrupt (the reference
+/// tries zlib first, then raw), since a raw stream may start with
+/// <c>0x78</c>. gzip and raw carry no
 /// reference-equivalent end signal here: gzip ends at its CRC32/ISIZE
 /// footer, while raw deflate has no footer and therefore never
 /// end-detects (only a corrupt read or a fresh SB re-arms the stream).
@@ -38,6 +41,7 @@ internal sealed class MccpDecompressor : IDisposable
     private bool sniffed;
     private bool isZlib;
     private bool isGzip;
+    private bool rawRetried;
     private long consumed;
     private long totalOut;
     private uint runningCheck = 1;
@@ -224,6 +228,25 @@ internal sealed class MccpDecompressor : IDisposable
         }
         catch (InvalidDataException)
         {
+            if (isZlib && !rawRetried)
+            {
+                // The reference inflates zlib-first and retries raw deflate
+                // on failure: a raw stream that happens to start with 0x78
+                // mis-sniffs as zlib, so rewind and retry raw before calling
+                // the stream corrupt. Partial zlib output is discarded — the
+                // raw pass re-inflates the whole slice from byte zero.
+                rawRetried = true;
+                isZlib = false;
+                inflater?.Dispose();
+                inflater = new DeflateStream(input, CompressionMode.Decompress, leaveOpen: true);
+                consumed = 0;
+                totalOut = 0;
+                runningCheck = 1u;
+                ready.Clear();
+                Pump();
+                return;
+            }
+
             // Corrupt compressed data: drop everything queued (the reference
             // feeds the reader nothing) and let the caller DONT + resume raw.
             Failed = true;

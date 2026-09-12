@@ -230,6 +230,17 @@
         }
 
         [Fact]
+        public async Task SpeedSend_HugeRates_SentVerbatim()
+        {
+            // Rates are opaque decimal text on the wire (RFC 1079 §4), so a
+            // value wider than int passes through instead of being rejected.
+            var (output, stream) = await ReadHandlerOnceAsync(
+              static h => h.TerminalSpeed = "99999999999999999999,1", SpeedSend);
+            output.Should().BeEmpty();
+            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(SpeedIsFrame("99999999999999999999,1"));
+        }
+
+        [Fact]
         public void RoundForPadding_RoundsToNearest()
         {
             TerminalSpeedProtocol.RoundForPadding(1000).Should().Be(1200);
