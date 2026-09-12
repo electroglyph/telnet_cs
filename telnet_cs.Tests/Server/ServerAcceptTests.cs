@@ -208,7 +208,7 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task LoginInterop_ClientTryLoginAgainstSessionAuth()
+        public async Task LoginInterop_ManualScriptAgainstSessionAuth()
         {
             using var server = new TelnetServer(0);
             server.Start();
@@ -219,13 +219,16 @@ namespace telnet_cs.Tests
             var authTask = session.AuthenticateAsync(
               (u, p) => Task.FromResult(u == "bob" && p == "s3cret"),
               TimeSpan.FromSeconds(10));
-            var loginTask = client.TryLoginAsync("bob", "s3cret", 10000);
+            await client.TerminatedReadAsync("login: ", TimeSpan.FromSeconds(10));
+            await client.WriteLineAsync("bob");
+            await client.TerminatedReadAsync("Password: ", TimeSpan.FromSeconds(10));
+            await client.WriteLineAsync("s3cret");
             (await authTask).Should().BeTrue();
 
-            // TryLogin waits for a ">" terminator after the password: the server
-            // side of a login sends the first shell prompt.
+            // The client waits for a ">" terminator after the password: the
+            // server side of a login sends the first shell prompt.
             await session.WriteLineAsync("welcome>");
-            (await loginTask).Should().BeTrue();
+            (await client.TerminatedReadAsync(">", TimeSpan.FromSeconds(10))).Should().Contain(">");
         }
 
         [Fact]
@@ -241,10 +244,13 @@ namespace telnet_cs.Tests
             var authTask = session.AuthenticateAsync(
               (u, p) => Task.FromResult(p == "s3cret"),
               TimeSpan.FromSeconds(10));
-            // No ">" prompt ever arrives: short client timeout keeps this bounded.
-            var loginTask = client.TryLoginAsync("bob", "wrong", 1500);
+            await client.TerminatedReadAsync("login: ", TimeSpan.FromSeconds(10));
+            await client.WriteLineAsync("bob");
+            await client.TerminatedReadAsync("Password: ", TimeSpan.FromSeconds(10));
+            await client.WriteLineAsync("wrong");
             (await authTask).Should().BeFalse();
-            (await loginTask).Should().BeFalse();
+            // No ">" prompt ever arrives: a bounded read stays empty.
+            (await client.TerminatedReadAsync(">", TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
         }
 
         // Raw-socket auth: a ScriptedStream delivers all queued bytes in one

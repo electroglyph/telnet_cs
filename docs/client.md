@@ -80,10 +80,14 @@ await client.SendCommand(Commands.AreYouThere);
 await client.SendSynchAsync();                // TCP urgent DM (real sockets only)
 ```
 
-Login helper (waits for `:`, `:`, then `>` by default):
+Login is scripted explicitly (there is no login helper: prompts vary too
+much to match safely — any `:`-suffixed banner line is not a prompt):
 
 ```csharp
-bool ok = await client.TryLoginAsync("user", "secret", loginTimeoutMs: 5000);
+await client.TerminatedReadAsync("login: ", TimeSpan.FromSeconds(5));
+await client.WriteLineAsync("user");
+await client.TerminatedReadAsync("Password: ", TimeSpan.FromSeconds(5));
+await client.WriteLineAsync("secret");
 ```
 
 Enable options explicitly, then wait for agreement:

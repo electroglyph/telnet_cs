@@ -366,14 +366,15 @@
         }
 
         [Fact]
-        public async Task TryLogin_TrailingSpaceTerminator_Succeeds()
+        public async Task TerminatedRead_TrailingSpaceTerminator_Matches()
         {
-            // All three prompts arrive pipelined; the final "> " terminator
-            // ends in a space, which the old trimmed-only check could never
-            // match (login ran to timeout and failed).
+            // A terminator ending in a space must match itself: the read
+            // below would stall to timeout under a trimmed-only check.
             using var stream = new ScriptedStream("Account: Password: > ");
             using var sut = new Client(stream, new CancellationToken());
-            (await sut.TryLoginAsync("bob", "s3cret", 5000, "> ")).Should().BeTrue();
+            (await sut.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(500))).Should().Be("Account:");
+            (await sut.TerminatedReadAsync("Password:", TimeSpan.FromMilliseconds(500))).Should().Contain("Password:");
+            (await sut.TerminatedReadAsync("> ", TimeSpan.FromMilliseconds(500))).Should().EndWith("> ");
         }
 
         [Fact]
@@ -407,6 +408,7 @@
                 IsWriteConsole = true,
                 AllowRemoteEcho = true,
                 EnableBell = false,
+                EnableMudOptions = true,
                 TextEncoding = Encoding.Latin1,
                 WindowWidth = 100,
                 WindowHeight = 40,
@@ -432,6 +434,7 @@
             sut.Settings.IsWriteConsole.Should().BeTrue();
             sut.Settings.AllowRemoteEcho.Should().BeTrue();
             sut.Settings.EnableBell.Should().BeFalse();
+            sut.Settings.EnableMudOptions.Should().BeTrue();
             sut.Settings.TextEncoding.Should().BeSameAs(Encoding.Latin1);
             sut.Settings.WindowWidth.Should().Be(100);
             sut.Settings.WindowHeight.Should().Be(40);
@@ -484,12 +487,12 @@
         }
 
         [Fact]
-        public async Task TryLoginFailsFastWhenNoTerminator()
+        public async Task TerminatedRead_ReturnsPromptlyWhenNoTerminator()
         {
             var fake = A.Fake<IByteStream>();
             A.CallTo(() => fake.Connected).Returns(true);
             using var sut = new Client(fake, TimeSpan.FromMilliseconds(1), default) { MillisecondReadDelay = 1 };
-            (await sut.TryLoginAsync("u", "p", 60)).Should().BeFalse();
+            (await sut.TerminatedReadAsync(":", TimeSpan.FromMilliseconds(60), 1)).Should().BeEmpty();
         }
 
         [Fact]

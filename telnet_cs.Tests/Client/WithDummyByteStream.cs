@@ -94,7 +94,14 @@
                 using (var client = new Client(stream, new CancellationToken()))
                 {
                     client.IsConnected.Should().Be(true);
-                    (await client.TryLoginAsync("username", "password", timeoutMs)).Should().Be(true);
+                    await client.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(timeoutMs));
+                    await client.WriteLineAsync("username");
+                    await client.TerminatedReadAsync("Password:", TimeSpan.FromMilliseconds(timeoutMs));
+                    await client.WriteLineAsync("password");
+                    // Consume the post-login "Command >" prompt first: the
+                    // statistics read below must see the command output, not
+                    // the tail of the login exchange.
+                    await client.TerminatedReadAsync(">", TimeSpan.FromMilliseconds(timeoutMs));
                     await client.WriteLineAsync("show statistic wan2");
                     var s = await client.TerminatedReadAsync(">", TimeSpan.FromMilliseconds(timeoutMs));
                     s.Should().Contain(">");
@@ -111,7 +118,11 @@
                 using (var client = new Client(stream, new CancellationToken()))
                 {
                     client.IsConnected.Should().Be(true);
-                    (await client.TryLoginAsync("username", "password", timeoutMs)).Should().Be(true);
+                    await client.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(timeoutMs));
+                    await client.WriteLineAsync("username");
+                    var s = await client.TerminatedReadAsync("Password:", TimeSpan.FromMilliseconds(timeoutMs));
+                    s.Should().Contain("Password:");
+                    await client.WriteLineAsync("password");
                 }
             }
         }
@@ -124,7 +135,11 @@
                 using (var client = new Client(stream, new CancellationToken()))
                 {
                     client.IsConnected.Should().Be(true);
-                    (await client.TryLoginAsync("username", "password", 1500)).Should().Be(true);
+                    await client.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(timeoutMs));
+                    await client.WriteLineAsync("username");
+                    await client.TerminatedReadAsync("Password:", TimeSpan.FromMilliseconds(timeoutMs));
+                    await client.WriteLineAsync("password");
+                    await client.TerminatedReadAsync(">", TimeSpan.FromMilliseconds(timeoutMs));
                     await client.WriteLineAsync("show statistic wan2");
                     var s = await client.TerminatedReadAsync(new Regex(".*>$"), TimeSpan.FromMilliseconds(timeoutMs));
                     s.Should().Contain(">");

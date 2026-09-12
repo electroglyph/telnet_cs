@@ -244,6 +244,8 @@
 
         /// <summary>
         /// Gets or sets a value indicating whether a received BEL rings the console bell.
+        /// Retained for compatibility; currently has no effect — BEL bytes are
+        /// delivered as data like every other control byte.
         /// Defaults to <c>true</c>; the client feeds its effective per-instance setting before each read.
         /// </summary>
         internal bool EnableBell { get; set; } = true;
@@ -562,7 +564,9 @@
         /// <summary>
         /// Gets or sets whether the MUD options (MSDP 69, MSSP 70, MSP 90,
         /// MXP 91, ZMP 93, Aardwolf 102, ATCP 200, GMCP 201) may be agreed.
-        /// Defaults to <c>true</c>. Subnegotiations dispatch to the typed
+        /// Defaults to <c>true</c>. The client stack overrides this from its
+        /// options (declined by default); the server stack leaves the default
+        /// in place and agrees. Subnegotiations dispatch to the typed
         /// hooks and stores (plus the raw <see cref="MudSubnegotiationReceived"/>
         /// hook); text decoding uses the agreed CHARSET when one resolved.
         /// </summary>
@@ -1013,59 +1017,20 @@
                         }
 
                         break;
-                    case 1: // Start of Heading
-                        AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "\n \n", 1);
-                        break;
-                    case 2: // Start of Text
-                        AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "\t", 2);
-                        break;
-                    case 3: // End of Text or "break" CTRL+C
-                        AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "^C", 3);
-                        WriteLog("^C");
-                        break;
-                    case 4: // End of Transmission
-                        AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "^D", 4);
-                        break;
-                    case 5: // Enquiry
-                        await byteStream.WriteByteAsync(6, internalCancellation.Token).ConfigureAwait(false); // Send ACK
-                        break;
-                    case 6: // Acknowledge
-                            // We got an ACK
-                        break;
-                    case 7: // Bell character
-                        if (EnableBell)
-                        {
-#pragma warning disable CA1031 // Do not catch general exception types
-                            try
-                            {
-                                Console.Beep();
-                            }
-                            catch (Exception ex)
-                            {
-                                WriteLog(ex.Message);
-                            }
-#pragma warning restore CA1031 // Do not catch general exception types
-                        }
-
-                        break;
-                    case 8: // Backspace
-                            // Erase the previously decoded character, if any.
-                        EraseLastChar(sb, rawBytes, opByteCounts, echoBytes);
-                        break;
-                    case 11: // Vertical TAB
-                    case 12: // Form Feed
-                        AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, Environment.NewLine, (byte)input);
+                    case 1 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 11 or 12 or 21 or 31:
+                        // NVT control bytes are data, not commands: forward them
+                        // verbatim so the byte stream round-trips exactly. No
+                        // expansions ("^C", "NAK: ..." text), no drops (BEL,
+                        // ACK), no wire side effects (ENQ must not emit an
+                        // unsolicited ACK), and no destructive editing (BS must
+                        // not delete already-delivered bytes) — any terminal
+                        // presentation belongs in a layer above this parser.
+                        // CR keeps its RFC 854 handling in the next case.
+                        AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, (char)input);
                         break;
                     case 13: // Carriage Return: RFC 854 CR NUL -> CR; CR LF stays CR LF.
                         AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "\r", 13);
                         sawCrAwaitingNul = true;
-                        break;
-                    case 21:
-                        AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "NAK: Retransmit last message.", 21);
-                        WriteLog("ERROR NAK: Retransmit last message.");
-                        break;
-                    case 31: // Unit Separator
-                        AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, ",", 31);
                         break;
                     default:
                         if (input > 127 && !Negotiation.IsEnabledByPeer((int)Options.TransmitBinary) && TextEncoding is null && !ForceBinaryDecoding)
@@ -1131,50 +1096,10 @@
         }
 
         /// <summary>
-        /// Printable proof-alive sent in reply to AYT (RFC 854).
-        /// </summary>
-        private static readonly byte[] AytProofAlive = "[AYT received]\r\n"u8.ToArray();
-
-        /// <summary>
-        /// Erases the last decoded character, if any (BS handling and RFC 854 EC).
-        /// </summary>
-        private static void EraseLastChar(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes)
-        {
-            if (sb.Length > 0)
-            {
-                sb.Length--;
-                var taken = opByteCounts[^1];
-                opByteCounts.RemoveAt(opByteCounts.Count - 1);
-                rawBytes.RemoveRange(rawBytes.Count - taken, taken);
-                echoBytes.RemoveAt(echoBytes.Count - 1);
-            }
-        }
-
-        /// <summary>
-        /// Erases back to (but not including) the last CR LF, or everything if
-        /// there is none (RFC 854 EL).
-        /// </summary>
-        private static void EraseLine(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes)
-        {
-            var marker = sb.ToString().LastIndexOf("\r\n", StringComparison.Ordinal);
-            var keep = marker < 0 ? 0 : marker + 2;
-            var removeBytes = 0;
-            for (var i = keep; i < sb.Length; i++)
-            {
-                removeBytes += opByteCounts[i];
-            }
-
-            opByteCounts.RemoveRange(keep, sb.Length - keep);
-            echoBytes.RemoveRange(keep, sb.Length - keep);
-            rawBytes.RemoveRange(rawBytes.Count - removeBytes, removeBytes);
-            sb.Length = keep;
-        }
-
-        /// <summary>
-        /// We received a TELNET command. Handle it. Control signals (P2) edit
-        /// the accumulation buffer in place, so the decoded text and the raw
-        /// bytes backing it stay in sync for explicit-<see cref="TextEncoding"/>
-        /// decoding.
+        /// We received a TELNET command. Handle it. Commands are consumed
+        /// without touching the accumulation buffer: the decoded text and the
+        /// raw bytes backing it are the application's byte record, and only
+        /// data bytes may append to them.
         /// </summary>
         /// <param name="sb">The incoming message.</param>
         /// <param name="rawBytes">The raw data bytes backing <paramref name="sb"/> (used when <see cref="TextEncoding"/> is set).</param>
@@ -1191,9 +1116,10 @@
                     CancelPendingReads();
                     return;
                 case (int)Commands.AreYouThere:
-                    // RFC 854: answer AYT with printable proof that we are alive.
-                    WriteLog("Are You There (AYT) received; sending proof-alive.");
-                    await byteStream.WriteAsync(AytProofAlive, 0, AytProofAlive.Length, internalCancellation.Token).ConfigureAwait(false);
+                    // Consumed without reply: answering with printable bytes
+                    // would inject peer-visible data that no framing accounts
+                    // for, corrupting strict request/response exchanges.
+                    WriteLog("Are You There (AYT) received.");
                     return;
                 case (int)Commands.AbortOutput:
                     // This design has no output queue (writes go straight to the
@@ -1201,32 +1127,33 @@
                     WriteLog("Abort Output (AO) received; no queued output to discard.");
                     return;
                 case (int)Commands.EraseCharacter:
-                    // RFC 854 EC: erase the last undeleted character, same as BS.
-                    EraseLastChar(sb, rawBytes, opByteCounts, echoBytes);
+                    // Consumed without editing: the delivery buffer is the
+                    // application's byte record, not a terminal line — erasing
+                    // from it would destroy already-delivered data and corrupt
+                    // raw-byte counts and echo accounting.
+                    WriteLog("Erase Character (EC) received.");
                     return;
                 case (int)Commands.EraseLine:
-                    // RFC 854 EL: erase back to (but not including) the last CR LF.
-                    EraseLine(sb, rawBytes, opByteCounts, echoBytes);
+                    // Same as EC: consumed, buffer untouched.
+                    WriteLog("Erase Line (EL) received.");
                     return;
                 case (int)Commands.Break:
-                    // Surface BRK distinctly instead of swallowing it silently.
+                    // Out-of-band signal: consumed and logged, never surfaced
+                    // as text — marker strings would be phantom data to any
+                    // caller matching terminators or counting bytes.
                     WriteLog("Break (BRK) received.");
-                    AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "[BRK]");
                     return;
                 case (int)Commands.EndOfFile:
-                    // RFC 1184 §2.5: notify the process of end of file.
+                    // Same as BRK: consumed, never text.
                     WriteLog("End of file (EOF) received.");
-                    AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "[EOF]");
                     return;
                 case (int)Commands.Suspend:
-                    // RFC 1184 §2.5: suspend is a no-op when unsupported, but still surfaced.
+                    // Same as BRK: consumed, never text.
                     WriteLog("Suspend (SUSP) received.");
-                    AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "[SUSP]");
                     return;
                 case (int)Commands.Abort:
-                    // RFC 1184 §2.5: terminate-only abort, surfaced like BRK.
+                    // Same as BRK: consumed, never text.
                     WriteLog("Abort (ABORT) received.");
-                    AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "[ABORT]");
                     return;
                 case (int)Commands.EndOfRecord:
                     // RFC 885: IAC EOR marks a prompt boundary with no
@@ -1413,8 +1340,24 @@
                 }
                 else if (followingSplit == (int)Commands.Subnegotiation)
                 {
-                    // RFC 854 defines no nesting: drop the outer frame but
-                    // dispatch the inner one.
+                    // RFC 854 defines no nesting, so a second IAC SB inside an
+                    // open frame cannot be a nested frame. Recovery: drop the
+                    // outer frame and scan the inner one fresh, which is what
+                    // the reference implementation does (it warns, clears its
+                    // SB buffer, and re-buffers starting from the inner SB, so
+                    // the inner frame is still terminated at its own IAC SE
+                    // and dispatched normally — an unknown inner option is then
+                    // ignored without reply, a known one handled as usual).
+                    // PerformNegotiation below does exactly that: it reads a
+                    // fresh option byte and starts a fresh scan.
+                    // Do NOT "fix" this by returning early instead: the inner
+                    // frame's remaining bytes (option, payload, IAC SE) would
+                    // stay in the stream and be delivered as application data
+                    // on the next read, which neither this stack nor the
+                    // reference does — both consume through the inner IAC SE.
+                    // Any reply-vs-silence difference for the inner frame comes
+                    // from the payload dispatch rules (SEND vs stray payload),
+                    // not from this recovery path.
                     await PerformNegotiation().ConfigureAwait(false);
                     return;
                 }
@@ -1482,8 +1425,11 @@
 
                         if (following == (int)Commands.Subnegotiation)
                         {
-                            // RFC 854 defines no nesting: drop the outer frame but
-                            // dispatch the inner one.
+                            // Same recovery as the split path above: the outer
+                            // frame is dropped and the inner one is scanned
+                            // fresh (see the detailed note there). Returning
+                            // early here would leak the inner frame's tail
+                            // into the data stream — never do that.
                             await PerformNegotiation().ConfigureAwait(false);
                             return;
                         }
@@ -1969,7 +1915,10 @@
         /// Consumes an LFLOW subnegotiation (RFC 1372): a single mode byte
         /// (0-3). ON/OFF flips <see cref="LineflowEnabled"/>, RESTART_ANY/XON
         /// flips <see cref="LineflowXonAny"/>; the other flag is untouched.
-        /// Malformed or unsolicited bodies earn WONT like a stray IS.
+        /// Only the side that agreed to perform LFLOW (local agreement)
+        /// adopts the mode: like the reference, a well-formed but unsolicited
+        /// body is consumed silently — never answered with WONT — and a
+        /// malformed body is logged and ignored.
         /// </summary>
         /// <param name="payload">The received payload (mode byte).</param>
         private Task ReplyLineflowAsync(List<byte> payload)
@@ -1980,9 +1929,10 @@
                 return Task.CompletedTask;
             }
 
-            if (!Negotiation.IsEnabledByPeer((int)Options.RemoteFlowControl))
+            if (!Negotiation.IsEnabledByUs((int)Options.RemoteFlowControl))
             {
-                return SendWont((int)Options.RemoteFlowControl);
+                WriteLog("Ignoring unsolicited LFLOW subnegotiation (LFLOW not agreed).");
+                return Task.CompletedTask;
             }
 
             var mode = payload[0];
@@ -2576,6 +2526,10 @@
 
             if (IsMudOption(inputOption))
             {
+                // Role split, mirroring the reference (client-gated decline):
+                // a client agrees only when opted in (its options default to
+                // decline), while a server agrees. The client stack applies
+                // its setting over the default-true plumbing value.
                 return EnableMudOptions;
             }
 

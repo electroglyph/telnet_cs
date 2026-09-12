@@ -82,10 +82,54 @@
         }
 
         [Fact]
+        public async Task DoGmcp_DeclinedByDefault()
+        {
+            // F-M2: a default client declines MUD options like the reference
+            // (opt in via TelnetClientOptions.EnableMudOptions).
+            using (GlobalStateGuard.SkipProactive(true))
+            {
+                using var stream = new ScriptedStream();
+                using var client = new Client(stream, new CancellationToken());
+                stream.Enqueue(255, 253, 201);
+                (await ReadOnceAsync(client)).Should().BeEmpty();
+                CountWrites(stream, 252, 201).Should().Be(1);
+                CountWrites(stream, 251, 201).Should().Be(0);
+            }
+        }
+
+        [Fact]
+        public async Task WillGmcp_DeclinedByDefault()
+        {
+            using (GlobalStateGuard.SkipProactive(true))
+            {
+                using var stream = new ScriptedStream();
+                using var client = new Client(stream, new CancellationToken());
+                stream.Enqueue(255, 251, 201);
+                (await ReadOnceAsync(client)).Should().BeEmpty();
+                CountWrites(stream, 254, 201).Should().Be(1);
+                CountWrites(stream, 253, 201).Should().Be(0);
+            }
+        }
+
+        [Fact]
+        public async Task DoGmcp_AgreedWhenMudEnabled()
+        {
+            using (GlobalStateGuard.SkipProactive(true))
+            {
+                using var stream = new ScriptedStream();
+                using var client = new Client(stream, new CancellationToken());
+                client.ApplyOptions(new TelnetClientOptions { EnableMudOptions = true });
+                stream.Enqueue(255, 253, 201);
+                (await ReadOnceAsync(client)).Should().BeEmpty();
+                CountWrites(stream, 251, 201).Should().Be(1);
+            }
+        }
+
+        [Fact]
         public async Task WontDontOptionBytes_AreConsumedNotData()
         {
             // The option byte belongs to the command: it must not leak into
-            // output (3 would surface as "^C", 1 as SOH mapping).
+            // output (3 arrives as data "\x03", 1 as "\x01").
             (await ReadHandlerOnceAsync(255, 252, 3)).Should().BeEmpty();
             (await ReadHandlerOnceAsync(255, 254, 1)).Should().BeEmpty();
         }

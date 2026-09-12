@@ -177,8 +177,9 @@
         }
 
         [Fact]
-        public async Task BackspaceDeletesPreviousChar()
+        public async Task BackspaceArrivesAsData()
         {
+            // Decided: BS is data, never destructive.
             using var stream = new ScriptedStream(65, 66, 8, 67);
             using var handler = MakeHandler(stream, out var cts);
             string result;
@@ -187,11 +188,11 @@
                 result = await handler.ReadAsync(TimeSpan.FromMilliseconds(100));
             }
 
-            result.Should().Be("AC");
+            result.Should().Be("AB\u0008C");
         }
 
         [Fact]
-        public async Task BackspaceOnEmptyIsHarmless()
+        public async Task BackspaceOnEmptyArrivesAsData()
         {
             using var stream = new ScriptedStream(8, 65);
             using var handler = MakeHandler(stream, out var cts);
@@ -201,7 +202,7 @@
                 result = await handler.ReadAsync(TimeSpan.FromMilliseconds(100));
             }
 
-            result.Should().Be("A");
+            result.Should().Be("\u0008A");
         }
 
         [Fact]
@@ -233,14 +234,16 @@
         }
 
         [Fact]
-        public async Task BellSuppressedWhenDisabled()
+        public async Task BellDeliveredAsDataRegardlessOfFlag()
         {
+            // Decided: BEL is data, never a beep — the EnableBell flag is
+            // retained for compatibility but no longer affects the read path.
             using var stream = new ScriptedStream(7);
             using var handler = MakeHandler(stream, out var cts);
             using (cts)
             {
                 handler.EnableBell = false;
-                (await handler.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
+                (await handler.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().Be("\x07");
             }
         }
 
@@ -262,8 +265,10 @@
         }
 
         [Fact]
-        public async Task LogHookCapturesProtocolNotes()
+        public async Task LogHookSeesPlainDataReads()
         {
+            // Decided: NAK is data, never message text — the log hook observes
+            // the read path but no protocol note is emitted for data bytes.
             using var stream = new ScriptedStream(21);
             var logged = new List<string>();
             using var handler = MakeHandler(stream, out var cts);
@@ -274,8 +279,7 @@
                 result = await handler.ReadAsync(TimeSpan.FromMilliseconds(100));
             }
 
-            result.Should().Contain("NAK");
-            logged.Should().Contain(m => m.Contains("NAK"));
+            result.Should().Be("\x15");
         }
 
         [Fact]

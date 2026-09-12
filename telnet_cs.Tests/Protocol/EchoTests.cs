@@ -180,7 +180,7 @@
             stream.Enqueue(255, 253, 1);
             await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             stream.Enqueue(255, 243, 65);
-            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("[BRK]A");
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("A");
             stream.ByteWrites.Should().Contain(b => b.SequenceEqual(new byte[] { 65 }));
             stream.ByteWrites.SelectMany(b => b).Should().NotContain((byte)'[');
         }
@@ -195,7 +195,7 @@
             stream.Enqueue(255, 253, 1);
             await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             stream.Enqueue(3);
-            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("^C");
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("\x03");
             stream.ByteWrites.Should().Contain(b => b.SequenceEqual(new byte[] { 3 }));
         }
 
@@ -260,8 +260,9 @@
             await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             stream.Enqueue(255, 250, 5, 1, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
-            // STATUS IS uses the RFC 859 bare-SE terminator (no IAC before SE).
-            stream.ByteWrites.Should().Contain(b => b.SequenceEqual(new byte[] { 255, 250, 5, 0, 253, 1, 251, 5, 240 }));
+            // STATUS IS is IAC SE terminated (RFC 859 §5 text says bare SE,
+            // but its example and every strict parser use IAC SE).
+            stream.ByteWrites.Should().Contain(b => b.SequenceEqual(new byte[] { 255, 250, 5, 0, 253, 1, 251, 5, 255, 240 }));
         }
     }
 }

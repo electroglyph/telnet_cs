@@ -52,11 +52,17 @@
         }
 
         /// <summary>
-        /// Frames STATUS IS items per RFC 859: <c>IAC SB STATUS IS</c>, the
-        /// items, then a bare <c>SE</c> terminator (not <c>IAC SE</c>). Literal
-        /// <c>SE</c> bytes inside the items are doubled (<c>SE SE</c>). No IAC
-        /// doubling is needed: item bytes never reach 255 (see
-        /// <c>LastReportableOption</c>).
+        /// Frames STATUS IS items as <c>IAC SB STATUS IS</c>, the items, then
+        /// <c>IAC SE</c>. RFC 859 §5 specifies a bare <c>SE</c> terminator
+        /// (with <c>SE SE</c> doubling), but its own worked example ends the
+        /// frame with <c>IAC SE</c>, and every known implementation parses
+        /// subnegotiations strictly up to <c>IAC SE</c> — a bare <c>SE</c> is
+        /// treated as payload, so the peer swallows whatever follows the frame
+        /// into its SB buffer. Interoperability therefore requires the
+        /// <c>IAC SE</c> form on send. Inbound parsing still accepts both forms.
+        /// Item bytes never reach 255 (see <c>LastReportableOption</c>), so no
+        /// IAC doubling occurs; a raw 240 data byte needs no escaping under
+        /// <c>IAC SE</c> framing (only <c>IAC</c> itself is special).
         /// </summary>
         /// <param name="items">The item bytes from <see cref="BuildIsPayload"/>.</param>
         internal static byte[] FrameStatusIs(byte[] items)
@@ -65,7 +71,7 @@
             var payload = new byte[items.Length + 1];
             payload[0] = Is;
             items.CopyTo(payload, 1);
-            return EnvironmentProtocol.FrameBareSe((int)Options.Status, payload);
+            return EnvironmentProtocol.FrameSubnegotiation((int)Options.Status, payload);
         }
     }
 }

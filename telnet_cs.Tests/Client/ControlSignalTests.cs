@@ -75,11 +75,13 @@
         }
 
         [Fact]
-        public async Task Ayt_GetsProofAliveReply()
+        public async Task Ayt_ConsumedSilently()
         {
+            // Decided: AYT earns no proof-alive bytes — answering would inject
+            // peer-visible data outside any framing the caller controls.
             var (output, stream) = await ReadWithStreamAsync(255, 246);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(Encoding.ASCII.GetBytes("[AYT received]\r\n"));
+            stream.ByteWrites.Should().BeEmpty();
         }
 
         [Fact]
@@ -91,10 +93,12 @@
         }
 
         [Fact]
-        public async Task Ec_ErasesLastChar()
+        public async Task Ec_LeavesBufferUntouched()
         {
+            // Decided: EC is consumed without editing — the delivery buffer is
+            // the application's byte record, not a terminal line.
             var (output, _) = await ReadWithStreamAsync(65, 66, 255, 247);
-            output.Should().Be("A");
+            output.Should().Be("AB");
         }
 
         [Fact]
@@ -105,17 +109,17 @@
         }
 
         [Fact]
-        public async Task El_ErasesToLastNewline()
+        public async Task El_LeavesBufferUntouched()
         {
             var (output, _) = await ReadWithStreamAsync(65, 66, 13, 10, 67, 68, 255, 248);
-            output.Should().Be("AB\r\n");
+            output.Should().Be("AB\r\nCD");
         }
 
         [Fact]
-        public async Task El_WithNoNewline_ClearsAll()
+        public async Task El_WithoutNewline_LeavesBufferUntouched()
         {
             var (output, _) = await ReadWithStreamAsync(65, 66, 255, 248);
-            output.Should().BeEmpty();
+            output.Should().Be("AB");
         }
 
         [Fact]
@@ -134,23 +138,24 @@
         }
 
         [Fact]
-        public async Task Ec_KeepsRawBytesInSync()
+        public async Task Ec_LeavesRawBytesUntouched()
         {
-            // Decoded from rawBytes (not sb): stale bytes would surface here.
-            (await ReadWithEncodingAsync(Encoding.Latin1, 65, 66, 67, 255, 247)).Should().Be("AB");
+            // Decoded from rawBytes (not sb): with no editing, all three stand.
+            (await ReadWithEncodingAsync(Encoding.Latin1, 65, 66, 67, 255, 247)).Should().Be("ABC");
         }
 
         [Fact]
-        public async Task El_KeepsRawBytesInSync()
+        public async Task El_LeavesRawBytesUntouched()
         {
-            (await ReadWithEncodingAsync(Encoding.Latin1, 65, 66, 13, 10, 67, 255, 248)).Should().Be("AB\r\n");
+            (await ReadWithEncodingAsync(Encoding.Latin1, 65, 66, 13, 10, 67, 255, 248)).Should().Be("AB\r\nC");
         }
 
         [Fact]
-        public async Task Brk_SurfacesMarker()
+        public async Task Brk_ConsumedSilently()
         {
+            // Decided: out-of-band signals are consumed, never marker text.
             var (output, _) = await ReadWithStreamAsync(255, 243);
-            output.Should().Be("[BRK]");
+            output.Should().BeEmpty();
         }
 
         [Theory]

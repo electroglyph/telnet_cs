@@ -26,18 +26,14 @@
         }
 
         [Fact]
-        public async Task StaticTraceHookCapturesLog()
+        public async Task EtxArrivesAsData()
         {
-            var captured = new List<string>();
-            using (GlobalStateGuard.HandlerTrace(captured.Add))
-            {
-                using var stream = new ScriptedStream(3); // ETX -> WriteLog("^C")
-                using var cts = new CancellationTokenSource();
-                using var handler = new ByteStreamHandler(stream, cts, 1);
-                var result = await handler.ReadAsync(TimeSpan.FromMilliseconds(100));
-                result.Should().Be("^C");
-                captured.Should().Contain("^C");
-            }
+            // Decided: control bytes are data, never caret notation.
+            using var stream = new ScriptedStream(3);
+            using var cts = new CancellationTokenSource();
+            using var handler = new ByteStreamHandler(stream, cts, 1);
+            var result = await handler.ReadAsync(TimeSpan.FromMilliseconds(100));
+            result.Should().Be("\x03");
         }
 
         [Fact]

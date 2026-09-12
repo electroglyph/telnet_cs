@@ -27,10 +27,19 @@
                 {
                     client.IsConnected.Should().Be(true);
                     Client.IsWriteConsole = false;
-                    (await client.TryLoginAsync(
-                      "username",
-                      "password",
-                      TimeoutMs)).Should().Be(true);
+                    await client.TerminatedReadAsync(
+                      "Account:",
+                      TimeSpan.FromMilliseconds(TimeoutMs));
+                    await client.WriteLineAsync("username");
+                    await client.TerminatedReadAsync(
+                      "Password:",
+                      TimeSpan.FromMilliseconds(TimeoutMs));
+                    await client.WriteLineAsync("password");
+                    // Consume the post-login prompt so the statistics read
+                    // below sees the command output, not the login tail.
+                    await client.TerminatedReadAsync(
+                      ">",
+                      TimeSpan.FromMilliseconds(TimeoutMs));
                     await client.WriteLineAsync("show statistic wan2");
                     string s = await client.TerminatedReadAsync(
                       ">",

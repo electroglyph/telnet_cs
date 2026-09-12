@@ -437,7 +437,7 @@ namespace telnet_cs.Tests
         // NOTE: multi-line auth conversations need later lines Enqueued after
         // the earlier read requests them (never up front: one read drains all
         // queued bytes, so the first credential read would swallow the second
-        // line — same reason Client.TryLoginAsync is only covered over
+        // line — same reason client-side logins are only covered over
         // loopback). Accept/reject paths are covered by
         // ServerAcceptTests.LoginInterop_* over real sockets; the fail-closed,
         // validation, and attempt-budget edges below are stream-level and safe.
@@ -1462,7 +1462,7 @@ namespace telnet_cs.Tests
             // WILL ECHO is deferred until TTYPE reveals the client, so it is
             // absent here. The peer then asks us to report STATUS (DO STATUS →
             // agreed WILL-sender, the RFC 859 §5 role gate), so the snapshot
-            // reports the two WILLs plus the five DOs, bare-SE terminated.
+            // reports the two WILLs plus the five DOs, IAC SE terminated.
             stream.Enqueue([255, 253, 5, 255, 250, 5, 1, 255, 240]);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             byte[] outbound = OutboundBytes(stream);
@@ -1479,7 +1479,7 @@ namespace telnet_cs.Tests
               255, 250, 5, 0,
               251, 0, 251, 3, 251, 5,
               253, 24, 253, 31, 253, 32, 253, 34, 253, 36,
-              240);
+              255, 240);
         }
 
         [Fact]

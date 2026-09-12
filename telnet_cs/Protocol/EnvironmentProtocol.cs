@@ -174,18 +174,6 @@
             return Frame(option, verbFirstPayload, escapeByte: (byte)Commands.InterpretAsCommand, trailingIac: true);
         }
 
-        /// <summary>
-        /// Frames a verb-first payload as <c>IAC SB option ... SE</c> with a
-        /// bare SE terminator, doubling embedded SE bytes instead of IAC
-        /// (RFC 859 STATUS).
-        /// </summary>
-        /// <param name="option">The option number.</param>
-        /// <param name="verbFirstPayload">Payload bytes starting with the subnegotiation verb.</param>
-        internal static byte[] FrameBareSe(int option, byte[] verbFirstPayload)
-        {
-            return Frame(option, verbFirstPayload, escapeByte: (byte)Commands.SubnegotiationEnd, trailingIac: false);
-        }
-
         private static byte[] Frame(int option, byte[] verbFirstPayload, byte escapeByte, bool trailingIac)
         {
             var frame = new List<byte>(verbFirstPayload.Length + (trailingIac ? 5 : 4))

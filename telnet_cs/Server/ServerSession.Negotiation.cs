@@ -413,7 +413,9 @@
         /// reads a credential line, and passes both to <paramref name="validate"/>.
         /// Retries up to <see cref="TelnetServerOptions.MaxLoginAttempts"/> times, then
         /// returns <c>false</c> (the session stays open — disconnect policy is the
-        /// caller's). The server mirror of <c>Client.TryLoginAsync</c>.
+        /// caller's). There is no client-side counterpart: callers script
+        /// the peer side with explicit <c>TerminatedReadAsync</c> +
+        /// <c>WriteLineAsync</c> exchanges against these prompts.
         /// A credential line that never terminates (timeout) fails closed: the
         /// attempt is abandoned and authentication returns <c>false</c>.
         /// The password line is never echoed: before the password prompt the

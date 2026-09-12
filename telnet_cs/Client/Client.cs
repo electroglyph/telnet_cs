@@ -14,28 +14,6 @@
     public partial class Client : BaseClient, IClient
     {
         /// <inheritdoc/>
-        public Task<bool> TryLoginAsync(string userName, string password, int loginTimeoutMs, string lineFeed = Rfc854LineFeed)
-        {
-            return TryLoginAsync(userName, password, loginTimeoutMs, ">", lineFeed);
-        }
-
-        /// <inheritdoc/>
-        public async Task<bool> TryLoginAsync(string userName, string password, int loginTimeoutMs, string terminator, string lineFeed = Rfc854LineFeed)
-        {
-            ArgumentNullException.ThrowIfNull(userName);
-            ArgumentNullException.ThrowIfNull(password);
-            ArgumentNullException.ThrowIfNull(terminator);
-            ArgumentNullException.ThrowIfNull(lineFeed);
-            var result = await TrySendUsernameAndPasswordAsync(userName, password, loginTimeoutMs, lineFeed).ConfigureAwait(false);
-            if (result)
-            {
-                result = await IsTerminatedWithAsync(loginTimeoutMs, terminator).ConfigureAwait(false);
-            }
-
-            return result;
-        }
-
-        /// <inheritdoc/>
         public Task WriteLineAsync(string command)
         {
             ArgumentNullException.ThrowIfNull(command);
@@ -436,28 +414,6 @@
             }
         }
 
-        private async Task<bool> TrySendUsernameAndPasswordAsync(string userName, string password, int loginTimeoutMs, string lineFeed)
-        {
-            var result = await TryAwaitTerminatorThenSendAsync(userName, loginTimeoutMs, lineFeed).ConfigureAwait(false);
-            if (result)
-            {
-                result = await TryAwaitTerminatorThenSendAsync(password, loginTimeoutMs, lineFeed).ConfigureAwait(false);
-            }
-
-            return result;
-        }
-
-        private async Task<bool> TryAwaitTerminatorThenSendAsync(string value, int loginTimeoutMs, string lineFeed)
-        {
-            var isTerminated = await IsTerminatedWithAsync(loginTimeoutMs, ":").ConfigureAwait(false);
-            if (isTerminated)
-            {
-                await WriteLineAsync(value, lineFeed).ConfigureAwait(false);
-            }
-
-            return isTerminated;
-        }
-
         private async Task<string> TerminatedReadAsync(Func<string, bool> isTerminated, TimeSpan timeout, int millisecondSpin, CancellationToken cancellationToken)
         {
             var endTimeout = DateTime.UtcNow.Add(timeout);
@@ -469,16 +425,6 @@
             }
 
             return s;
-        }
-
-        private async Task<bool> IsTerminatedWithAsync(int loginTimeoutMs, string terminator)
-        {
-            // Untrimmed first: a terminator with trailing whitespace must match
-            // itself. Trimmed fallback preserves noise tolerance. Ordinal:
-            // terminators are protocol tokens (same rationale as
-            // IsTerminatorLocated).
-            string s = await TerminatedReadAsync(terminator, TimeSpan.FromMilliseconds(loginTimeoutMs), 1).ConfigureAwait(false);
-            return s.EndsWith(terminator, StringComparison.Ordinal) || s.TrimEnd().EndsWith(terminator, StringComparison.Ordinal);
         }
     }
 }

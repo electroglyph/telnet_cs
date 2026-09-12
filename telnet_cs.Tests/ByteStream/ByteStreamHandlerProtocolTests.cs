@@ -79,22 +79,24 @@
         }
 
         [Theory]
-        [InlineData(1, "\n \n")]   // SOH
-        [InlineData(2, "\t")]     // STX
-        [InlineData(3, "^C")]      // ETX
-        [InlineData(4, "^D")]      // EOT
-        [InlineData(6, "")]        // ACK ignored
-        [InlineData(8, "")]        // BS swallowed
+        [InlineData(1, "\x01")]   // SOH: data, never expanded
+        [InlineData(2, "\x02")]   // STX: data, never TAB
+        [InlineData(3, "\x03")]   // ETX: data, never "^C"
+        [InlineData(4, "\x04")]   // EOT: data, never "^D"
+        [InlineData(5, "\x05")]   // ENQ: data, never an ACK side effect
+        [InlineData(6, "\x06")]   // ACK: data, never dropped
+        [InlineData(7, "\x07")]   // BEL: data, never a beep
+        [InlineData(8, "\x08")]   // BS: data, never destructive
         [InlineData(9, "\t")]      // HT passes through (no TAB rewriting without LINEMODE)
-        [InlineData(11, null)]     // VT -> NewLine (checked separately)
-        [InlineData(12, null)]     // FF -> NewLine
-        [InlineData(31, ",")]      // US
+        [InlineData(11, "\x0B")]   // VT: data, never NewLine
+        [InlineData(12, "\x0C")]   // FF: data, never NewLine
+        [InlineData(21, "\x15")]   // NAK: data, never message text
+        [InlineData(31, "\x1F")]   // US: data, never ","
         [InlineData(65, "A")]      // default passthrough
         [InlineData(66, "B")]
-        public async Task ControlCharsMapAsDocumented(int input, string? expected)
+        public async Task ControlCharsArriveVerbatim(int input, string expected)
         {
-            var want = expected ?? Environment.NewLine;
-            (await ReadOnceAsync(new[] { input })).Should().Be(want);
+            (await ReadOnceAsync(new[] { input })).Should().Be(expected);
         }
 
         [Fact]
@@ -122,41 +124,40 @@
         }
 
         [Fact]
-        public async Task NakAppendsRetransmitMessage()
+        public async Task NakDeliveredVerbatim()
         {
+            // Decided: NAK is data, never message text.
             (await ReadOnceAsync(new[] { 21 }))
-              .Should().Be("NAK: Retransmit last message.");
+              .Should().Be("\x15");
         }
 
         [Fact]
         public async Task EraseLine_AfterMarker_ErasesWithoutThrow()
         {
-            // opByteCounts used to hold one entry per append instead of one per
-            // char, so EL after a multi-char marker indexed past the end and
-            // threw ArgumentOutOfRangeException out of ReadAsync.
+            // Consecutive out-of-band commands must not throw out of ReadAsync
+            // (both are consumed without touching the buffer).
             var (output, writes) = await ReadScriptedWithWritesAsync(255, 243, 255, 248);
             output.Should().BeEmpty();
             writes.Should().BeEmpty();
         }
 
         [Fact]
-        public async Task Backspace_AfterMarker_KeepsEncodedPathInSync()
+        public async Task Backspace_DeliveredVerbatim()
         {
-            // EraseLastChar used to drop one sb char but a whole multi-byte
-            // count entry, desyncing the encoded path ("A" vs sb-truth "A[BRK").
+            // Decided: BS is data, never destructive — the delivery buffer is
+            // the application's byte record.
             using var stream = new ScriptedStream(65, 255, 243, 8);
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1) { TextEncoding = Encoding.Latin1 };
-            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("A[BRK");
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("A\x08");
         }
 
         [Fact]
-        public async Task BellIsSwallowedWithoutThrow()
+        public async Task BellDeliveredVerbatim()
         {
-            // Console.Beep() is a no-op on this Linux env; on headless/unsupported
-            // platforms it may throw (test.md §3.7). Characterizes current behavior.
+            // Decided: BEL is data, never a console beep.
             var act = async () => await ReadOnceAsync(new[] { 7 });
-            (await act()).Should().BeEmpty();
+            (await act()).Should().Be("\x07");
         }
 
         [Fact]
@@ -213,13 +214,14 @@
         }
 
         [Fact]
-        public async Task EnquirySendsAck()
+        public async Task EnquirySendsNoAck()
         {
+            // Decided: ENQ is data and must not emit an unsolicited ACK.
             var fake = FakeStreamOnce(new[] { 5 });
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(fake, cts, 1);
-            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
-            A.CallTo(() => fake.WriteByteAsync(6, A<CancellationToken>.Ignored)).MustHaveHappened();
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("\x05");
+            A.CallTo(() => fake.WriteByteAsync(A<byte>.Ignored, A<CancellationToken>.Ignored)).MustNotHaveHappened();
         }
 
         [Theory]

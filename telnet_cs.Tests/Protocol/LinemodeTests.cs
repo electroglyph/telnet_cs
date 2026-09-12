@@ -45,19 +45,15 @@
             stream.ByteWrites.Should().ContainSingle(w => w.SequenceEqual(new byte[] { 255, code }));
         }
 
-        public static TheoryData<int, string> SignalMarkers => new()
-    {
-      { 236, "[EOF]" },
-      { 237, "[SUSP]" },
-      { 238, "[ABORT]" },
-    };
-
         [Theory]
-        [MemberData(nameof(SignalMarkers))]
-        public async Task SignalReceived_SurfacesMarker(int code, string marker)
+        [InlineData(236)] // EOF
+        [InlineData(237)] // SUSP
+        [InlineData(238)] // ABORT
+        public async Task SignalReceived_ConsumedSilently(int code)
         {
+            // Decided: out-of-band signals are consumed, never marker text.
             var (output, _) = await ReadWithStreamAsync(255, code);
-            output.Should().Be(marker);
+            output.Should().BeEmpty();
         }
 
         [Fact]

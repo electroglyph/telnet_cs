@@ -60,6 +60,8 @@
 
         /// <summary>
         /// Gets or sets whether a received BEL rings the console bell. Null means enabled.
+        /// Retained for compatibility; currently has no effect — BEL bytes are
+        /// delivered as data like every other control byte.
         /// </summary>
         public bool? EnableBell { get; set; }
 
@@ -130,10 +132,12 @@
 
         /// <summary>
         /// Whether the MUD options (MSDP, MSSP, MSP, MXP, ZMP, Aardwolf,
-        /// ATCP, GMCP) may be agreed. True (the default) agrees; set
-        /// <c>false</c> to decline them like the reference client default.
+        /// ATCP, GMCP) may be agreed. False (the default) declines them, like
+        /// the reference client, which only agrees when explicitly opted in:
+        /// agreeing invites subnegotiation frames the application must parse.
+        /// Set <c>true</c> for MUD play. The server side always agrees.
         /// </summary>
-        public bool EnableMudOptions { get; set; } = true;
+        public bool EnableMudOptions { get; set; }
 
         /// <summary>
         /// Whether COM port control (option 44, RFC 2217 framing level) may

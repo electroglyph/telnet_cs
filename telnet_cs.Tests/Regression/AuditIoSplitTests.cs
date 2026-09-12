@@ -106,11 +106,11 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task NestedSb_InnerFrameStillDispatched()
         {
-            // RFC 854 defines no nesting: the outer frame's framing is lost
-            // when a second IAC SB appears, but the inner frame is complete
-            // (IAC SB 99 [65] IAC SE) and must still be answered with the
-            // generic WONT 99 for its non-SEND payload. telnetlib3 recovers
-            // the same way (drops the outer buffer, re-buffers the inner).
+            // RFC 854 defines no nesting: the outer frame is dropped, but the
+            // inner frame is complete (IAC SB 99 [65] IAC SE) and is scanned
+            // fresh like the reference (which clears its SB buffer and
+            // re-buffers from the inner SB). The inner dispatch then follows
+            // the normal stray-payload rule (WONT 99 for non-SEND); see F-N10.
             using var stream = new ScriptedStream(Iac, Sb, 24, 1, Iac, Sb, 99, 65, Iac, Se);
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);

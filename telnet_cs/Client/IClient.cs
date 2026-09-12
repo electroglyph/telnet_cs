@@ -126,35 +126,6 @@
         Task<string> TerminatedReadAsync(string terminator, TimeSpan timeout, int millisecondSpin, CancellationToken cancellationToken);
 
         /// <summary>
-        /// Syntactic sugar; tries to login asynchronously, passing in a default LineTerminator of ">".
-        /// Anticipates a terminator (TerminatedRead); responds with username (WriteLine).
-        /// Anticipates another terminator (TerminatedRead); responds with password (WriteLine).
-        /// This is just a proxy for common Telnet behavour, but of course it relies on the Server implementing the expected behaviour.
-        /// If the server you're connecting to does anything different, just use custom TerminatedReads followed by WriteLines.
-        /// </summary>
-        /// <param name="userName">The user name.</param>
-        /// <param name="password">The password.</param>
-        /// <param name="loginTimeoutMs">The login timeout ms.</param>
-        /// <param name="lineFeed">The line feed to use. RFC 854 CR+LF by default; pass <c>Client.LegacyLineFeed</c> for bare "\n".</param>
-        /// <returns>True if successful.</returns>
-        Task<bool> TryLoginAsync(string userName, string password, int loginTimeoutMs, string lineFeed = Client.Rfc854LineFeed);
-
-        /// <summary>
-        /// Syntactic sugar; tries to login asynchronously. 
-        /// Anticipates a terminator (TerminatedRead); responds with username (WriteLine).
-        /// Anticipates another terminator (TerminatedRead); responds with password (WriteLine).
-        /// This is just a proxy for common Telnet behavour, but of course it relies on the Server implementing the expected behaviour.
-        /// If the server you're connecting to does anything different, just use custom TerminatedReads followed by WriteLines.
-        /// </summary>
-        /// <param name="userName">The user name.</param>
-        /// <param name="password">The password.</param>
-        /// <param name="loginTimeoutMs">The login timeout ms.</param>
-        /// <param name="terminator">The prompt terminator to anticipate.</param>
-        /// <param name="lineFeed">The line feed to use. RFC 854 CR+LF by default; pass <c>Client.LegacyLineFeed</c> for bare "\n".</param>
-        /// <returns>True if successful.</returns>
-        Task<bool> TryLoginAsync(string userName, string password, int loginTimeoutMs, string terminator, string lineFeed = Client.Rfc854LineFeed);
-
-        /// <summary>
         /// Writes the specified <paramref name="data"/> to the server.
         /// </summary>
         /// <param name="data">The byte array to send.</param>

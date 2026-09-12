@@ -106,21 +106,6 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task TryLogin_NullUser_ThrowsArgumentNull()
-        {
-            // Whether a login prompt arrives must not decide whether a null
-            // argument is detected: fail fast per .NET validation
-            // convention instead of waiting out the prompt timeout.
-            using (GlobalStateGuard.SkipProactive(true))
-            {
-                using var stream = new ScriptedStream();
-                using var sut = new Client(stream, new CancellationToken());
-                Func<Task<bool>> login = () => sut.TryLoginAsync(null!, "secret", 100);
-                await login.Should().ThrowAsync<ArgumentNullException>();
-            }
-        }
-
-        [Fact]
         public void ApplyOptions_Certificates_AreClonedNotShared()
         {
             // ApplyOptions documents "collections are re-seated, not

@@ -40,13 +40,13 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task AytProofWritten_DmTerminates()
+        public async Task AytSilent_DmTerminates()
         {
-            // Interesting signals still dispatch: AYT writes its proof-alive.
+            // Interesting signals still dispatch, but AYT is consumed without
+            // reply (no proof-alive bytes, even mid-scan).
             var (output, stream) = await ReadDiscardingAsync(255, 246, 255, 242, 65);
             output.Should().Be("A");
-            stream.ByteWrites.Should().ContainSingle().Which.Should()
-              .Equal(Encoding.ASCII.GetBytes("[AYT received]\r\n"));
+            stream.ByteWrites.Should().BeEmpty();
         }
 
         [Fact]

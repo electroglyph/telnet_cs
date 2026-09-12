@@ -24,7 +24,7 @@
 
         /// <summary>
         /// RFC 854 compliant <c>"\r\n"</c> line feed. This is the default for
-        /// <c>WriteLineAsync</c> and <c>TryLoginAsync</c>.
+        /// <c>WriteLineAsync</c>.
         /// </summary>
         public const string Rfc854LineFeed = LineFeed.Rfc854;
 

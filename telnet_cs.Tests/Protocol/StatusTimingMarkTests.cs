@@ -75,7 +75,7 @@
             stream.ByteWrites.Should().HaveCount(3);
             stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 5 });
             stream.ByteWrites[1].Should().Equal(new byte[] { 255, 251, 3 });
-            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 3, 251, 5, 240 });
+            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 3, 251, 5, 255, 240 });
         }
 
         [Fact]
@@ -86,7 +86,7 @@
             stream.ByteWrites.Should().HaveCount(3);
             stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 5 });
             stream.ByteWrites[1].Should().Equal(new byte[] { 255, 253, 3 });
-            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 253, 3, 251, 5, 240 });
+            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 253, 3, 251, 5, 255, 240 });
         }
 
         [Fact]
@@ -99,7 +99,7 @@
             stream.ByteWrites.Should().HaveCount(3);
             stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 5 });
             stream.ByteWrites[1].Should().Equal(new byte[] { 255, 254, 92 });
-            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 5, 240 });
+            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 5, 255, 240 });
         }
 
         [Fact]
@@ -111,7 +111,7 @@
             stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 5 });
             stream.ByteWrites[1].Should().Equal(new byte[] { 255, 251, 3 });
             stream.ByteWrites[2].Should().Equal(new byte[] { 255, 252, 3 });
-            stream.ByteWrites[3].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 5, 240 });
+            stream.ByteWrites[3].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 5, 255, 240 });
         }
 
         [Fact]
@@ -123,7 +123,7 @@
             stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 5 });
             stream.ByteWrites[1].Should().Equal(new byte[] { 255, 251, 3 });
             stream.ByteWrites[2].Should().Equal(new byte[] { 255, 253, 3 });
-            stream.ByteWrites[3].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 3, 253, 3, 251, 5, 240 });
+            stream.ByteWrites[3].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 3, 253, 3, 251, 5, 255, 240 });
         }
 
         [Fact]
@@ -209,7 +209,7 @@
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 stream.ByteWrites.Should().HaveCount(3);
                 stream.ByteWrites[1].Should().Equal(new byte[] { 255, 251, 5 });
-                stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 5, 253, 6, 240 });
+                stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 5, 253, 6, 255, 240 });
             }
         }
 
@@ -229,13 +229,16 @@
                 stream.ByteWrites.Should().HaveCount(3);
                 stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 6 });
                 stream.ByteWrites[1].Should().Equal(new byte[] { 255, 251, 5 });
-                stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 5, 251, 6, 240 });
+                stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 5, 251, 6, 255, 240 });
             }
         }
 
         [Fact]
-        public async Task StatusSend_SeOptionByte_Doubled()
+        public async Task StatusSend_SeOptionByte_RawUnderIacSe()
         {
+            // Under IAC SE framing only IAC itself is escaped: a 240 item
+            // byte passes through raw (doubling it would corrupt the parse),
+            // and the frame ends IAC SE.
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
@@ -246,7 +249,7 @@
                 stream.ByteWrites.Should().HaveCount(3);
                 stream.ByteWrites[0].Should().Equal(new byte[] { 255, 253, 240 });
                 stream.ByteWrites[1].Should().Equal(new byte[] { 255, 251, 5 });
-                stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 5, 253, 240, 240, 240 });
+                stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 5, 253, 240, 255, 240 });
             }
         }
 

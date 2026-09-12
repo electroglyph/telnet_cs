@@ -176,12 +176,14 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SbLineflow_RestartAny_ClearsXonOnlyKeepingFlowOn()
         {
+            // Adopted only under local agreement (we answered WILL to the
+            // peer's DO): the SB sender commands, the WILL-sender obeys.
             byte? received = null;
             var (output, writes, sut) = await ReadOnceAsync(
               h => h.LineflowReceived += mode => received = mode,
-              Iac, Will, 33, Iac, Sb, 33, 2, Iac, Se);
+              Iac, Do, 33, Iac, Sb, 33, 2, Iac, Se);
             output.Should().BeEmpty();
-            Concat(writes).Should().Equal(Iac, Do, 33);
+            Concat(writes).Should().Equal(Iac, Will, 33);
             received.Should().Be(2);
             sut.LineflowXonAny.Should().BeFalse();
             sut.LineflowEnabled.Should().BeTrue();
@@ -191,10 +193,40 @@ namespace telnet_cs.Tests
         public async Task SbLineflow_Off_DisablesFlowKeepingRestartMode()
         {
             var (output, _, sut) = await ReadOnceAsync(
-              _ => { }, Iac, Will, 33, Iac, Sb, 33, 0, Iac, Se);
+              _ => { }, Iac, Do, 33, Iac, Sb, 33, 0, Iac, Se);
             output.Should().BeEmpty();
             sut.LineflowEnabled.Should().BeFalse();
             sut.LineflowXonAny.Should().BeFalse();
+        }
+
+        [Fact]
+        public async Task SbLineflow_AfterPeerWillAlone_IgnoredWithoutWont()
+        {
+            // The DO-side never obeys: a peer WILL with no local agreement is
+            // not a license to command our flow control. Consumed silently
+            // (reference: kept silent), never answered with WONT.
+            byte? received = null;
+            var (output, writes, sut) = await ReadOnceAsync(
+              h => h.LineflowReceived += mode => received = mode,
+              Iac, Will, 33, Iac, Sb, 33, 2, Iac, Se);
+            output.Should().BeEmpty();
+            Concat(writes).Should().Equal(Iac, Do, 33);
+            received.Should().BeNull();
+            sut.LineflowEnabled.Should().BeTrue();
+            sut.LineflowXonAny.Should().BeFalse();
+        }
+
+        [Fact]
+        public async Task SbLineflow_Stray_IgnoredWithoutWont()
+        {
+            byte? received = null;
+            var (output, writes, sut) = await ReadOnceAsync(
+              h => h.LineflowReceived += mode => received = mode,
+              Iac, Sb, 33, 1, Iac, Se);
+            output.Should().BeEmpty();
+            writes.Should().BeEmpty();
+            received.Should().BeNull();
+            sut.LineflowEnabled.Should().BeTrue();
         }
 
         [Fact]
@@ -241,7 +273,7 @@ namespace telnet_cs.Tests
         {
             var fired = 0;
             var (output, _, _) = await ReadOnceAsync(
-              h => h.LineflowReceived += _ => fired++, Iac, Will, 33, Iac, Sb, 33, 9, Iac, Se);
+              h => h.LineflowReceived += _ => fired++, Iac, Do, 33, Iac, Sb, 33, 9, Iac, Se);
             output.Should().BeEmpty();
             fired.Should().Be(0);
         }
@@ -539,9 +571,11 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task DoGmcp_AgreedByDefault()
+        public async Task DoGmcp_AgreedWhenMudEnabled()
         {
-            var (output, writes, _) = await ReadOnceAsync(_ => { }, Iac, Do, 201);
+            // Opt-in path: the client enables this explicitly, the server
+            // leaves the agreed default in place.
+            var (output, writes, _) = await ReadOnceAsync(h => h.EnableMudOptions = true, Iac, Do, 201);
             output.Should().BeEmpty();
             Concat(writes).Should().Equal(Iac, Will, 201);
         }
