@@ -676,7 +676,17 @@
         /// Gets or sets the process-wide log hook. Falls back to
         /// <see cref="System.Diagnostics.Debug"/> when unset.
         /// </summary>
-        internal static Action<string>? Trace { get; set; }
+        internal static Action<string>? Trace
+        {
+            get => _traceFlow.CurrentOr(_traceDefault);
+            set => _traceDefault = value;
+        }
+
+        internal static FlowLocal<Action<string>?> TraceOverride => _traceFlow;
+
+        private static Action<string>? _traceDefault;
+
+        private static readonly FlowLocal<Action<string>?> _traceFlow = new();
 
         /// <summary>
         /// Idle delay between read polls when no data is available.

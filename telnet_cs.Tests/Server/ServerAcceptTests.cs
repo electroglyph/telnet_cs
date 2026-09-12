@@ -102,7 +102,7 @@ namespace telnet_cs.Tests
             await raw.ConnectAsync("127.0.0.1", server.Port);
             using var session = await acceptTask;
             raw.Close();
-            (await session.ReadAsync(TimeSpan.FromSeconds(10))).Should().BeEmpty();
+            (await session.ReadAsync(TimeSpan.FromSeconds(1))).Should().BeEmpty();
             session.IsConnected.Should().BeFalse();
         }
 

@@ -342,13 +342,13 @@ namespace telnet_cs.Tests
                 CancellationToken.None, TimeSpan.FromSeconds(10));
             using var first = await firstAccept;
             await tlsClient.WriteAsync("secure");
-            (await first.ReadAsync(TimeSpan.FromSeconds(5))).Should().Be("secure");
+            (await first.ReadAsync(TimeSpan.FromSeconds(1))).Should().Be("secure");
 
             var secondAccept = server.AcceptSessionAsync(CancellationToken.None);
             using var plainClient = await Client.ConnectAsync("127.0.0.1", server.Port);
             using var second = await secondAccept;
             await plainClient.WriteAsync("plain");
-            (await second.ReadAsync(TimeSpan.FromSeconds(5))).Should().Be("plain");
+            (await second.ReadAsync(TimeSpan.FromSeconds(1))).Should().Be("plain");
         }
 
         [Fact]
@@ -373,7 +373,7 @@ namespace telnet_cs.Tests
             await act.Should().ThrowAsync<AuthenticationException>();
 
             // Client side: no data ever arrives.
-            (await client.ReadAsync(TimeSpan.FromSeconds(2))).Should().BeEmpty();
+            (await client.ReadAsync(TimeSpan.FromSeconds(1))).Should().BeEmpty();
         }
 
         [Fact]

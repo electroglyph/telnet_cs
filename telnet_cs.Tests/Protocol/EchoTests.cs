@@ -10,6 +10,9 @@
     using telnet_cs.Client;
     using telnet_cs.IO;
 
+    // Serial: one test swaps Console.SetOut process-wide, which no async
+    // flow can isolate from parallel tests.
+    [Collection("Serial")]
     public class EchoTests
     {
         private static int CountWrites(ScriptedStream stream, byte verb, byte option)

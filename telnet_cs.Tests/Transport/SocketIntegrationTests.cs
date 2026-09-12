@@ -146,7 +146,7 @@ namespace telnet_cs.Tests
             _ = sender.Send(Encoding.ASCII.GetBytes("JUNK"));
             _ = sender.Send(new byte[] { 255, 242 });
             _ = sender.Send(Encoding.ASCII.GetBytes("AFTER"));
-            (await sut.ReadAsync(TimeSpan.FromSeconds(5))).Should().Be("AFTER");
+            (await sut.ReadAsync(TimeSpan.FromSeconds(1))).Should().Be("AFTER");
             sut.InSynchDiscard.Should().BeFalse();
         }
 
@@ -164,7 +164,7 @@ namespace telnet_cs.Tests
                 using Socket server = await listener.AcceptSocketAsync();
                 using var sut = new Client(byteStream, TimeSpan.FromSeconds(5), CancellationToken.None);
                 _ = server.Send(new byte[] { 255, 253, 34 });
-                (await sut.ReadAsync(TimeSpan.FromSeconds(5))).Should().BeEmpty();
+                (await sut.ReadAsync(TimeSpan.FromSeconds(1))).Should().BeEmpty();
                 sut.Negotiation.IsEnabledByUs((int)Options.LineMode).Should().BeTrue();
                 sut.SetLinemodeEntry(2, 2, 7, 64);
                 await sut.SendCommand(Commands.Break);

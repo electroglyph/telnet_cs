@@ -166,7 +166,7 @@ namespace telnet_cs.Tests
         {
             using var stream = new ScriptedStream(104, 105);
             using var session = NewSession(stream);
-            (await session.ReadAsync(TimeSpan.FromSeconds(2))).Should().Be("hi");
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("hi");
             await session.WriteAsync("yo");
             session.Context.CharsReceived.Should().Be(2);
             session.Context.CharsSent.Should().Be(2);
@@ -184,7 +184,7 @@ namespace telnet_cs.Tests
             var tape = new StringWriter();
             session.Context.Typescript = tape;
             await session.WriteAsync("out");
-            (await session.ReadAsync(TimeSpan.FromSeconds(2))).Should().Be("in");
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("in");
             tape.ToString().Should().Be("outin");
         }
 
@@ -279,7 +279,7 @@ namespace telnet_cs.Tests
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
             using var session = await server.AcceptSessionAsync(CancellationToken.None);
             await client.WriteAsync("hello");
-            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().Be("hello");
+            (await session.ReadAsync(TimeSpan.FromSeconds(1))).Should().Be("hello");
             bool logged = false;
             for (int i = 0; i < 60 && !logged; i++)
             {
@@ -316,7 +316,7 @@ namespace telnet_cs.Tests
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
             using var session = await acceptTask;
             await client.WriteAsync("hi");
-            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().Be("hi");
+            (await session.ReadAsync(TimeSpan.FromSeconds(1))).Should().Be("hi");
         }
 
         [Fact]
@@ -341,7 +341,7 @@ namespace telnet_cs.Tests
                 CancellationToken.None, TimeSpan.FromSeconds(10));
             using var session = await acceptTask;
             await client.WriteAsync("hi");
-            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().Be("hi");
+            (await session.ReadAsync(TimeSpan.FromSeconds(1))).Should().Be("hi");
         }
 
         [Fact]
@@ -353,7 +353,7 @@ namespace telnet_cs.Tests
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
             using var session = await acceptTask;
             await client.WriteAsync("hi");
-            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().Be("hi");
+            (await session.ReadAsync(TimeSpan.FromSeconds(1))).Should().Be("hi");
         }
 
         [Fact]
@@ -378,7 +378,7 @@ namespace telnet_cs.Tests
                 using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
                 using var session = await acceptTask;
                 await session.WriteAsync("hi");
-                (await client.ReadAsync(TimeSpan.FromSeconds(5))).Should().Be("hi");
+                (await client.ReadAsync(TimeSpan.FromSeconds(1))).Should().Be("hi");
             }
         }
 

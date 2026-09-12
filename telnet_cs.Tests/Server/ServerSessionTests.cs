@@ -52,7 +52,7 @@ namespace telnet_cs.Tests
             // Port of test_telnet_server_open_close: WONT TTYPE is consumed
             // silently — never surfaces as data.
             await client.RequestDisableAsync(Options.TerminalType);
-            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().BeEmpty();
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
 
             // Port of test_telnet_server_closed_by_server: "quit\r\n" behind
             // a WONT TTYPE preamble reads as a clean line, preamble excluded.
@@ -168,7 +168,7 @@ namespace telnet_cs.Tests
             var options = new TelnetServerOptions { Log = msg => { lock (log) log.Add(msg); } };
             using var stream = new ScriptedStream(0x16, 0x03, 0x01, 0x02);
             using var session = NewSession(stream, options);
-            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().BeEmpty();
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             stream.Connected.Should().BeFalse();
             lock (log) log.Should().ContainSingle(m => m.Contains("TLS ClientHello", StringComparison.Ordinal));
         }
@@ -179,7 +179,7 @@ namespace telnet_cs.Tests
             // The first-data sniff only fires on 0x16; normal data flows.
             using var stream = new ScriptedStream((int)'h', (int)'i');
             using var session = NewSession(stream);
-            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().Be("hi");
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("hi");
             stream.Connected.Should().BeTrue();
         }
 
@@ -301,7 +301,7 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             await session.SendOpeningPresetAsync();
             stream.Enqueue(255, 251, 24);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.Negotiation.IsEnabledByPeer((int)Options.TerminalType).Should().BeTrue();
             CountFrame(OutboundBytes(stream), [255, 253, 24]).Should().Be(1);
         }
@@ -342,7 +342,7 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream, options);
             await session.SendOpeningPresetAsync();
             stream.Enqueue(255, 251, 24);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(255, 253, 24);
         }
 
@@ -367,7 +367,7 @@ namespace telnet_cs.Tests
             await session.RequestEnableAsync(Options.TerminalType);
             // Peer WILLs TTYPE over the wire (agreeing with our DO): him-side YES.
             stream.Enqueue(255, 251, 24);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.Negotiation.IsEnabledByPeer((int)Options.TerminalType).Should().BeTrue();
             await session.RequestDisableAsync(Options.TerminalType);
             stream.ByteWrites.Should().HaveCount(2);
@@ -430,7 +430,7 @@ namespace telnet_cs.Tests
             // through the separator and buffers the remainder.
             using var stream = new ScriptedStream("hi\nrest");
             using var session = NewSession(stream);
-            var line = await session.TerminatedReadAsync("\n", TimeSpan.FromSeconds(5));
+            var line = await session.TerminatedReadAsync("\n", TimeSpan.FromMilliseconds(500));
             line.Should().Be("hi\n");
         }
 
@@ -636,7 +636,7 @@ namespace telnet_cs.Tests
             await session.SendOpeningPresetAsync();
             int presetBytes = OutboundBytes(stream).Length;
             stream.Enqueue([255, 252, 24]);
-            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().BeEmpty();
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             OutboundBytes(stream).Skip(presetBytes).ToArray().Should().Equal(255, 251, 1, 255, 253, 39);
         }
 
@@ -670,7 +670,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 253, 0]);
             using var session = NewSession(stream);
-            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().BeEmpty();
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             OutboundBytes(stream).Should().Equal(255, 251, 0, 255, 253, 0);
         }
 
@@ -685,7 +685,7 @@ namespace telnet_cs.Tests
             var session = new ServerSession(stream, options, CancellationToken.None);
             try
             {
-                (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().BeEmpty();
+                (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
                 byte[] outbound = [];
                 var sw = Stopwatch.StartNew();
                 while (!ContainsSubsequence(outbound, [255, 250, 42, 1]) && sw.Elapsed < TimeSpan.FromSeconds(5))
@@ -930,7 +930,7 @@ namespace telnet_cs.Tests
             var env = await session.RequestNewEnvironmentAsync(TimeSpan.FromSeconds(5));
             env.Should().Contain("LANG", "en_US.UTF-8");
             stream.Enqueue([0xE9]);
-            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().Be("é");
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("é");
         }
 
         [Fact]
@@ -956,7 +956,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 251, 36, 255, 250, 36, 2, 3, (byte)'X', 1, (byte)'y', 255, 240]);
             using var session = NewSession(stream);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientEnvironment.Should().Contain("X", "y");
             OutboundBytes(stream).Should().Equal(255, 253, 36);
         }
@@ -968,7 +968,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 250, 36, 2, 3, (byte)'X', 1, (byte)'y', 255, 240]);
             using var session = NewSession(stream);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientEnvironment.Should().NotContainKey("X");
             OutboundBytes(stream).Should().Equal(255, 252, 36);
         }
@@ -979,7 +979,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             stream.Enqueue([.. TtypeIsFrame("x")]);
             using var session = NewSession(stream);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientTerminalTypes.Should().BeEmpty();
             OutboundBytes(stream).Should().Equal(255, 252, 24);
         }
@@ -990,7 +990,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 250, 32, 0, (byte)'9', (byte)'6', (byte)'0', (byte)'0', (byte)',', (byte)'9', (byte)'6', (byte)'0', (byte)'0', 255, 240]);
             using var session = NewSession(stream);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientTerminalSpeed.Should().BeNull();
             OutboundBytes(stream).Should().Equal(255, 252, 32);
         }
@@ -1001,7 +1001,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 250, 31, 0, 0, 80, 0, 24, 255, 240]);
             using var session = NewSession(stream);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientWindowSize.Should().Be(((ushort)80, (ushort)24));
             OutboundBytes(stream).Should().BeEmpty();
         }
@@ -1012,7 +1012,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 250, 31, 0, 100, 0, 30, 255, 240]);
             using var session = NewSession(stream);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientWindowSize.Should().Be(((ushort)100, (ushort)30));
         }
 
@@ -1022,7 +1022,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 250, 31, 0, 80, 255, 240]);
             using var session = NewSession(stream);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientWindowSize.Should().BeNull();
         }
 
@@ -1034,7 +1034,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 250, 31, 0, 0, 0, 0, 0, 255, 240]);
             using var session = NewSession(stream);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientWindowSize.Should().Be(((ushort)0, (ushort)0));
             OutboundBytes(stream).Should().BeEmpty();
         }
@@ -1094,7 +1094,7 @@ namespace telnet_cs.Tests
         {
             await session.RequestEnableAsync(Options.LineMode);
             stream.Enqueue([255, 251, 34]);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
         }
 
         [Fact]
@@ -1115,7 +1115,7 @@ namespace telnet_cs.Tests
             // DO LINEMODE, then MODE asking for EDIT only: the server keeps
             // EDIT|TRAPSIG (union, never cleared) and sets MODE_ACK (4).
             stream.Enqueue([255, 253, 34, 255, 250, 34, 1, 1, 255, 240]);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(
               255, 251, 34,
               255, 250, 34, 1, 7, 255, 240);
@@ -1129,7 +1129,7 @@ namespace telnet_cs.Tests
             // MODE [EDIT] is answered (stored 0 -> EDIT|TRAPSIG|ACK); a later
             // MODE [0] must not clear the required bits: answered EDIT|TRAPSIG|ACK.
             stream.Enqueue([255, 253, 34, 255, 250, 34, 1, 1, 255, 240, 255, 250, 34, 1, 0, 255, 240]);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(
               255, 251, 34,
               255, 250, 34, 1, 7, 255, 240,
@@ -1145,7 +1145,7 @@ namespace telnet_cs.Tests
             // no reply (the client rule would ignore it and answer the next
             // MODE, which must not happen).
             stream.Enqueue([255, 253, 34, 255, 250, 34, 1, 5, 255, 240, 255, 250, 34, 1, 1, 255, 240]);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(255, 251, 34);
         }
 
@@ -1155,7 +1155,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             stream.Enqueue([255, 253, 34, 255, 250, 34, 255, 240, 255, 250, 34, 1, 7, 9, 255, 240]);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(255, 251, 34);
         }
 
@@ -1189,7 +1189,7 @@ namespace telnet_cs.Tests
             await session.SendForwardMaskAsync([0xFF]);
             // Peer accepts, then refuses a second proposal: both silent.
             stream.Enqueue([255, 250, 34, 251, 2, 255, 240, 255, 250, 34, 252, 2, 255, 240]);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(
               255, 253, 34,
               255, 250, 34, 253, 2, 255, 255, 255, 240);
@@ -1203,7 +1203,7 @@ namespace telnet_cs.Tests
             // A peer DO FORWARDMASK (only the DO-sender may propose) is refused
             // in-band, never mistaken for a stray SEND.
             stream.Enqueue([255, 253, 34, 255, 250, 34, 253, 2, 255, 240]);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(
               255, 251, 34,
               255, 250, 34, 252, 2, 255, 240);
@@ -1220,7 +1220,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             stream.Enqueue([255, 250, 34, 251, 2, 255, 240]);
-            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().BeEmpty();
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
         }
 
@@ -1343,7 +1343,7 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             // Peer publishes IP=^E at VALUE level: agreed (stored) and ACKed.
             stream.Enqueue([255, 253, 34, 255, 250, 34, 3, 3, 2, 5, 255, 240]);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(
               255, 251, 34,
               255, 250, 34, 3, 3, 130, 5, 255, 240);
@@ -1357,7 +1357,7 @@ namespace telnet_cs.Tests
             // MODE [EDIT] is answered (stored 0 -> EDIT|TRAPSIG|ACK); the peer's
             // MODE+ACK echoing the agreed mask is already in effect: silent.
             stream.Enqueue([255, 253, 34, 255, 250, 34, 1, 1, 255, 240, 255, 250, 34, 1, 7, 255, 240]);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(
               255, 251, 34,
               255, 250, 34, 1, 7, 255, 240);
@@ -1371,7 +1371,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             stream.Enqueue([255, 253, 34, 255, 250, 34, 3, 0, 3, 0, 255, 240]);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             var table = Enumerable.Range(1, 30).SelectMany(static f => new byte[] { (byte)f, 3, 0 });
             OutboundBytes(stream).Should().Equal([255, 251, 34, 255, 250, 34, 3, .. table, 255, 240]);
         }
@@ -1383,7 +1383,7 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             session.SetLinemodeEntry(3, 2, 5);
             stream.Enqueue([255, 253, 34, 255, 250, 34, 3, 0, 3, 0, 255, 240]);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             var table = Enumerable.Range(1, 30).SelectMany(
               static f => f == 3 ? new byte[] { 3, 2, 5 } : new byte[] { (byte)f, 3, 0 });
             OutboundBytes(stream).Should().Equal([255, 251, 34, 255, 250, 34, 3, .. table, 255, 240]);
@@ -1398,7 +1398,7 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             session.SetLinemodeEntry(3, 2, 5);
             stream.Enqueue([255, 253, 34, 255, 250, 34, 3, 0, 2, 0, 255, 240]);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(
               255, 251, 34,
               255, 250, 34, 3, 3, 2, 5, 255, 240);
@@ -1410,7 +1410,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             stream.Enqueue([255, 253, 34, 255, 250, 34, 3, 0, 2, 0, 255, 240]);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(255, 251, 34);
         }
 
@@ -1422,7 +1422,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             stream.Enqueue([255, 253, 34, 255, 250, 34, 3, 3, 255, 240]);
-            var act = async () => await session.ReadAsync(TimeSpan.FromSeconds(5));
+            var act = async () => await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             await act.Should().ThrowAsync<InvalidDataException>();
             OutboundBytes(stream).Should().Equal(255, 251, 34);
         }
@@ -1437,11 +1437,11 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             session.SetLinemodeEntry(3, 2, 3);
             stream.Enqueue([255, 253, 34, 255, 250, 34, 3, 3, 2, 5, 255, 240]);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             stream.Enqueue([255, 250, 34, 3, 0, 3, 0, 255, 240]);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             stream.Enqueue([255, 250, 34, 3, 0, 2, 0, 255, 240]);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             var table = Enumerable.Range(1, 30).SelectMany(
               static f => f == 3 ? new byte[] { 3, 2, 3 } : new byte[] { (byte)f, 3, 0 });
             OutboundBytes(stream).Should().Equal(
@@ -1464,7 +1464,7 @@ namespace telnet_cs.Tests
             // agreed WILL-sender, the RFC 859 §5 role gate), so the snapshot
             // reports the two WILLs plus the five DOs, bare-SE terminated.
             stream.Enqueue([255, 253, 5, 255, 250, 5, 1, 255, 240]);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             byte[] outbound = OutboundBytes(stream);
             outbound.Take(21).Should().Equal(
               255, 253, 24,
@@ -1488,7 +1488,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             stream.Enqueue([255, 253, 6]);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(255, 251, 6);
         }
 

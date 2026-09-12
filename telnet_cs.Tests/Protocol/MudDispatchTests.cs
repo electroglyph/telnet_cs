@@ -450,9 +450,9 @@ namespace telnet_cs.Tests
         {
             using var stream = new ScriptedStream(Iac, Will, Mxp, Iac, Sb, Mxp, Iac, Se);
             using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
-            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().BeEmpty();
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             stream.Enqueue(Iac, Sb, Mxp, 1, 2, Iac, Se);
-            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().BeEmpty();
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             session.MxpData.Should().HaveCount(2);
             session.MxpData[0].Should().BeEmpty();
             session.MxpData[1].Should().Equal(1, 2);
@@ -463,9 +463,9 @@ namespace telnet_cs.Tests
         {
             using var stream = new ScriptedStream(Iac, Will, Msp, Iac, Sb, Msp, Iac, Se);
             using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
-            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().BeEmpty();
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             stream.Enqueue(Iac, Sb, Msp, 1, 2, Iac, Se);
-            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().BeEmpty();
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             session.MspData.Should().HaveCount(2);
             session.MspData[0].Should().BeEmpty();
             session.MspData[1].Should().Equal(1, 2);
@@ -477,11 +477,11 @@ namespace telnet_cs.Tests
             int[] first = SbBody(Mssp, [1, .. Text("NAME"), 2, .. Text("One")]);
             using var stream = new ScriptedStream([Iac, Will, Mssp, .. first]);
             using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
-            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().BeEmpty();
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             session.MsspData.Should().ContainSingle().Which.Value.Should().Be("One");
             int[] second = SbBody(Mssp, [1, .. Text("NAME"), 2, .. Text("Two")]);
             stream.Enqueue(second);
-            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().BeEmpty();
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             session.MsspData.Should().ContainSingle().Which.Value.Should().Be("Two");
         }
 
@@ -496,7 +496,7 @@ namespace telnet_cs.Tests
             ];
             using var stream = new ScriptedStream(reads);
             using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
-            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().BeEmpty();
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             session.ZmpData["zmp.ident"].Should().Equal("Mud");
             session.AtcpData.Should().ContainSingle().Which.Should().Be(("Room.Exits", "ne"));
             session.AardwolfData.Should().ContainSingle().Which.Channel.Should().Be("status");

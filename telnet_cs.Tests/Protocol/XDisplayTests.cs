@@ -86,7 +86,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             stream.Enqueue([.. XDisplayIsFrame("x:0")]);
             using var session = NewSession(stream);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientXDisplay.Should().BeNull();
             session.ClientEffectiveDisplay.Should().BeNull();
             OutboundBytes(stream).Should().Equal(255, 252, 35);
@@ -136,7 +136,7 @@ namespace telnet_cs.Tests
             stream.Enqueue([255, 251, 36, 255, 250, 36, 2,
         0, (byte)'D', (byte)'I', (byte)'S', (byte)'P', (byte)'L', (byte)'A', (byte)'Y', 1, (byte)'z', (byte)':', (byte)'1',
         255, 240]);
-            await session.ReadAsync(TimeSpan.FromSeconds(5));
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientEffectiveDisplay.Should().Be("z:1");
         }
     }

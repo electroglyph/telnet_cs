@@ -33,13 +33,33 @@
         /// per-instance constructor flag on new code; this static remains for
         /// backward compatibility.
         /// </summary>
-        public static bool SkipProactiveOptionNegotiation { get; set; }
+        public static bool SkipProactiveOptionNegotiation
+        {
+            get => _skipProactiveFlow.CurrentOr(_skipProactiveDefault) == true;
+            set => _skipProactiveDefault = value;
+        }
+
+        internal static FlowLocal<bool> SkipProactiveOverride => _skipProactiveFlow;
+
+        private static bool _skipProactiveDefault;
+
+        private static readonly FlowLocal<bool> _skipProactiveFlow = new();
 
         /// <summary>
         /// Gets or sets the process-wide log hook. Falls back to
         /// <see cref="System.Diagnostics.Debug"/> when unset.
         /// </summary>
-        public static Action<string>? Trace { get; set; }
+        public static Action<string>? Trace
+        {
+            get => _traceFlow.CurrentOr(_traceDefault);
+            set => _traceDefault = value;
+        }
+
+        internal static FlowLocal<Action<string>?> TraceOverride => _traceFlow;
+
+        private static Action<string>? _traceDefault;
+
+        private static readonly FlowLocal<Action<string>?> _traceFlow = new();
 
         /// <summary>
         /// Initialises a new instance of the <see cref="Client"/> class.
@@ -239,12 +259,32 @@
         /// <summary>
         /// Gets and sets the TerminalType to negotiate.
         /// </summary>
-        public static string TerminalType { get; set; } = "vt100";
+        public static string TerminalType
+        {
+            get => _terminalTypeFlow.CurrentOr(_terminalTypeDefault) ?? _terminalTypeDefault;
+            set => _terminalTypeDefault = value;
+        }
+
+        internal static FlowLocal<string> TerminalTypeOverride => _terminalTypeFlow;
+
+        private static string _terminalTypeDefault = "vt100";
+
+        private static readonly FlowLocal<string> _terminalTypeFlow = new();
 
         /// <summary>
         /// Gets and sets the TerminalSpeed to negotiate.
         /// </summary>
-        public static string TerminalSpeed { get; set; } = "19200,19200";
+        public static string TerminalSpeed
+        {
+            get => _terminalSpeedFlow.CurrentOr(_terminalSpeedDefault) ?? _terminalSpeedDefault;
+            set => _terminalSpeedDefault = value;
+        }
+
+        internal static FlowLocal<string> TerminalSpeedOverride => _terminalSpeedFlow;
+
+        private static string _terminalSpeedDefault = "19200,19200";
+
+        private static readonly FlowLocal<string> _terminalSpeedFlow = new();
 
         internal static readonly byte[] SuppressGoAheadBuffer =
         [

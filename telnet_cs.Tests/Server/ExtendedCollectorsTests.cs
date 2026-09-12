@@ -64,7 +64,7 @@ namespace telnet_cs.Tests
         {
             using var stream = new ScriptedStream(Iac, Sb, 42, 2, 85, 84, 70, 45, 56, Iac, Se);
             using var session = NewSession(stream);
-            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().BeEmpty();
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             session.ClientCharset.Should().Be("UTF-8");
             stream.ByteWrites.Should().BeEmpty();
         }
@@ -77,7 +77,7 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             (await session.RequestCharsetAsync(TimeSpan.FromSeconds(5))).Should().Be("UTF-8");
             stream.Enqueue(0xC3, 0xA9);
-            (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().Be("é");
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("é");
         }
 
         [Fact]
@@ -130,7 +130,7 @@ namespace telnet_cs.Tests
         {
             using var stream = new ScriptedStream(Iac, Will, 33);
             using var session = NewSession(stream);
-            (await session.ReadAsync(TimeSpan.FromSeconds(2))).Should().BeEmpty();
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             stream.ByteWrites.Should().HaveCount(2);
             stream.ByteWrites[0].Should().Equal(Iac, Do, 33);
             stream.ByteWrites[1].Should().Equal(Iac, Sb, 33, 3, Iac, Se);
@@ -141,7 +141,7 @@ namespace telnet_cs.Tests
         {
             using var stream = new ScriptedStream(Iac, Will, 33);
             using var session = NewSession(stream);
-            (await session.ReadAsync(TimeSpan.FromSeconds(2))).Should().BeEmpty();
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             (await session.SendLineflowModeAsync(true)).Should().BeTrue();
             stream.ByteWrites.Should().HaveCount(3);
             stream.ByteWrites[2].Should().Equal(Iac, Sb, 33, 2, Iac, Se);
