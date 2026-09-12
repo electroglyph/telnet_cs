@@ -54,6 +54,50 @@ namespace telnet_cs.Encodings
             return null;
         }
 
+        /// <summary>
+        /// Returns the codec with the requested fallbacks installed. The base
+        /// implementation would clone and use the base fallback setters, which
+        /// our codecs shadow (the base setters throw on fresh read-only
+        /// instances and the base property is not virtual), so the fallbacks
+        /// are installed directly on the concrete instance instead.
+        /// </summary>
+        public override Encoding? GetEncoding(string name, EncoderFallback? encoderFallback, DecoderFallback? decoderFallback)
+        {
+            var encoding = GetEncoding(name);
+            if (encoding is null)
+            {
+                return null;
+            }
+
+            if (encoderFallback is not null)
+            {
+                switch (encoding)
+                {
+                    case CharmapEncoding charmap:
+                        charmap.EncoderFallback = encoderFallback;
+                        break;
+                    case Big5BbsEncoding big5bbs:
+                        big5bbs.EncoderFallback = encoderFallback;
+                        break;
+                }
+            }
+
+            if (decoderFallback is not null)
+            {
+                switch (encoding)
+                {
+                    case CharmapEncoding charmap:
+                        charmap.DecoderFallback = decoderFallback;
+                        break;
+                    case Big5BbsEncoding big5bbs:
+                        big5bbs.DecoderFallback = decoderFallback;
+                        break;
+                }
+            }
+
+            return encoding;
+        }
+
         /// <inheritdoc/>
         public override IEnumerable<EncodingInfo> GetEncodings()
         {

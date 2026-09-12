@@ -41,6 +41,16 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task PlainData_NeverVolunteersDoXDisplay()
+        {
+            // No advanced-negotiation trigger on this side: a client handler never
+            // emits DO XDISPLAY spontaneously; only an explicit request does.
+            var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, (int)'h', (int)'i');
+            output.Should().Be("hi");
+            stream.ByteWrites.Should().BeEmpty();
+        }
+
+        [Fact]
         public async Task XDisplaySend_Configured_AnswersIs()
         {
             // RFC 1096 §4: only the WILL side answers, and only on SEND.

@@ -161,6 +161,8 @@
                 }
 
                 session = new ServerSession(new TcpByteStream(socket, takeOwnership: true), options, CancellationToken.None);
+                session.IsTls = isTls;
+                session.RemoteEndPoint = accepted.Client.RemoteEndPoint?.ToString();
                 // The session emits the server opening preset before the accept
                 // completes; a fully toggled-off preset sends nothing.
                 await session.SendOpeningPresetAsync(cancellationToken).ConfigureAwait(false);

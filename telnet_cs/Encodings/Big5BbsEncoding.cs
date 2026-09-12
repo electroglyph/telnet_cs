@@ -30,6 +30,31 @@ namespace telnet_cs.Encodings
             EnsureCodePages();
         }
 
+        private EncoderFallback? encoderFallbackOverride;
+        private DecoderFallback? decoderFallbackOverride;
+
+        /// <summary>
+        /// Gets or sets the encoder fallback, defaulting to
+        /// <see cref="EncoderFallback.ExceptionFallback"/> (strict). Shadows
+        /// the non-virtual base property; see
+        /// <c>CharmapEncoding.EncoderFallback</c>.
+        /// </summary>
+        public new EncoderFallback EncoderFallback
+        {
+            get => encoderFallbackOverride ?? EncoderFallback.ExceptionFallback;
+            set => encoderFallbackOverride = value;
+        }
+
+        /// <summary>
+        /// Gets or sets the decoder fallback, defaulting to strict (decoding
+        /// is total — lone leads become CP437 art — so this never fires).
+        /// </summary>
+        public new DecoderFallback DecoderFallback
+        {
+            get => decoderFallbackOverride ?? DecoderFallback.ExceptionFallback;
+            set => decoderFallbackOverride = value;
+        }
+
         /// <inheritdoc/>
         public override string WebName => "big5bbs";
 
@@ -229,9 +254,12 @@ namespace telnet_cs.Encodings
         {
             ArgumentNullException.ThrowIfNull(s);
             var bytes = 0;
-            foreach (var rune in s.EnumerateRunes())
+            var i = 0;
+            while (i < s.Length)
             {
-                bytes += EncodeRune(rune, null, 0);
+                var rune = Rune.GetRuneAt(s, i);
+                bytes += EncodeRune(s, i, rune, null, 0);
+                i += rune.Utf16SequenceLength;
             }
 
             return bytes;
@@ -255,16 +283,68 @@ namespace telnet_cs.Encodings
             while (i < end)
             {
                 var rune = Rune.GetRuneAt(s, i);
+                written += EncodeRune(s, i, rune, bytes, byteIndex + written);
                 i += rune.Utf16SequenceLength;
-                written += EncodeRune(rune, bytes, byteIndex + written);
             }
 
             return written;
         }
 
-        private static int EncodeRune(Rune rune, byte[]? bytes, int byteIndex)
+        private int EncodeRune(string s, int charIndex, Rune rune, byte[]? bytes, int byteIndex)
         {
             var text = rune.ToString();
+            if (TryEncodeCore(text, bytes, byteIndex, out var count))
+            {
+                return count;
+            }
+
+            // No Big5 or CP437 mapping: go through the configured fallback
+            // (strict throws here; replacement emits substitute text that is
+            // itself encoded Big5-first, CP437-second).
+            var fallback = EncoderFallback;
+            var buffer = fallback.CreateFallbackBuffer();
+            if (rune.Utf16SequenceLength == 2 && fallback is EncoderReplacementFallback)
+            {
+                // One character, one substitute (see CharmapEncoding).
+                buffer.Fallback(s[charIndex], charIndex);
+            }
+            else if (rune.Utf16SequenceLength == 2)
+            {
+                buffer.Fallback(s[charIndex], s[charIndex + 1], charIndex);
+            }
+            else
+            {
+                buffer.Fallback(s[charIndex], charIndex);
+            }
+
+            var substitute = new StringBuilder();
+            char next;
+            while ((next = buffer.GetNextChar()) != '\0')
+            {
+                substitute.Append(next);
+            }
+
+            var drained = substitute.ToString();
+            var written = 0;
+            var j = 0;
+            while (j < drained.Length)
+            {
+                var scalar = Rune.GetRuneAt(drained, j).ToString();
+                j += scalar.Length;
+                if (!TryEncodeCore(scalar, bytes is null ? null : bytes, byteIndex + written, out var used))
+                {
+                    throw new EncoderFallbackException(
+                        $"Character '{scalar}' from the fallback has no mapping in big5bbs.");
+                }
+
+                written += used;
+            }
+
+            return written;
+        }
+
+        private bool TryEncodeCore(string text, byte[]? bytes, int byteIndex, out int count)
+        {
             try
             {
                 var encoded = big5!.GetBytes(text);
@@ -273,21 +353,24 @@ namespace telnet_cs.Encodings
                     encoded.CopyTo(bytes, byteIndex);
                 }
 
-                return encoded.Length;
+                count = encoded.Length;
+                return true;
             }
             catch (EncoderFallbackException)
             {
-                if (rune.Utf16SequenceLength == 1 && cp437EncodeTable!.TryGetValue(text, out var mapped))
+                if (text.Length == 1 && cp437EncodeTable!.TryGetValue(text, out var mapped))
                 {
                     if (bytes is not null)
                     {
                         bytes[byteIndex] = mapped;
                     }
 
-                    return 1;
+                    count = 1;
+                    return true;
                 }
 
-                throw new EncoderFallbackException($"Character '{text}' has no mapping in big5bbs.");
+                count = 0;
+                return false;
             }
         }
 

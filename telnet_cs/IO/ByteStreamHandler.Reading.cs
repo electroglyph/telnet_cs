@@ -102,7 +102,7 @@
             }
 
             var read = DecodeResult(sb, rawBytes);
-            if (echoBack)
+            if (echoBack && !SuppressEchoBack)
             {
                 await EchoBackAsync(echoBytes).ConfigureAwait(false);
             }

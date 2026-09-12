@@ -12,6 +12,9 @@ of RFCs. Code reorganized and audited multiple times by AI for clarity
 and correctness. After that I cloned [telnetlib3](https://github.com/jquast/telnetlib3) and had AI
 port some of the missing features over. The full list is below.
 
+Previous behavior was then aligned to telnetlib3, I trust jquast's decisions
+here a lot more than my own.
+
 I left a lot of telnetlib3's stuff out of scope, because it does A LOT.
 
 Thanks and respect to jquast and all the other contributors of telnetlib3.

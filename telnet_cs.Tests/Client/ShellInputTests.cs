@@ -90,6 +90,47 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public void Filter_WithoutSingleByteMap_LeavesEolBytesUntranslated()
+        {
+            // The reference filter_without_eol_xlat: sequences only, no
+            // single-byte map — CR/LF pass through verbatim.
+            var filter = new InputFilter(InputFilter.AtasciiSequences, null);
+            filter.Feed([0x0D, 0x0A, 0x41]).Should().Equal(0x0D, 0x0A, 0x41);
+        }
+
+        [Fact]
+        public void Filter_AnsiPassthrough_WithEmptySequenceMap()
+        {
+            // The reference filter_ansi_passthrough_with_empty_seq_xlat: with
+            // no sequence map, CSI bytes pass through (single-byte map still
+            // applies to mapped bytes only).
+            var filter = new InputFilter(null, InputFilter.AtasciiSingleBytes);
+            filter.Feed([0x1B, 0x5B, 0x41]).Should().Equal(0x1B, 0x5B, 0x41);
+            filter.HasPending.Should().BeFalse();
+        }
+
+        [Fact]
+        public void Filter_LoneEsc_EmittedImmediately_WithoutSequenceMap()
+        {
+            // The reference filter_esc_not_buffered_without_seq_xlat: a lone
+            // ESC is not held back when there is nothing it could grow into.
+            var filter = new InputFilter(null, InputFilter.AtasciiSingleBytes);
+            filter.Feed([0x1B]).Should().Equal(0x1B);
+            filter.HasPending.Should().BeFalse();
+        }
+
+        [Fact]
+        public void Filter_Flush_AppliesSingleByteMap_ToHeldBytes()
+        {
+            // The reference filter_flush_applies_byte_xlat: held-back bytes
+            // go through the single-byte map on flush (a partial CSI tail
+            // that never completes is emitted translated, not dropped).
+            var filter = InputFilter.CreateAtascii();
+            filter.Feed([0x1B, 0x5B]).Should().BeEmpty();
+            filter.Flush().Should().Equal(0x1B, 0x5B);
+        }
+
+        [Fact]
         public void Linemode_NormalChars_BufferAndEcho()
         {
             var buffer = new LinemodeBuffer();

@@ -9,8 +9,13 @@ namespace telnet_cs.Encodings
     /// PETSCII, Atari ST). Decoding is a 256-entry table lookup; encoding is
     /// the inverse lookup with Python <c>charmap_build</c> semantics (later
     /// table entries win), optionally biased toward the 0x00-0x7F range.
-    /// Unmappable characters throw via <see cref="EncoderFallback.ExceptionFallback"/>
-    /// (the equivalent of Python <c>errors="strict"</c>).
+    /// Unmappable characters go through the configured
+    /// <see cref="Encoding.EncoderFallback"/>: the default is
+    /// <see cref="EncoderFallback.ExceptionFallback"/> (the equivalent of
+    /// Python <c>errors="strict"</c>); a
+    /// <see cref="EncoderReplacementFallback"/> with <c>"?"</c> gives
+    /// <c>errors="replace"</c>, one with <c>""</c> gives
+    /// <c>errors="ignore"</c>.
     /// </summary>
     public abstract class CharmapEncoding : Encoding
     {
@@ -72,6 +77,35 @@ namespace telnet_cs.Encodings
 
         private string WebNameValue { get; }
 
+        private EncoderFallback? encoderFallbackOverride;
+        private DecoderFallback? decoderFallbackOverride;
+
+        /// <summary>
+        /// Gets or sets the encoder fallback. Defaults to
+        /// <see cref="EncoderFallback.ExceptionFallback"/> (strict). This
+        /// shadows the base property (which is not virtual and whose setter
+        /// throws while the instance is read-only — all fresh instances are):
+        /// direct construction and subclasses read strict here, while
+        /// <see cref="TelnetEncodingProvider"/> installs requested fallbacks
+        /// through this same property. Clones carry the setting via memberwise
+        /// copy.
+        /// </summary>
+        public new EncoderFallback EncoderFallback
+        {
+            get => encoderFallbackOverride ?? EncoderFallback.ExceptionFallback;
+            set => encoderFallbackOverride = value;
+        }
+
+        /// <summary>
+        /// Gets or sets the decoder fallback (defaults to strict; decoding is
+        /// total — every byte maps — so this never fires).
+        /// </summary>
+        public new DecoderFallback DecoderFallback
+        {
+            get => decoderFallbackOverride ?? DecoderFallback.ExceptionFallback;
+            set => decoderFallbackOverride = value;
+        }
+
         /// <summary>
         /// Adjusts the built encode table (e.g. ATASCII maps LF to 0x9B).
         /// </summary>
@@ -80,6 +114,67 @@ namespace telnet_cs.Encodings
         {
         }
 
+        /// <summary>
+        /// Encodes one scalar through the configured
+        /// <see cref="Encoding.EncoderFallback"/> (used when the scalar has
+        /// no table mapping). With <see cref="EncoderFallback.ExceptionFallback"/>
+        /// this throws <see cref="EncoderFallbackException"/>; a replacement
+        /// fallback emits its substitute text (each character encoded through
+        /// the same table, so an unmappable substitute still throws rather
+        /// than recursing).
+        /// </summary>
+        /// <param name="chars">The source buffer (for fallback context).</param>
+        /// <param name="index">Index of the scalar's first char in <paramref name="chars"/>.</param>
+        /// <param name="charLength">1, or 2 for a surrogate pair.</param>
+        /// <param name="bytes">The destination, or null to only count.</param>
+        /// <param name="byteIndex">Where to write in <paramref name="bytes"/>.</param>
+        /// <returns>The number of bytes written (or that would be written).</returns>
+        internal int EncodeWithFallback(char[] chars, int index, int charLength, byte[]? bytes, int byteIndex)
+        {
+            var fallback = EncoderFallback;
+            var buffer = fallback.CreateFallbackBuffer();
+            if (charLength == 2 && fallback is EncoderReplacementFallback)
+            {
+                // A surrogate pair is one character: offer it once so a
+                // replacement emits a single substitute (Python
+                // errors="replace" semantics), not one per surrogate as the
+                // two-char Fallback overload would drain.
+                buffer.Fallback(chars[index], index);
+            }
+            else if (charLength == 2)
+            {
+                buffer.Fallback(chars[index], chars[index + 1], index);
+            }
+            else
+            {
+                buffer.Fallback(chars[index], index);
+            }
+
+            var written = 0;
+            char next;
+            while ((next = buffer.GetNextChar()) != '\0')
+            {
+                if (!encodeTable.TryGetValue(next.ToString(), out var mapped))
+                {
+                    throw new EncoderFallbackException(
+                        $"Character '{next}' from the fallback has no mapping in {WebNameValue}.");
+                }
+
+                if (bytes is not null)
+                {
+                    if (byteIndex + written >= bytes.Length)
+                    {
+                        throw new ArgumentException("The output byte buffer is too small.", nameof(bytes));
+                    }
+
+                    bytes[byteIndex + written] = mapped;
+                }
+
+                written++;
+            }
+
+            return written;
+        }
         /// <summary>
         /// Looks up the byte for a single scalar value (1-2 chars).
         /// </summary>
@@ -102,10 +197,12 @@ namespace telnet_cs.Encodings
             var end = index + count;
             for (var i = index; i < end; i++)
             {
+                int length = 1;
                 string scalar;
                 if (char.IsHighSurrogate(chars[i]) && i + 1 < end && char.IsLowSurrogate(chars[i + 1]))
                 {
                     scalar = new string([chars[i], chars[i + 1]]);
+                    length = 2;
                     i++;
                 }
                 else
@@ -113,12 +210,9 @@ namespace telnet_cs.Encodings
                     scalar = chars[i].ToString();
                 }
 
-                if (!encodeTable.ContainsKey(scalar))
-                {
-                    throw new EncoderFallbackException($"Character '{scalar}' has no mapping in {WebNameValue}.");
-                }
-
-                bytes++;
+                bytes += encodeTable.ContainsKey(scalar)
+                    ? 1
+                    : EncodeWithFallback(chars, i - length + 1, length, null, 0);
             }
 
             return bytes;
@@ -137,10 +231,12 @@ namespace telnet_cs.Encodings
             var written = 0;
             for (var i = charIndex; i < end; i++)
             {
+                int length = 1;
                 string scalar;
                 if (char.IsHighSurrogate(chars[i]) && i + 1 < end && char.IsLowSurrogate(chars[i + 1]))
                 {
                     scalar = new string([chars[i], chars[i + 1]]);
+                    length = 2;
                     i++;
                 }
                 else
@@ -150,7 +246,8 @@ namespace telnet_cs.Encodings
 
                 if (!encodeTable.TryGetValue(scalar, out var mapped))
                 {
-                    throw new EncoderFallbackException($"Character '{scalar}' has no mapping in {WebNameValue}.");
+                    written += EncodeWithFallback(chars, i - length + 1, length, bytes, byteIndex + written);
+                    continue;
                 }
 
                 bytes[byteIndex + written] = mapped;

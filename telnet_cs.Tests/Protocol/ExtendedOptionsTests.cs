@@ -165,6 +165,30 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task SbComPort_SurfacesRawPayloadWithoutReply()
+        {
+            // RFC 2217 framing level only: the payload is surfaced for the
+            // caller; modem-line semantics are not implemented.
+            byte[]? received = null;
+            var (output, writes, _) = await ReadOnceAsync(
+              h => h.ComPortReceived += payload => received = payload,
+              Iac, Sb, 44, 5, 3, Iac, Se);
+            output.Should().BeEmpty();
+            writes.Should().BeEmpty();
+            received.Should().Equal(5, 3);
+        }
+
+        [Fact]
+        public async Task DoRcte_RefusedWithWont()
+        {
+            // RFC 726 RCTE is not implemented (obsolete remote-echo control):
+            // both directions are refused.
+            var (output, writes, _) = await ReadOnceAsync(_ => { }, Iac, Do, 7);
+            output.Should().BeEmpty();
+            Concat(writes).Should().Equal(Iac, Wont, 7);
+        }
+
+        [Fact]
         public async Task SbLineflow_UnknownMode_IgnoredWithoutEvent()
         {
             var fired = 0;

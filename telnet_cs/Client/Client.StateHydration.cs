@@ -77,6 +77,18 @@
             handler.SendLocation = Settings.SendLocation;
             handler.CharsetOffers = [.. Settings.CharsetOffers];
             handler.EnableMccp = Settings.EnableMccp;
+            // MCCP is refused over TLS (CRIME/BREACH); agreement is
+            // session-lived across per-read handlers (see ServerSession).
+            handler.IsTlsActive = Settings.UseTls;
+            handler.Mccp2Active = mccp2Agreed;
+            handler.Mccp3Active = mccp3Agreed;
+            handler.MccpStream = mccpStream;
+            handler.MccpStateChanged = (mccp2, mccp3, stream) =>
+            {
+                mccp2Agreed = mccp2;
+                mccp3Agreed = mccp3;
+                mccpStream = stream;
+            };
             handler.EnableMudOptions = Settings.EnableMudOptions;
             handler.EnableComPort = Settings.EnableComPort;
             handler.Linemode = linemodeState;
@@ -84,5 +96,8 @@
         }
 
         private TerminalTypeCycler? terminalTypeCycler;
+        private bool mccp2Agreed;
+        private bool mccp3Agreed;
+        private MccpDecompressor? mccpStream;
     }
 }

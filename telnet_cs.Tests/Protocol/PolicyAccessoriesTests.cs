@@ -30,6 +30,8 @@ namespace telnet_cs.Tests
         [InlineData("C.UTF-8", "UTF-8")]
         [InlineData("tr_TR.ISO-8859-9", "ISO-8859-9")]
         [InlineData("de_DE.iso-8859-1@euro", "iso-8859-1")]
+        [InlineData("abc.def", "def")]
+        [InlineData(".def@ghi", "def")]
         public void EncodingFromLang_WithSuffix_ReturnsEncoding(string lang, string expected)
         {
             TelnetAccessories.EncodingFromLang(lang).Should().Be(expected);
@@ -38,6 +40,8 @@ namespace telnet_cs.Tests
         [Theory]
         [InlineData("en_IL")]
         [InlineData("C")]
+        [InlineData("UTF-8")]
+        [InlineData("POSIX")]
         [InlineData("")]
         [InlineData(null)]
         public void EncodingFromLang_WithoutSuffix_ReturnsNull(string? lang)
@@ -77,6 +81,11 @@ namespace telnet_cs.Tests
         [InlineData(new byte[] { 0x1B, (byte)'[', (byte)'0', (byte)';', (byte)'3', (byte)'2', 0x20, (byte)'D' }, "petscii")]
         [InlineData(new byte[] { 0x1B, (byte)'[', (byte)'5', (byte)';', (byte)'3', (byte)'6', 0x20, (byte)'D' }, "atascii")]
         [InlineData(new byte[] { 0x1B, (byte)'[', (byte)'0', (byte)';', (byte)'0', 0x20, (byte)'D' }, "cp437")]
+        [InlineData(new byte[] { 0x1B, (byte)'[', (byte)'0', (byte)';', (byte)'8', 0x20, (byte)'D' }, "iso-8859-8")]
+        [InlineData(new byte[] { 0x1B, (byte)'[', (byte)'0', (byte)';', (byte)'1', (byte)'4', 0x20, (byte)'D' }, "iso-8859-5")]
+        [InlineData(new byte[] { 0x1B, (byte)'[', (byte)'0', (byte)';', (byte)'2', (byte)'1', 0x20, (byte)'D' }, "iso-8859-7")]
+        [InlineData(new byte[] { 0x1B, (byte)'[', (byte)'0', (byte)';', (byte)'3', (byte)'1', 0x20, (byte)'D' }, "cp1131")]
+        [InlineData(new byte[] { 0x1B, (byte)'[', (byte)'0', (byte)';', (byte)'4', (byte)'2', 0x20, (byte)'D' }, "cp437")]
         public void SyncTermFont_DetectEncoding_MapsFontId(byte[] data, string expected)
         {
             SyncTermFont.DetectEncoding(data).Should().Be(expected);
@@ -84,11 +93,29 @@ namespace telnet_cs.Tests
 
         [Theory]
         [InlineData(new byte[] { 0x1B, (byte)'[', (byte)'0', (byte)';', (byte)'7', 0x20, (byte)'D' })]
+        [InlineData(new byte[] { 0x1B, (byte)'[', (byte)'0', (byte)';', (byte)'1', (byte)'5', 0x20, (byte)'D' })]
+        [InlineData(new byte[] { 0x1B, (byte)'[', (byte)'0', (byte)';', (byte)'1', (byte)'9', 0x20, (byte)'D' })]
+        [InlineData(new byte[] { 0x1B, (byte)'[', (byte)'0', (byte)';', (byte)'2', (byte)'8', 0x20, (byte)'D' })]
+        [InlineData(new byte[] { 0x1B, (byte)'[', (byte)'0', (byte)';', (byte)'4', (byte)'3', 0x20, (byte)'D' })]
         [InlineData(new byte[] { (byte)'h', (byte)'e', (byte)'l', (byte)'l', (byte)'o' })]
         [InlineData(new byte[] { 0x1B, (byte)'[', (byte)'0', (byte)';' })]
+        [InlineData(new byte[] { 0x1B, (byte)'[', (byte)'0', (byte)';', (byte)'1', (byte)'0', (byte)'0', (byte)'0', (byte)'0', 0x20, (byte)'D' })]
         public void SyncTermFont_DetectEncoding_NoMatch_ReturnsNull(byte[] data)
         {
             SyncTermFont.DetectEncoding(data).Should().BeNull();
+        }
+
+        [Fact]
+        public void SyncTermFont_DetectEncoding_ScansPastMalformedSequence()
+        {
+            // A truncated "0;3" (no " D" terminator) is skipped; the later
+            // well-formed "0;32 D" still resolves.
+            var data = new byte[]
+            {
+                0x1B, (byte)'[', (byte)'0', (byte)';', (byte)'3',
+                0x1B, (byte)'[', (byte)'0', (byte)';', (byte)'3', (byte)'2', 0x20, (byte)'D',
+            };
+            SyncTermFont.DetectEncoding(data).Should().Be("petscii");
         }
 
         [Fact]

@@ -35,6 +35,13 @@
         public NegotiationState Negotiation { get; } = new();
 
         /// <summary>
+        /// Gets or sets whether the accepted socket runs over TLS. Set by
+        /// <see cref="TelnetServer.AcceptSessionAsync"/>; gates MCCP
+        /// (refused over TLS, CRIME/BREACH).
+        /// </summary>
+        internal bool IsTls { get; set; }
+
+        /// <summary>
         /// Initialises a new instance of the <see cref="ServerSession"/> class
         /// with default <see cref="TelnetServerOptions"/>.
         /// </summary>
@@ -63,6 +70,7 @@
             // constructs the session before throwing below (same shape as Client).
             ArgumentNullException.ThrowIfNull(options);
             Settings = options;
+            Timeout = options.IdleTimeout;
             StartIdleTimer();
         }
 
@@ -126,11 +134,28 @@
                     try
                     {
                         string result = await handler.ReadAsync(timeout).ConfigureAwait(false);
+                        if (!tlsHelloChecked && handler.FirstInboundByte != -1)
+                        {
+                            // First-data-only TLS sniff (reference data_received):
+                            // a 0x16 lead byte on a plaintext listener is a TLS
+                            // ClientHello — warn and close instead of parsing it.
+                            tlsHelloChecked = true;
+                            if (Settings.ServerCertificate is null && handler.FirstInboundByte == 0x16)
+                            {
+                                WriteLog($"TLS ClientHello from {RemoteEndPoint ?? "unknown"} but server has no SSL context -- closing connection.");
+                                ByteStream.Close();
+                                return string.Empty;
+                            }
+                        }
+
                         if (result.Length != 0)
                         {
                             Context.NoteRead(result);
                         }
 
+                        // Deferred opening negotiation (WILL ECHO, DO
+                        // NEW_ENVIRON, encoding check) armed by this read.
+                        await FlushDeferredNegotiationAsync(linked.Token).ConfigureAwait(false);
                         return result;
                     }
                     catch (System.Net.Sockets.SocketException)
@@ -257,6 +282,20 @@
             handler.Negotiation = Negotiation;
             handler.TextEncoding = Settings.TextEncoding;
             handler.Log = Settings.Log;
+            // The accepted socket's TLS flag gates MCCP (refused over TLS).
+            handler.IsTlsActive = IsTls;
+            handler.EnableMccp = Settings.EnableMccp;
+            // MCCP agreement is session-lived (arming SB, stream end, and
+            // corrupt shutdown report back through the hook).
+            handler.Mccp2Active = mccp2Agreed;
+            handler.Mccp3Active = mccp3Agreed;
+            handler.MccpStream = mccpStream;
+            handler.MccpStateChanged = (mccp2, mccp3, stream) =>
+            {
+                mccp2Agreed = mccp2;
+                mccp3Agreed = mccp3;
+                mccpStream = stream;
+            };
             // A received CHARSET (or encoding-suffixed LANG) environment
             // entry presumes BINARY capability: decode 8-bit data even
             // without an agreed inbound BINARY direction. An agreed CHARSET
@@ -293,6 +332,53 @@
             // path. Gated by OfferEcho so operators can refuse echo entirely;
             // the bounce guard (never both directions) still applies.
             handler.AllowRemoteEcho = Settings.OfferEcho;
+            // Secret-prompt suppression (AuthenticateAsync): negotiation state
+            // is untouched, only our echo-back replay is withheld.
+            handler.SuppressEchoBack = echoBackSuppressed;
+            // MUD stores are session-lived (handlers are per-read): the
+            // append/replace reports come back through the typed hooks.
+            handler.MsspReceived = vars =>
+            {
+                lock (collectorLock)
+                {
+                    mudMsspData = new Dictionary<string, object>(vars);
+                }
+            };
+            handler.MxpReceived = body =>
+            {
+                lock (collectorLock)
+                {
+                    mudMxpData.Add(body);
+                }
+            };
+            handler.MspReceived = body =>
+            {
+                lock (collectorLock)
+                {
+                    mudMspData.Add(body);
+                }
+            };
+            handler.ZmpReceived = (command, args) =>
+            {
+                lock (collectorLock)
+                {
+                    mudZmpData[command] = args;
+                }
+            };
+            handler.AardwolfReceived = message =>
+            {
+                lock (collectorLock)
+                {
+                    mudAardwolfData.Add(message);
+                }
+            };
+            handler.AtcpReceived = (package, value) =>
+            {
+                lock (collectorLock)
+                {
+                    mudAtcpData.Add((package, value));
+                }
+            };
             // TerminalType/TerminalSpeed keep their "vt100"/"19200,19200"
             // defaults: harmless responder values if a peer ever SENDs to us.
         }

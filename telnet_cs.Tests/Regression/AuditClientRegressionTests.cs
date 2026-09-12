@@ -178,5 +178,20 @@
               server.IPAddress.ToString(), server.Port, default, TimeSpan.FromSeconds(5));
             client.IsConnected.Should().BeTrue();
         }
+
+        [Fact]
+        public async Task ConnectAsyncConnectTimeout_ThrowsInvalidOperation()
+        {
+            // The reference connect_timeout shape: one timeout covers the
+            // whole TCP+TLS connect, surfacing InvalidOperationException
+            // (not SocketException — that is the fast-refusal path above).
+            // 192.0.2.1 is TEST-NET-1 (RFC 5737): unroutable, so the
+            // connect hangs until our timeout fires.
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            Func<Task> act = () => Client.ConnectAsync("192.0.2.1", 2323, default, TimeSpan.FromSeconds(2));
+            (await act.Should().ThrowAsync<InvalidOperationException>()).WithMessage("*within*");
+            sw.Stop();
+            sw.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(30));
+        }
     }
 }

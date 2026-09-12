@@ -25,6 +25,14 @@
     {
         private readonly Lock sync = new();
         private readonly SlcEntry[] table = new SlcEntry[LinemodeProtocol.MaxFunction + 1];
+
+        /// <summary>
+        /// The configured defaults (telnetlib3's <c>default_slc_tab</c>): written
+        /// by <see cref="SetEntry"/> alongside the working <see cref="table"/>,
+        /// never by negotiation. A peer <c>DEFAULT</c> level restores the row
+        /// from here instead of storing <c>DEFAULT</c> verbatim.
+        /// </summary>
+        private readonly SlcEntry[] defaults = new SlcEntry[LinemodeProtocol.MaxFunction + 1];
         private byte mode;
 
         /// <summary>Gets the agreed MODE mask, without the MODE_ACK bit.</summary>
@@ -112,11 +120,15 @@
 
         /// <summary>
         /// Applies one inbound SLC triplet per RFC 1184 §5.5 rules 1–4:
-        /// identical settings are ignored; same-level ACKed changes switch
-        /// silently; agreements switch and reply with ACK set; disagreements
-        /// (only possible against a CANTCHANGE row) reply our value at our
-        /// level without ACK. Func 0 (an import request) is dropped silently —
-        /// the session hook answers those, never this path. Unknown functions
+        /// identical settings are ignored; a <c>DEFAULT</c> level restores the
+        /// row from the configured defaults (telnetlib3 <c>_slc_change</c>:
+        /// mask and value come from the default tab, or NOSUPPORT when the row
+        /// itself is DEFAULT-level, i.e. unsupported) and replies the restored
+        /// row without ACK; same-level ACKed changes switch silently;
+        /// agreements switch and reply with ACK set; disagreements (only
+        /// possible against a CANTCHANGE row) reply our value at our level
+        /// without ACK. Func 0 (an import request) is dropped silently — the
+        /// session hook answers those, never this path. Unknown functions
         /// are refused as <c>DEFAULT 0</c> so the peer may keep its own value.
         /// </summary>
         /// <param name="function">The SLC function code.</param>
@@ -157,6 +169,20 @@
                     return null;
                 }
 
+                if (level == LinemodeProtocol.LevelDefault)
+                {
+                    // DEFAULT is a directive ("use your default"), not a value
+                    // proposal: restore from the configured defaults and reply
+                    // the restored row without ACK. The inbound value byte is
+                    // ignored.
+                    SlcEntry configured = defaults[function];
+                    table[function] = current.Level == LinemodeProtocol.LevelDefault
+                      ? new SlcEntry(LinemodeProtocol.LevelNoSupport, configured.Value, 0)
+                      : configured;
+                    SlcEntry restored = table[function];
+                    return (restored.Level, restored.Value);
+                }
+
                 if (level == current.Level && (modifier & LinemodeProtocol.FlagAck) != 0)
                 {
                     table[function] = new SlcEntry(level, value, flags);
@@ -190,6 +216,11 @@
         /// <param name="value">The character value.</param>
         /// <param name="flags">The FLUSHIN/FLUSHOUT modifier bits (anything else is masked off,
         /// keeping the invariant that flags only ever hold what the wire path stores).</param>
+        /// <remarks>Setup defines the defaults: the row lands in both the
+        /// default tab and the working table (telnetlib3's
+        /// <c>default_slc_tab</c> vs <c>slctab</c> split). Negotiation mutates
+        /// only the working table, so a peer <c>DEFAULT</c> or a
+        /// <see cref="ResetToDefaults"/> restores what setup configured.</remarks>
         internal void SetEntry(byte function, byte level, byte value, byte flags = 0)
         {
             ArgumentOutOfRangeException.ThrowIfGreaterThan(function, LinemodeProtocol.MaxFunction);
@@ -197,8 +228,23 @@
             ArgumentOutOfRangeException.ThrowIfGreaterThan(level, LinemodeProtocol.LevelBits);
             lock (sync)
             {
-                table[function] = new SlcEntry(
+                var entry = new SlcEntry(
                   level, value, (byte)(flags & (LinemodeProtocol.FlagFlushIn | LinemodeProtocol.FlagFlushOut)));
+                defaults[function] = entry;
+                table[function] = entry;
+            }
+        }
+
+        /// <summary>
+        /// Resets the working SLC table to the configured defaults (the answer
+        /// to an RFC 1184 §2.4 func 0 with <c>DEFAULT</c> import request, which
+        /// also sends the full table — telnetlib3 <c>_slc_process</c>).
+        /// </summary>
+        internal void ResetToDefaults()
+        {
+            lock (sync)
+            {
+                Array.Copy(defaults, table, table.Length);
             }
         }
 

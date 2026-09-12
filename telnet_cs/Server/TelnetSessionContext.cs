@@ -59,6 +59,11 @@ namespace telnet_cs.Server
         /// </summary>
         public IDictionary<string, object?> Properties { get; } = new Dictionary<string, object?>(StringComparer.Ordinal);
 
+        internal void NoteActivity()
+        {
+            LastActivityUtc = DateTimeOffset.UtcNow;
+        }
+
         internal void NoteRead(string text)
         {
             LastActivityUtc = DateTimeOffset.UtcNow;

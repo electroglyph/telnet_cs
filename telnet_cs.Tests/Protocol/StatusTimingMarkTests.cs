@@ -28,6 +28,25 @@
         }
 
         [Fact]
+        public async Task StatusSend_WhenAgreed_AnswersIsWithoutRenegotiating()
+        {
+            // RFC 859 motivation: a status query must not trigger renegotiation —
+            // answering SEND emits exactly the IS snapshot, no new WILL/DO/WONT/DONT.
+            var (output, stream) = await ReadHandlerOnceAsync(static _ => { },
+                255, 253, 5,
+                255, 251, 5,
+                255, 250, 5, 1, 255, 240);
+            output.Should().BeEmpty();
+            stream.ByteWrites.Should().HaveCount(3);
+            stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 5 });
+            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 253, 5 });
+            stream.ByteWrites[2].Should().HaveCountGreaterThan(4);
+            stream.ByteWrites[2][0].Should().Be((byte)255);
+            stream.ByteWrites[2][1].Should().Be((byte)250);
+            stream.ByteWrites[2][^1].Should().Be((byte)240);
+        }
+
+        [Fact]
         public async Task StatusSend_NoAgreements_GetsWont()
         {
             // RFC 859 §5: only the WILL-sender answers SEND. Nothing agreed → WONT.

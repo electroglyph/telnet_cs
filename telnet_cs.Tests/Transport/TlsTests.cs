@@ -13,6 +13,7 @@ namespace telnet_cs.Tests
     using System.Security.Authentication;
     using System.Security.Cryptography;
     using System.Security.Cryptography.X509Certificates;
+    using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
     using FluentAssertions;
@@ -49,6 +50,86 @@ namespace telnet_cs.Tests
                 Certificate = certificate;
                 Errors = errors;
                 return true;
+            }
+        }
+
+        /// <summary>
+        /// Splits the first outbound write into a 1-byte chunk plus the
+        /// remainder after a delay, passing everything else through: lets a
+        /// test segment a TLS ClientHello across TCP packets.
+        /// </summary>
+        private sealed class FirstWriteSplittingStream(Stream inner, TimeSpan delay) : Stream
+        {
+            private bool splitDone;
+
+            public override bool CanRead => inner.CanRead;
+
+            public override bool CanSeek => false;
+
+            public override bool CanWrite => inner.CanWrite;
+
+            public override long Length => throw new NotSupportedException();
+
+            public override long Position
+            {
+                get => throw new NotSupportedException();
+                set => throw new NotSupportedException();
+            }
+
+            public override void Flush() => inner.Flush();
+
+            public override Task FlushAsync(CancellationToken cancellationToken) => inner.FlushAsync(cancellationToken);
+
+            public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
+
+            public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+              inner.ReadAsync(buffer, cancellationToken);
+
+            public override void Write(byte[] buffer, int offset, int count) =>
+              WriteAsync(buffer, offset, count).GetAwaiter().GetResult();
+
+            public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            {
+                if (splitDone || count < 2)
+                {
+                    await inner.WriteAsync(buffer.AsMemory(offset, count), cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+
+                splitDone = true;
+                await inner.WriteAsync(buffer.AsMemory(offset, 1), cancellationToken).ConfigureAwait(false);
+                await inner.FlushAsync(cancellationToken).ConfigureAwait(false);
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                await inner.WriteAsync(buffer.AsMemory(offset + 1, count - 1), cancellationToken).ConfigureAwait(false);
+            }
+
+            public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+            {
+                if (splitDone || buffer.Length < 2)
+                {
+                    await inner.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+
+                splitDone = true;
+                await inner.WriteAsync(buffer[..1], cancellationToken).ConfigureAwait(false);
+                await inner.FlushAsync(cancellationToken).ConfigureAwait(false);
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                await inner.WriteAsync(buffer[1..], cancellationToken).ConfigureAwait(false);
+            }
+
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+            public override void SetLength(long value) => throw new NotSupportedException();
+
+            protected override void Dispose(bool disposing)
+            {
+                if (disposing)
+                {
+                    inner.Dispose();
+                }
+
+                base.Dispose(disposing);
             }
         }
 
@@ -170,6 +251,104 @@ namespace telnet_cs.Tests
                 .Should().Be(SslPolicyErrors.RemoteCertificateChainErrors);
             (recorder.Errors & SslPolicyErrors.RemoteCertificateNameMismatch)
                 .Should().Be(SslPolicyErrors.RemoteCertificateNameMismatch);
+        }
+
+        [Fact]
+        public async Task TlsConnect_ServerHostname_DefaultsTo_DialedHost()
+        {
+            // The reference server_hostname default: no TlsHost configured
+            // means the SNI/validation target is the dialed hostname.
+            using var cert = CreateSelfSignedCert();
+            using var server = StartTlsServer(cert);
+            var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
+            string? seenTarget = null;
+            var clientOptions = new TelnetClientOptions
+            {
+                UseTls = true,
+                TlsValidationCallback = (sender, _, _, _) =>
+                {
+                    seenTarget = ((SslStream)sender!).TargetHostName;
+                    return true;
+                },
+            };
+            using var client = await Client.ConnectAsync(
+                "127.0.0.1", server.Port, clientOptions,
+                CancellationToken.None, TimeSpan.FromSeconds(10));
+            using var session = await acceptTask;
+            seenTarget.Should().Be("127.0.0.1");
+        }
+
+        [Fact]
+        public async Task TlsAutoDetect_SplitClientHello_StillHandshakes()
+        {
+            // Only the first byte matters to the peek: a ClientHello split
+            // across segments (0x16 alone, then the rest) still upgrades.
+            using var cert = CreateSelfSignedCert();
+            using var server = new TelnetServer(0, new TelnetServerOptions
+            {
+                ServerCertificate = cert,
+                TlsAutoDetect = TimeSpan.FromSeconds(10),
+            });
+            server.Start();
+            var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
+            using var raw = new System.Net.Sockets.TcpClient();
+            await raw.ConnectAsync("127.0.0.1", server.Port);
+            using var net = raw.GetStream();
+            // Split the genuine ClientHello across segments: the first
+            // write goes out as a lone 0x16, the rest follows after a pause.
+            using var chunked = new FirstWriteSplittingStream(net, TimeSpan.FromMilliseconds(200));
+            using var ssl = new SslStream(chunked, leaveInnerStreamOpen: false);
+            var handshake = ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+            {
+                TargetHost = "127.0.0.1",
+                RemoteCertificateValidationCallback = (_, _, _, _) => true,
+            });
+            using var session = await acceptTask;
+            await handshake;
+            await session.WriteAsync("hi");
+            // The server's opening negotiation preset arrives first on the
+            // raw stream (no telnet client here to consume it): drain until
+            // the "hi" tail (none of the preset bytes collide with it).
+            var seen = new List<byte>();
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            while (seen.Count < 2 || seen[^2] != (byte)'h' || seen[^1] != (byte)'i')
+            {
+                var chunk = new byte[64];
+                int n = await ssl.ReadAsync(chunk, 0, chunk.Length, deadline.Token);
+                n.Should().BeGreaterThan(0);
+                seen.AddRange(chunk.Take(n));
+                seen.Count.Should().BeLessThan(1024);
+            }
+
+            seen.Count.Should().BeGreaterThan(2);
+        }
+
+        [Fact]
+        public async Task TlsAutoDetect_SequentialTlsThenPlain_OnOneServer()
+        {
+            // The reference tls_auto both-clients shape: one server takes a
+            // TLS client and then a plaintext client back to back.
+            using var cert = CreateSelfSignedCert();
+            using var server = new TelnetServer(0, new TelnetServerOptions
+            {
+                ServerCertificate = cert,
+                TlsAutoDetect = TimeSpan.FromSeconds(10),
+            });
+            server.Start();
+            var firstAccept = server.AcceptSessionAsync(CancellationToken.None);
+            var recorder = new RecordingCallback();
+            using var tlsClient = await Client.ConnectAsync(
+                "127.0.0.1", server.Port, TlsOptions(recorder),
+                CancellationToken.None, TimeSpan.FromSeconds(10));
+            using var first = await firstAccept;
+            await tlsClient.WriteAsync("secure");
+            (await first.ReadAsync(TimeSpan.FromSeconds(5))).Should().Be("secure");
+
+            var secondAccept = server.AcceptSessionAsync(CancellationToken.None);
+            using var plainClient = await Client.ConnectAsync("127.0.0.1", server.Port);
+            using var second = await secondAccept;
+            await plainClient.WriteAsync("plain");
+            (await second.ReadAsync(TimeSpan.FromSeconds(5))).Should().Be("plain");
         }
 
         [Fact]

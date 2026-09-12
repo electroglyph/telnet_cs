@@ -2,6 +2,7 @@
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
@@ -238,11 +239,49 @@
         }
 
         [Fact]
-        public async Task SlcTruncated_Ignored()
+        public async Task SlcTruncated_Throws()
         {
-            var (output, stream) = await ReadWithStreamAsync(255, 250, 34, 3, 3, 2, 255, 240);
-            output.Should().BeEmpty();
+            // telnetlib3 _handle_sb_linemode_slc raises ValueError on len%3≠0:
+            // the whole buffer is rejected, nothing is answered.
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            stream.Enqueue(255, 250, 34, 3, 3, 2, 255, 240);
+            var act = async () => await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
+            (await act.Should().ThrowAsync<InvalidDataException>()).WithMessage("*multiple of 3*");
             stream.ByteWrites.Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task SlcDefault_RestoresConfiguredValue()
+        {
+            // Peer moves IP to ^E, then sends DEFAULT: the row restores to the
+            // configured ^C and the reply carries the restored row without ACK.
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            sut.Linemode.SetEntry(3, 2, 3);
+            stream.Enqueue(255, 250, 34, 3, 3, 2, 5, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.Enqueue(255, 250, 34, 3, 3, 3, 99, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.ByteWrites.Should().HaveCount(2);
+            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 3, 3, 2, 3, 255, 240 });
+            // Proves the restore landed: the configured value is now identical.
+            stream.Enqueue(255, 250, 34, 3, 3, 2, 3, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.ByteWrites.Should().HaveCount(2);
+        }
+
+        [Fact]
+        public async Task SlcDefault_UnsupportedFunction_RefusedAsNoSupport()
+        {
+            // SYNCH starts at DEFAULT level (unsupported): DEFAULT restores to
+            // NOSUPPORT with the default value instead of storing DEFAULT.
+            var (output, stream) = await ReadWithStreamAsync(255, 250, 34, 3, 1, 3, 0, 255, 240);
+            output.Should().BeEmpty();
+            stream.ByteWrites.Should().ContainSingle().Which.Should()
+              .Equal(new byte[] { 255, 250, 34, 3, 1, 0, 0, 255, 240 });
         }
 
         [Fact]

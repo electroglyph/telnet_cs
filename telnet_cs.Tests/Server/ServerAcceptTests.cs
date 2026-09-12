@@ -92,14 +92,16 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task AcceptSessionAsync_EmitsOpeningPreset()
         {
-            // The accepted session negotiates as a server: the connecting client
-            // must observe our WILL ECHO (and answer DO), proving the preset went
-            // out over the real socket.
+            // The accepted session negotiates as a server: WILL ECHO is
+            // deferred until TTYPE reveals the client, so collect a type in
+            // the background while pumping both ends; the client's DO reply
+            // confirms our offer, flipping our us-side to YES.
             using var server = new TelnetServer(0);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
             using var session = await acceptTask;
+            var collectTask = session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(2));
 
             // Pump the client until it has processed our WILL ECHO: its DO reply
             // confirms our offer, flipping our us-side to YES.
@@ -111,6 +113,7 @@ namespace telnet_cs.Tests
             }
 
             session.Negotiation.IsEnabledByUs((int)Options.Echo).Should().BeTrue();
+            (await collectTask).Should().NotBeEmpty();
         }
 
         [Fact]

@@ -67,6 +67,20 @@
           linemodeState.SetEntry(function, level, value, flags);
 
         /// <summary>
+        /// Reads one LINEMODE SLC table row (test/observation hook, symmetric
+        /// with <see cref="SetLinemodeEntry"/>).
+        /// </summary>
+        /// <param name="function">The SLC function code (1–30).</param>
+        /// <returns>The stored level, value and flags.</returns>
+        internal SlcEntry GetLinemodeEntry(byte function) => linemodeState.GetEntry(function);
+
+        /// <summary>
+        /// Reads the agreed LINEMODE MODE mask (test/observation hook).
+        /// </summary>
+        /// <returns>The MODE mask without the ACK bit.</returns>
+        internal byte GetLinemodeMode() => linemodeState.Mode;
+
+        /// <summary>
         /// RFC 1184 §5.8 flush side-effects for a just-sent control command:
         /// when the SLC table row for the sent function carries FLUSHIN, a
         /// Telnet Synch (urgent DM) goes out at the same time; when it carries

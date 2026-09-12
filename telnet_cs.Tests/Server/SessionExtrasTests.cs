@@ -10,6 +10,7 @@ namespace telnet_cs.Tests
     using System.Net;
     using System.Security.Cryptography;
     using System.Security.Cryptography.X509Certificates;
+    using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
     using FluentAssertions;
@@ -131,7 +132,49 @@ namespace telnet_cs.Tests
 
             closed.Should().BeTrue();
             session.IsIdleTimedOut.Should().BeTrue();
-            stream.StringWrites.Should().ContainSingle().Which.Should().Contain("Timeout.");
+            stream.StringWrites.Should().ContainSingle().Which.Should().Be("\r\nTimeout.\r\n");
+        }
+
+        [Fact]
+        public void Timeout_DefaultsToIdleTimeout()
+        {
+            using var stream = new ScriptedStream();
+            var options = new TelnetServerOptions { IdleTimeout = TimeSpan.FromMilliseconds(150) };
+            using var session = new ServerSession(stream, options, CancellationToken.None);
+            session.Timeout.Should().Be(TimeSpan.FromMilliseconds(150));
+        }
+
+        [Fact]
+        public async Task SetTimeout_Shorter_ClosesQuietSessionWithNotice()
+        {
+            using var stream = new ScriptedStream();
+            var options = new TelnetServerOptions { IdleTimeout = Timeout.InfiniteTimeSpan };
+            using var session = new ServerSession(stream, options, CancellationToken.None);
+            session.SetTimeout(TimeSpan.FromMilliseconds(150));
+            session.Timeout.Should().Be(TimeSpan.FromMilliseconds(150));
+            bool closed = false;
+            for (int i = 0; i < 60 && !closed; i++)
+            {
+                await Task.Delay(50);
+                closed = !session.IsConnected;
+            }
+
+            closed.Should().BeTrue();
+            session.IsIdleTimedOut.Should().BeTrue();
+            stream.StringWrites.Should().ContainSingle().Which.Should().Be("\r\nTimeout.\r\n");
+        }
+
+        [Fact]
+        public async Task SetTimeout_Infinite_DisablesPendingTimeout()
+        {
+            using var stream = new ScriptedStream();
+            var options = new TelnetServerOptions { IdleTimeout = TimeSpan.FromMilliseconds(150) };
+            using var session = new ServerSession(stream, options, CancellationToken.None);
+            session.SetTimeout(Timeout.InfiniteTimeSpan);
+            await Task.Delay(300);
+            session.IsConnected.Should().BeTrue();
+            session.IsIdleTimedOut.Should().BeFalse();
+            stream.StringWrites.Should().BeEmpty();
         }
 
         [Fact]
@@ -240,6 +283,66 @@ namespace telnet_cs.Tests
             using var session = await acceptTask;
             await client.WriteAsync("hi");
             (await session.ReadAsync(TimeSpan.FromSeconds(5))).Should().Be("hi");
+        }
+
+        [Fact]
+        public async Task TlsAutoDetect_SilentPeer_HandedOffAsPlaintextAfterWait()
+        {
+            // The reference tls_auto silent-plain handoff: a peer that sends
+            // nothing is treated as plaintext once the peek wait elapses.
+            using var cert = CreateSelfSignedCert();
+            var serverOptions = new TelnetServerOptions
+            {
+                ServerCertificate = cert,
+                TlsAutoDetect = TimeSpan.FromMilliseconds(300),
+            };
+            using var server = new TelnetServer(0, serverOptions);
+            server.Start();
+            var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
+            // A skip-proactive client sends nothing on connect, so the peek
+            // window stays silent; the server's later preset bytes arrive
+            // after detection and are consumed as negotiation, not data.
+            using (GlobalStateGuard.SkipProactive(true))
+            {
+                using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
+                using var session = await acceptTask;
+                await session.WriteAsync("hi");
+                (await client.ReadAsync(TimeSpan.FromSeconds(5))).Should().Be("hi");
+            }
+        }
+
+        [Fact]
+        public async Task Context_Properties_Bag_RoundTrips_And_Duration_Grows()
+        {
+            using var server = new TelnetServer(0, new TelnetServerOptions());
+            server.Start();
+            var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
+            using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
+            using var session = await acceptTask;
+            session.Context.Properties.ContainsKey("role").Should().BeFalse();
+            session.Context.Properties["role"] = "tester";
+            session.Context.Properties["role"].Should().Be("tester");
+            session.Context.ConnectedAtUtc.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromMinutes(1));
+            (DateTimeOffset.UtcNow - session.Context.ConnectedAtUtc).Should().BeGreaterThanOrEqualTo(TimeSpan.Zero);
+            session.Context.Idle.Should().BeLessThan(TimeSpan.FromMinutes(1));
+        }
+
+        [Fact]
+        public async Task WaitForOptionEnabledAsync_Matches_DictForm_WaitForRemote()
+        {
+            // The reference wait_for(remote={OPT: True}) dict form: our
+            // WaitForOptionEnabledAsync(option, local: false) is the same
+            // predicate (remote direction = peer enables).
+            using var server = new TelnetServer(0, new TelnetServerOptions());
+            server.Start();
+            var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
+            using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
+            using var session = await acceptTask;
+            var waiter = client.WaitForOptionEnabledAsync(Options.SuppressGoAhead, local: false, TimeSpan.FromSeconds(10));
+            await session.SendOpeningPresetAsync();
+            (await waiter).Should().BeTrue();
+            var missing = await client.WaitForOptionEnabledAsync(Options.LineMode, local: false, TimeSpan.FromMilliseconds(200));
+            missing.Should().BeFalse();
         }
     }
 }

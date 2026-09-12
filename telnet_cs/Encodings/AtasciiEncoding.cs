@@ -121,22 +121,31 @@ namespace telnet_cs.Encodings
                 var written = 0;
                 if (pendingCr)
                 {
-                    // A CR straddled the previous chunk boundary: the next char
-                    // decides CR vs CRLF, but both fold to LF either way.
+                    // A CR straddled the previous chunk boundary: it folds to
+                    // LF either way; a leading LF here is the second half of
+                    // CRLF and is consumed, not re-emitted.
                     if (byteIndex + written >= bytes.Length)
                     {
                         return written;
                     }
 
                     pendingCr = false;
-                    if (!TryWriteScalar("\n", bytes, byteIndex, ref written))
+                    if (!encoding.TryEncodeScalar("\n", out var folded))
                     {
-                        return written;
+                        throw new EncoderFallbackException("Character '\n' has no mapping in atascii.");
+                    }
+
+                    bytes[byteIndex + written] = folded;
+                    written++;
+                    if (i < end && chars[i] == '\n')
+                    {
+                        i++;
                     }
                 }
 
                 while (i < end)
                 {
+                    var start = i;
                     string scalar;
                     int next;
                     if (chars[i] == '\r')
@@ -175,7 +184,7 @@ namespace telnet_cs.Encodings
                     }
 
                     i = next;
-                    if (!TryWriteScalar(scalar, bytes, byteIndex, ref written))
+                    if (!TryWriteScalar(chars, start, next - start, scalar, bytes, byteIndex, ref written))
                     {
                         return written;
                     }
@@ -189,7 +198,7 @@ namespace telnet_cs.Encodings
                 pendingCr = false;
             }
 
-            private bool TryWriteScalar(string scalar, byte[] bytes, int byteIndex, ref int written)
+            private bool TryWriteScalar(char[] chars, int start, int length, string scalar, byte[] bytes, int byteIndex, ref int written)
             {
                 if (byteIndex + written >= bytes.Length)
                 {
@@ -198,7 +207,8 @@ namespace telnet_cs.Encodings
 
                 if (!encoding.TryEncodeScalar(scalar, out var mapped))
                 {
-                    throw new EncoderFallbackException($"Character '{scalar}' has no mapping in atascii.");
+                    written += encoding.EncodeWithFallback(chars, start, length, bytes, byteIndex + written);
+                    return true;
                 }
 
                 bytes[byteIndex + written] = mapped;

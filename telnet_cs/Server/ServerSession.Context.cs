@@ -3,7 +3,6 @@ namespace telnet_cs.Server
     using System;
     using System.Threading;
     using System.Threading.Tasks;
-    using telnet_cs.Protocol;
 
     public partial class ServerSession
     {
@@ -15,26 +14,49 @@ namespace telnet_cs.Server
         public TelnetSessionContext Context { get; } = new();
 
         /// <summary>
-        /// Gets whether the session has been idle past
-        /// <see cref="TelnetServerOptions.IdleTimeout"/> (always <c>false</c>
-        /// when the timeout is disabled). Latched on fire: the
+        /// Gets the effective idle timeout for this session. Initialised from
+        /// <see cref="TelnetServerOptions.IdleTimeout"/>; <see
+        /// cref="SetTimeout"/> overrides it per session (the analogue of the
+        /// reference <c>set_timeout() / get_extra_info("timeout")</c>).
+        /// </summary>
+        public TimeSpan Timeout { get; private set; }
+
+        /// <summary>
+        /// Overrides the idle timeout for this session and restarts the
+        /// countdown from now (the reference schedules <c>on_timeout</c> via
+        /// <c>call_later</c> on every <c>set_timeout</c>, including the
+        /// per-<c>data_received</c> restart). <see
+        /// cref="System.Threading.Timeout.InfiniteTimeSpan"/> (or any non-positive span)
+        /// disables the timeout; the reference uses <c>0</c> for the same.
+        /// </summary>
+        /// <param name="timeout">The new idle timeout.</param>
+        public void SetTimeout(TimeSpan timeout)
+        {
+            Timeout = timeout;
+            Context.NoteActivity();
+            RestartIdleTimer();
+        }
+
+        /// <summary>
+        /// Gets whether the session has been idle past <see cref="Timeout"/>
+        /// (always <c>false</c> when the timeout is disabled). Latched on fire: the
         /// <c>"Timeout."</c> notice itself counts as activity, so without the
         /// latch the flag would read <c>false</c> right after the kill it
         /// reports.
         /// </summary>
         public bool IsIdleTimedOut =>
           idleTimedOut ||
-          (Settings.IdleTimeout != Timeout.InfiniteTimeSpan &&
-           Settings.IdleTimeout > TimeSpan.Zero &&
-           Context.Idle >= Settings.IdleTimeout);
+          (Timeout != System.Threading.Timeout.InfiniteTimeSpan &&
+            Timeout > TimeSpan.Zero &&
+            Context.Idle >= Timeout);
 
         private Timer? idleTimer;
         private bool idleTimedOut;
 
         private void StartIdleTimer()
         {
-            var timeout = Settings.IdleTimeout;
-            if (timeout == Timeout.InfiniteTimeSpan || timeout <= TimeSpan.Zero)
+            var timeout = Timeout;
+            if (timeout == System.Threading.Timeout.InfiniteTimeSpan || timeout <= TimeSpan.Zero)
             {
                 return;
             }
@@ -45,12 +67,18 @@ namespace telnet_cs.Server
             idleTimer = new Timer(static state => _ = ((ServerSession)state!).OnIdleTimeoutAsync(), this, period, period);
         }
 
+        private void RestartIdleTimer()
+        {
+            StopIdleTimer();
+            StartIdleTimer();
+        }
+
         private void StopIdleTimer()
         {
             var timer = Interlocked.Exchange(ref idleTimer, null);
             if (timer is not null)
             {
-                timer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+                timer.Change(System.Threading.Timeout.InfiniteTimeSpan, System.Threading.Timeout.InfiniteTimeSpan);
                 timer.Dispose();
             }
         }
@@ -67,8 +95,9 @@ namespace telnet_cs.Server
 #pragma warning disable CA1031 // Do not catch general exception types
             try
             {
-                // Best effort: the reference writes "Timeout." before closing.
-                await WriteAsync($"Timeout.{LineFeed.Rfc854}", CancellationToken.None).ConfigureAwait(false);
+                // Best effort: the reference writes "\r\nTimeout.\r\n"
+                // (leading CRLF) before closing.
+                await WriteAsync("\r\nTimeout.\r\n", CancellationToken.None).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

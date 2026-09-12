@@ -25,6 +25,20 @@
           linemodeState.SetEntry(function, level, value, flags);
 
         /// <summary>
+        /// Reads one LINEMODE SLC table row (test/observation hook, symmetric
+        /// with <see cref="SetLinemodeEntry"/>).
+        /// </summary>
+        /// <param name="function">The SLC function code (1–30).</param>
+        /// <returns>The stored level, value and flags.</returns>
+        internal SlcEntry GetLinemodeEntry(byte function) => linemodeState.GetEntry(function);
+
+        /// <summary>
+        /// Reads the agreed LINEMODE MODE mask (test/observation hook).
+        /// </summary>
+        /// <returns>The MODE mask without the ACK bit.</returns>
+        internal byte GetLinemodeMode() => linemodeState.Mode;
+
+        /// <summary>
         /// Sends a LINEMODE MODE mask to the peer (RFC 1184 §2.2). Sends nothing
         /// unless LINEMODE is agreed (the peer answered our DO). The peer's
         /// MODE+ACK answer is folded into the shared state by subsequent reads;
@@ -131,12 +145,14 @@
 
         /// <summary>
         /// Answers peer SLC import requests (RFC 1184 §2.4 func 0). Func 0 with
-        /// DEFAULT ("send your table") is answered with the full table, every
-        /// NOSUPPORT row rendered as <c>[func, DEFAULT, 0]</c> so the peer may
-        /// use its own values (never silent: the RFC says "send all those
-        /// special characters"). Func 0 with VALUE ("send current settings") is
-        /// answered with the normal configured-rows export, silent when nothing
-        /// is configured. Anything else is left for the normal SLC path.
+        /// DEFAULT ("send your table") resets the working table to the
+        /// configured defaults (telnetlib3 <c>_slc_process</c>) and is answered
+        /// with the full table, every NOSUPPORT row rendered as
+        /// <c>[func, DEFAULT, 0]</c> so the peer may use its own values (never
+        /// silent: the RFC says "send all those special characters"). Func 0
+        /// with VALUE ("send current settings") is answered with the normal
+        /// configured-rows export, silent when nothing is configured. Anything
+        /// else is left for the normal SLC path.
         /// </summary>
         /// <param name="payload">The LINEMODE payload.</param>
         /// <returns>True when the payload was an import request (consumed).</returns>
@@ -152,6 +168,10 @@
             }
 
             bool defaults = payload[2] == LinemodeProtocol.LevelDefault;
+            if (defaults)
+            {
+                linemodeState.ResetToDefaults();
+            }
             byte[]? triplets = linemodeState.ExportTriplets(forImport: defaults);
             if (triplets is null)
             {

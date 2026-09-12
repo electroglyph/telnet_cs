@@ -2,7 +2,9 @@
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Text;
+    using System.Text.Json.Nodes;
     using System.Threading.Tasks;
     using telnet_cs.Client;
     using telnet_cs.Protocol;
@@ -157,6 +159,15 @@
         /// The client feeds its effective per-instance setting before each read.
         /// </summary>
         internal bool AllowRemoteEcho { get; set; }
+
+        /// <summary>
+        /// Gets or sets whether agreed echo-back is withheld for the current
+        /// read. Negotiation state is untouched (no <c>WONT</c> is sent), so
+        /// conforming peers keep hiding local echo; only our own
+        /// <c>EchoBackAsync</c> replay is skipped. Fed per read by sessions
+        /// that prompt for secrets.
+        /// </summary>
+        internal bool SuppressEchoBack { get; set; }
 
         /// <summary>
         /// Whether the peer is currently echoing our input (we sent <c>DO ECHO</c>,
@@ -417,19 +428,64 @@
         internal bool EnableMccp { get; set; }
 
         /// <summary>
-        /// Gets whether an MCCP2 (server-to-client) compressed stream was
-        /// started via an empty <c>IAC SB MCCP2 IAC SE</c>. Framing-level only:
-        /// zlib decoding stays the caller's, fed from this flag and
-        /// <see cref="Mccp2StartReceived"/>.
+        /// Gets or sets whether this direction runs over TLS. MCCP is refused
+        /// while set (CRIME/BREACH), matching the reference negotiation gate.
+        /// Fed per read: the server copies its accepted-socket flag, the
+        /// client its <c>UseTls</c> setting.
         /// </summary>
-        internal bool Mccp2Active { get; private set; }
+        internal bool IsTlsActive { get; set; }
+
+        /// <summary>
+        /// Gets whether an MCCP2 (server-to-client) compressed stream was
+        /// started via an empty <c>IAC SB MCCP2 IAC SE</c>. While set, inbound
+        /// bytes inflate through <see cref="MccpStream"/> until its Z_FINISH;
+        /// the stream then ends and the wire resumes plaintext.
+        /// </summary>
+        internal bool Mccp2Active { get; set; }
 
         /// <summary>
         /// Gets whether an MCCP3 (client-to-server) compressed stream was
         /// started via an empty <c>IAC SB MCCP3 IAC SE</c>. See
-        /// <see cref="Mccp2Active"/> for the framing-only scope.
+        /// <see cref="Mccp2Active"/> for the inflation scope.
         /// </summary>
-        internal bool Mccp3Active { get; private set; }
+        internal bool Mccp3Active { get; set; }
+
+        /// <summary>
+        /// Gets or sets the session-owned MCCP decompressor. Created on the
+        /// first arming SB and shared across this handler's per-read lifetime
+        /// via <see cref="MccpStateChanged"/>; never disposed here (the
+        /// session owns it). Null until compression starts.
+        /// </summary>
+        internal MccpDecompressor? MccpStream { get; set; }
+
+        /// <summary>
+        /// Gets or sets the hook the handler fires with
+        /// <c>(mccp2Active, mccp3Active, stream)</c> whenever MCCP agreement
+        /// changes (arming SB, clean stream end, corrupt shutdown) so the
+        /// session can persist the state across per-read handlers.
+        /// </summary>
+        internal Action<bool, bool, MccpDecompressor?>? MccpStateChanged { get; set; }
+
+        private bool mccpShutdownPending;
+
+        private int mccpShutdownOption = (int)Options.Mccp2;
+
+        /// <summary>
+        /// Gets the first raw wire byte seen on this handler, or -1 when
+        /// nothing arrived yet. The server checks it for a TLS ClientHello
+        /// lead byte (0x16) on plaintext listeners.
+        /// </summary>
+        internal int FirstInboundByte => firstInboundByte;
+
+        private int firstInboundByte = -1;
+
+        private void NoteInboundByte(int raw)
+        {
+            if (raw != -1 && firstInboundByte == -1)
+            {
+                firstInboundByte = raw;
+            }
+        }
 
         /// <summary>
         /// Gets or sets the hook invoked when the peer starts MCCP2.
@@ -444,9 +500,9 @@
         /// <summary>
         /// Gets or sets whether the MUD options (MSDP 69, MSSP 70, MSP 90,
         /// MXP 91, ZMP 93, Aardwolf 102, ATCP 200, GMCP 201) may be agreed.
-        /// Defaults to <c>true</c>. Subnegotiations surface through
-        /// <see cref="MudSubnegotiationReceived"/>; encoding stays the caller's
-        /// via <see cref="MudProtocol"/>.
+        /// Defaults to <c>true</c>. Subnegotiations dispatch to the typed
+        /// hooks and stores (plus the raw <see cref="MudSubnegotiationReceived"/>
+        /// hook); text decoding uses the agreed CHARSET when one resolved.
         /// </summary>
         internal bool EnableMudOptions { get; set; } = true;
 
@@ -463,6 +519,90 @@
         /// <c>(option, payload)</c>, the payload without the option byte.
         /// </summary>
         internal Action<int, byte[]>? MudSubnegotiationReceived { get; set; }
+
+        /// <summary>
+        /// Gets or sets the hook invoked with a decoded GMCP message as
+        /// <c>(package, data)</c>; a blank or package-only body decodes to a
+        /// null payload.
+        /// </summary>
+        internal Action<string, JsonNode?>? GmcpReceived { get; set; }
+
+        /// <summary>
+        /// Gets or sets the hook invoked with decoded MSDP variables.
+        /// </summary>
+        internal Action<IReadOnlyDictionary<string, object?>>? MsdpReceived { get; set; }
+
+        /// <summary>
+        /// Gets or sets the hook invoked with decoded MSSP variables; the
+        /// same mapping is stored on <see cref="MsspData"/> (replaced wholesale,
+        /// like the reference).
+        /// </summary>
+        internal Action<IReadOnlyDictionary<string, object>>? MsspReceived { get; set; }
+
+        /// <summary>
+        /// Gets or sets the hook invoked with a raw MSP payload; every
+        /// payload is also appended to <see cref="MspData"/>.
+        /// </summary>
+        internal Action<byte[]>? MspReceived { get; set; }
+
+        /// <summary>
+        /// Gets or sets the hook invoked with each raw MXP payload; every
+        /// payload is also appended to <see cref="MxpData"/>.
+        /// </summary>
+        internal Action<byte[]>? MxpReceived { get; set; }
+
+        /// <summary>
+        /// Gets or sets the hook invoked with a decoded ZMP message as
+        /// <c>(command, args)</c>; the command slot of <see cref="ZmpData"/>
+        /// is replaced. Empty bodies store nothing and fire nothing.
+        /// </summary>
+        internal Action<string, IReadOnlyList<string>>? ZmpReceived { get; set; }
+
+        /// <summary>
+        /// Gets or sets the hook invoked with each decoded Aardwolf message;
+        /// every message is also appended to <see cref="AardwolfData"/>.
+        /// </summary>
+        internal Action<AardwolfMessage>? AardwolfReceived { get; set; }
+
+        /// <summary>
+        /// Gets or sets the hook invoked with each decoded ATCP message as
+        /// <c>(package, value)</c>; every pair is also appended to
+        /// <see cref="AtcpData"/>.
+        /// </summary>
+        internal Action<string, string>? AtcpReceived { get; set; }
+
+        /// <summary>
+        /// Gets the last MSSP variables received (replaced by each MSSP
+        /// subnegotiation), or null when none has arrived yet.
+        /// </summary>
+        internal IReadOnlyDictionary<string, object>? MsspData { get; private set; }
+
+        /// <summary>
+        /// Gets the raw MSP payloads, in arrival order.
+        /// </summary>
+        internal List<byte[]> MspData { get; } = [];
+
+        /// <summary>
+        /// Gets the accumulated raw MXP payloads, in arrival order.
+        /// </summary>
+        internal List<byte[]> MxpData { get; } = [];
+
+        /// <summary>
+        /// Gets the ZMP arguments by command (each command slot holds its
+        /// latest message).
+        /// </summary>
+        internal Dictionary<string, IReadOnlyList<string>> ZmpData { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Gets the decoded Aardwolf messages, in arrival order.
+        /// </summary>
+        internal List<AardwolfMessage> AardwolfData { get; } = [];
+
+        /// <summary>
+        /// Gets the decoded ATCP <c>(package, value)</c> pairs, in arrival
+        /// order.
+        /// </summary>
+        internal List<(string Package, string Value)> AtcpData { get; } = [];
 
         /// <summary>
         /// Gets or sets the hook invoked with COM port control payloads
@@ -485,7 +625,20 @@
         {
             get
             {
-                return pushbackByte.HasValue || byteStream.Available > 0;
+                return pushbackByte.HasValue || MccpHasOutput || byteStream.Available > 0;
+            }
+        }
+
+        /// <summary>
+        /// Gets whether the MCCP decompressor holds output (or post-stream
+        /// plaintext) the wire no longer reports via
+        /// <see cref="IByteStream.Available"/>.
+        /// </summary>
+        private bool MccpHasOutput
+        {
+            get
+            {
+                return MccpStream is not null && (MccpStream.HasOutput || MccpStream.HasTrailing);
             }
         }
 
@@ -584,13 +737,51 @@
         /// <summary>
         /// Blind continuation read: never polls <see cref="IByteStream.Available"/>
         /// (fakes and real sockets alike may report 0 mid-sequence), mapping I/O
-        /// and over-read failures to -1.
+        /// and over-read failures to -1. While an MCCP stream is armed, serves
+        /// decompressed output (feeding whatever the wire reports available);
+        /// after a clean stream end serves the queued post-stream plaintext.
         /// </summary>
         private int TryReadByte()
         {
+            var mccp = MccpStream;
+            if (mccp is not null)
+            {
+                if (mccp.TryTakeReady(out var inflated))
+                {
+                    return inflated;
+                }
+
+                if (Mccp2Active || Mccp3Active)
+                {
+                    DrainMccp(mccp);
+                    if (mccp.Failed)
+                    {
+                        ShutdownMccpCorrupt();
+                    }
+                    else
+                    {
+                        if (mccp.StreamEnded)
+                        {
+                            FinishMccpStream();
+                        }
+
+                        if (mccp.TryTakeReady(out inflated))
+                        {
+                            return inflated;
+                        }
+                    }
+                }
+                else if (mccp.TryTakeTrailing(out var resumed))
+                {
+                    return resumed;
+                }
+            }
+
             try
             {
-                return byteStream.ReadByte();
+                int raw = byteStream.ReadByte();
+                NoteInboundByte(raw);
+                return raw;
             }
             catch (System.IO.IOException)
             {
@@ -603,6 +794,69 @@
         }
 
         /// <summary>
+        /// Feeds the MCCP decompressor from whatever the wire reports
+        /// available (never blocking: a stall simply waits for the next
+        /// read; the decompressor's footer probe tells stall from Z_FINISH).
+        /// </summary>
+        /// <param name="mccp">The session-owned decompressor.</param>
+        private void DrainMccp(MccpDecompressor mccp)
+        {
+            while (!mccp.HasOutput && !mccp.StreamEnded && !mccp.Failed && byteStream.Available > 0)
+            {
+                int raw;
+                try
+                {
+                    raw = byteStream.ReadByte();
+                }
+                catch (System.IO.IOException)
+                {
+                    return;
+                }
+                catch (InvalidOperationException)
+                {
+                    return;
+                }
+
+                if (raw == -1)
+                {
+                    return;
+                }
+
+                NoteInboundByte(raw);
+                mccp.Feed((byte)raw);
+            }
+        }
+
+        /// <summary>
+        /// Ends MCCP agreement after a clean Z_FINISH: the flags drop so
+        /// later bytes read raw again, while the queued post-stream
+        /// plaintext keeps serving from the session-owned stream.
+        /// </summary>
+        private void FinishMccpStream()
+        {
+            WriteLog("MCCP stream ended; resuming plaintext.");
+            Mccp2Active = false;
+            Mccp3Active = false;
+            MccpStateChanged?.Invoke(false, false, MccpStream);
+        }
+
+        /// <summary>
+        /// Ends MCCP agreement after corrupt data: queued output is already
+        /// dropped by the decompressor (the reader is fed nothing), the
+        /// stream reference is released, and a DONT goes out at the next
+        /// async flush point (the reference answers DONT on error).
+        /// </summary>
+        private void ShutdownMccpCorrupt()
+        {
+            WriteLog("MCCP decompression failed; answering DONT and resuming plaintext.");
+            Mccp2Active = false;
+            Mccp3Active = false;
+            MccpStream = null;
+            MccpStateChanged?.Invoke(false, false, null);
+            mccpShutdownPending = true;
+        }
+
+        /// <summary>
         /// Separate TELNET commands from text. Handle non-printable characters.
         /// </summary>
         /// <param name="sb">The incoming message.</param>
@@ -612,6 +866,11 @@
         /// <returns>True if response is pending.</returns>
         private async Task<bool> RetrieveAndParseResponse(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes)
         {
+            // A corrupt MCCP stream arms its DONT from the sync byte path;
+            // flush it at the async points around this pass (the reference
+            // answers DONT on error).
+            await FlushMccpShutdownAsync().ConfigureAwait(false);
+
             // RFC 854 Synch trigger: a pending urgent byte enters discard mode.
             // Poll-gated and TCP-only, so fakes and pipes never see it; the urgent
             // byte itself is consumed by the probe, and in-band IAC DM (below)
@@ -693,7 +952,7 @@
                     case 13: // Carriage Return: NUL after CR is ignored (CR NUL -> CR);
                              // LF after CR is data (CR LF stays CR LF).
                         AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "\r", 13);
-                        if (byteStream.Available > 0)
+                        if (byteStream.Available > 0 || MccpHasOutput)
                         {
                             var following = TryReadByte();
                             if (following != 0 && following != -1)
@@ -729,10 +988,20 @@
                         break;
                 }
 
+                await FlushMccpShutdownAsync().ConfigureAwait(false);
                 return true;
             }
 
             return false;
+        }
+
+        private async Task FlushMccpShutdownAsync()
+        {
+            if (mccpShutdownPending)
+            {
+                mccpShutdownPending = false;
+                await SendDont(mccpShutdownOption).ConfigureAwait(false);
+            }
         }
 
         private static void AppendRecorded(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes, string text, byte? echoByte = null)
@@ -1063,7 +1332,7 @@
 
             if (IsMudOption(inputOption))
             {
-                MudSubnegotiationReceived?.Invoke(inputOption, [.. payload]);
+                DispatchMud(inputOption, [.. payload]);
                 return;
             }
 
@@ -1165,6 +1434,15 @@
             return byteStream.WriteAsync(outBuffer, 0, outBuffer.Length, internalCancellation.Token);
         }
 
+        private Task SendDont(int inputOption)
+        {
+            var outBuffer = new byte[3];
+            outBuffer[0] = (byte)Commands.InterpretAsCommand;
+            outBuffer[1] = (byte)Commands.Dont;
+            outBuffer[2] = (byte)inputOption;
+            return byteStream.WriteAsync(outBuffer, 0, outBuffer.Length, internalCancellation.Token);
+        }
+
         /// <summary>
         /// Send the sub negotiation response to the server.
         /// </summary>
@@ -1262,31 +1540,137 @@
         }
 
         /// <summary>
+        /// Decodes with the agreed CHARSET when one resolved (strict, so the
+        /// codecs still fall back to Latin-1), else UTF-8 with Latin-1
+        /// fallback — the reference's <c>environ_encoding or "utf-8"</c>.
+        /// </summary>
+        private Encoding? MudEncoding()
+        {
+            if (NegotiatedCharset is null)
+            {
+                return null;
+            }
+
+            try
+            {
+                return Encoding.GetEncoding(
+                  NegotiatedCharset,
+                  EncoderFallback.ExceptionFallback,
+                  DecoderFallback.ExceptionFallback);
+            }
+            catch (ArgumentException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Dispatches a MUD subnegotiation body (empty or not) to its
+        /// per-protocol decoder: typed hooks fire, the reference's stores
+        /// update (MSSP replaced, MXP/Aardwolf/ATCP appended, ZMP per-command
+        /// replaced), and the raw <see cref="MudSubnegotiationReceived"/>
+        /// hook fires last so it still surfaces every body.
+        /// </summary>
+        /// <param name="inputOption">The MUD option number.</param>
+        /// <param name="body">The subnegotiation body without the option byte.</param>
+        private void DispatchMud(int inputOption, byte[] body)
+        {
+            var encoding = MudEncoding();
+            switch (inputOption)
+            {
+                case (int)Options.Gmcp:
+                    var (package, data) = MudProtocol.GmcpDecode(body, encoding);
+                    GmcpReceived?.Invoke(package, data);
+                    break;
+                case (int)Options.Msdp:
+                    MsdpReceived?.Invoke(MudProtocol.MsdpDecode(body, encoding));
+                    break;
+                case (int)Options.Mssp:
+                    var status = MudProtocol.MsspDecode(body, encoding);
+                    MsspData = new Dictionary<string, object>(status);
+                    MsspReceived?.Invoke(status);
+                    break;
+                case (int)Options.Msp:
+                    MspData.Add(body);
+                    MspReceived?.Invoke(body);
+                    break;
+                case (int)Options.Mxp:
+                    MxpData.Add(body);
+                    MxpReceived?.Invoke(body);
+                    break;
+                case (int)Options.Zmp:
+                    var parts = MudProtocol.ZmpDecode(body, encoding);
+                    if (parts.Count > 0)
+                    {
+                        IReadOnlyList<string> args = [.. parts.Skip(1)];
+                        ZmpData[parts[0]] = args;
+                        ZmpReceived?.Invoke(parts[0], args);
+                    }
+
+                    break;
+                case (int)Options.Aardwolf:
+                    var message = MudProtocol.AardwolfDecode(body);
+                    AardwolfData.Add(message);
+                    AardwolfReceived?.Invoke(message);
+                    break;
+                case (int)Options.Atcp:
+                    var (atcpPackage, atcpValue) = MudProtocol.AtcpDecode(body, encoding);
+                    AtcpData.Add((atcpPackage, atcpValue));
+                    AtcpReceived?.Invoke(atcpPackage, atcpValue);
+                    break;
+                default:
+                    break;
+            }
+
+            MudSubnegotiationReceived?.Invoke(inputOption, body);
+        }
+
+        /// <summary>
         /// Handles an empty subnegotiation for an option that allows one:
-        /// MCCP2/MCCP3 arm their framing-only active flags and fire their
-        /// start hooks; MUD options surface an empty payload through the MUD
-        /// hook like any other body.
+        /// MCCP2/MCCP3 arm inflation through the session-owned
+        /// <see cref="MccpStream"/> (created here, replaced when spent) and
+        /// fire their start hooks; MUD options dispatch an empty body through
+        /// <see cref="DispatchMud"/> like any other body.
         /// </summary>
         /// <param name="inputOption">The option under negotiation.</param>
         private void ReplyEmptySb(int inputOption)
         {
             if (inputOption == (int)Options.Mccp2)
             {
-                WriteLog("MCCP2 compression started (framing level; zlib decoding stays the caller's).");
+                WriteLog("MCCP2 compression started; inflating inbound bytes.");
                 Mccp2Active = true;
+                ArmMccpStream(inputOption);
                 Mccp2StartReceived?.Invoke();
                 return;
             }
 
             if (inputOption == (int)Options.Mccp3)
             {
-                WriteLog("MCCP3 compression started (framing level; zlib decoding stays the caller's).");
+                WriteLog("MCCP3 compression started; inflating inbound bytes.");
                 Mccp3Active = true;
+                ArmMccpStream(inputOption);
                 Mccp3StartReceived?.Invoke();
                 return;
             }
 
-            MudSubnegotiationReceived?.Invoke(inputOption, []);
+            DispatchMud(inputOption, []);
+        }
+
+        /// <summary>
+        /// Arms the session-owned MCCP decompressor, replacing a spent one
+        /// (ended or failed) so a fresh SB always starts a fresh stream.
+        /// </summary>
+        /// <param name="inputOption">The MCCP option that armed (for the corrupt-path DONT).</param>
+        private void ArmMccpStream(int inputOption)
+        {
+            if (MccpStream is null || !MccpStream.IsActive)
+            {
+                MccpStream = new MccpDecompressor();
+            }
+
+            mccpShutdownPending = false;
+            mccpShutdownOption = inputOption;
+            MccpStateChanged?.Invoke(Mccp2Active, Mccp3Active, MccpStream);
         }
 
         /// <summary>
@@ -1584,6 +1968,47 @@
         }
 
         /// <summary>
+        /// Sends a GMCP message. Fails (returns <c>false</c>) unless GMCP is
+        /// enabled on either side; the frame doubles embedded IAC bytes.
+        /// </summary>
+        /// <param name="package">The dotted package name.</param>
+        /// <param name="data">Optional data, encoded as compact JSON.</param>
+        internal Task<bool> SendGmcpAsync(string package, object? data = null)
+        {
+            return SendExtensionPayloadAsync(Options.Gmcp, MudProtocol.GmcpEncodeData(package, data));
+        }
+
+        /// <summary>
+        /// Sends MSDP variables. Fails (returns <c>false</c>) unless MSDP is
+        /// enabled on either side.
+        /// </summary>
+        /// <param name="variables">Variable names to values.</param>
+        internal Task<bool> SendMsdpAsync(IReadOnlyDictionary<string, object?> variables)
+        {
+            return SendExtensionPayloadAsync(Options.Msdp, MudProtocol.MsdpEncode(variables));
+        }
+
+        /// <summary>
+        /// Sends MSSP variables. Fails (returns <c>false</c>) unless MSSP is
+        /// enabled on either side.
+        /// </summary>
+        /// <param name="variables">Variable names to single or repeated values.</param>
+        internal Task<bool> SendMsspAsync(IReadOnlyDictionary<string, object> variables)
+        {
+            return SendExtensionPayloadAsync(Options.Mssp, MudProtocol.MsspEncode(variables));
+        }
+
+        /// <summary>
+        /// Sends a ZMP message. Fails (returns <c>false</c>) unless ZMP is
+        /// enabled on either side.
+        /// </summary>
+        /// <param name="parts">The command followed by its arguments.</param>
+        internal Task<bool> SendZmpAsync(params string[] parts)
+        {
+            return SendExtensionPayloadAsync(Options.Zmp, MudProtocol.ZmpEncode(parts));
+        }
+
+        /// <summary>
         /// Answer an RFC 1184 LINEMODE subnegotiation. Dispatches on the
         /// LINEMODE subcommand byte: MODE mask confirmation, FORWARDMASK
         /// refusal, or SLC table update.
@@ -1657,15 +2082,18 @@
 
         /// <summary>
         /// Apply an inbound SLC triplet list (RFC 1184 §2.4/§5.5) and reply
-        /// with the resulting ACKs/disagreements, if any.
+        /// with the resulting ACKs/disagreements, if any. A payload whose
+        /// triplet tail is not a multiple of 3 throws (telnetlib3
+        /// <c>_handle_sb_linemode_slc</c> raises <c>ValueError</c>); the whole
+        /// buffer is rejected, including any valid triplets before the bad tail.
         /// </summary>
         /// <param name="payload">The SLC payload ([SLC, func, mod, value, …]).</param>
+        /// <exception cref="InvalidDataException">The triplet tail is misaligned.</exception>
         private Task ReplySlcAsync(List<byte> payload)
         {
             if ((payload.Count - 1) % 3 != 0)
             {
-                WriteLog("Ignoring malformed LINEMODE SLC (triplets must be complete).");
-                return Task.CompletedTask;
+                throw new InvalidDataException($"SLC buffer wrong size: expect multiple of 3: {payload.Count - 1}.");
             }
 
             List<byte>? replies = null;
@@ -1762,7 +2190,9 @@
         {
             if (inputOption == (int)Options.Mccp2 || inputOption == (int)Options.Mccp3)
             {
-                return EnableMccp;
+                // The reference refuses MCCP unless compression is opted in,
+                // and always over TLS (CRIME/BREACH).
+                return EnableMccp && !IsTlsActive;
             }
 
             if (inputOption == (int)Options.COMPortControl)

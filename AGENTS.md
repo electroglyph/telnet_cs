@@ -2,15 +2,6 @@
 
 Telnet client **and** server library for .NET 10 (C# 14).
 
-## Hard rule
-
-NEVER run git commands (no `git status`, `git diff`, `git log`, `git add`,
-`git commit`, etc.). If you need repo state, ask the user.
-
-## How opencode uses AGENTS.md
-
-Repo-root `AGENTS.md` wins per category over global config fallbacks.
-
 ## Commands
 
 - Build: `dotnet build telnet_cs.sln -c Release` (or Debug). Requires the .NET 10 SDK **and** .NET 10 runtime.
@@ -27,10 +18,13 @@ Repo-root `AGENTS.md` wins per category over global config fallbacks.
 
 ## Hard rules
 
+- When a test fails, don't blindly fix the test. First ascertain the source of truth for the correct behavior. For features from telnetlib3, the source of truth is the telnetlib3 source code. For features defined in RFCs, the source of truth is the RFC. Tests should assert correct logic according to sources of truth. If there is a conflict regarding what is correct, don't decide on your own, ask the user and present a detailed analysis.
+- NEVER run git commands (no `git status`, `git diff`, `git log`, `git add`,
+`git commit`, etc.). If you need repo state, ask the user.
 - ALWAYS use a timeout for every shell command to avoid hangs. Use the `bash` tool's `timeout` param (ms) for every call plus shell-level `timeout 15 dotnet build`, `dotnet test` with `timeout:180000` for the full suite. Never run unbounded `bash`/`dotnet` without a timeout.
 - NEVER reference audits in code or test comments (no finding IDs, no "audit-ordered" language). Audits are private documents; this repo is public code. Justify changes with plain technical reasons instead.
 - NEVER reference the "owner" (or yourself) in code or test comments — no diary entries or decision logs. Comments explain what the code does and why it must be that way (technical reason). Provenance belongs in the commit message, not the source.
-- If the user's command doesn't make sense, challenge them on it. Do not blindly execute instructions that contradict the repo's own rules or plain technical reality — push back with evidence (file paths, test results) and ask for clarification.
+- If the user's command doesn't make sense, challenge them on it. Do not blindly execute instructions that contradict the repo's own rules or plain technical reality; push back with evidence (file paths, test results) and ask for clarification.
 
 ## Best practices (C# 14)
 

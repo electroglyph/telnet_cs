@@ -26,6 +26,20 @@
         private bool expectingCharset;
         private bool expectingLocation;
         private readonly List<string> terminalTypeChain = [];
+        // Deferred opening negotiation (mirroring the reference): WILL ECHO
+        // and DO NEW_ENVIRON leave with the preset only as intent. The TTYPE
+        // answers (or its refusal, or the collection timeout) arm them via
+        // the pending flags; FlushDeferredNegotiationAsync sends them after a
+        // read. echoNegotiated/environRequested latch so each fires once.
+        private bool presetAdvanced;
+        private bool echoNegotiated;
+        private bool environRequested;
+        private bool negotiateEchoPending;
+        private bool negotiateEnvironPending;
+        // Set once the deferred DO NEW_ENVIRON is agreed and its default SB
+        // SEND went out; the charset auto-REQUEST likewise fires once.
+        private bool environSent;
+        private bool charsetAutoRequested;
         private string? clientTerminalSpeed;
         private string? clientXDisplay;
         private string? clientCharset;
@@ -34,6 +48,20 @@
         private readonly Dictionary<string, string> clientNewEnvironment = new(StringComparer.Ordinal);
         private bool forceBinaryDecoding;
         private System.Text.Encoding? charsetEncoding;
+        // MCCP agreement survives across per-read handlers: the arming SB,
+        // stream end, and corrupt shutdown report through MccpStateChanged.
+        private bool mccp2Agreed;
+        private bool mccp3Agreed;
+        private MccpDecompressor? mccpStream;
+        // MUD stores survive across per-read handlers: append collections are
+        // injected into each handler, and the replaced MSSP mapping is
+        // captured through the MSSP hook.
+        private IReadOnlyDictionary<string, object>? mudMsspData;
+        private readonly List<byte[]> mudMspData = [];
+        private readonly List<byte[]> mudMxpData = [];
+        private readonly Dictionary<string, IReadOnlyList<string>> mudZmpData = new(StringComparer.Ordinal);
+        private readonly List<AardwolfMessage> mudAardwolfData = [];
+        private readonly List<(string Package, string Value)> mudAtcpData = [];
         private (ushort Width, ushort Height)? clientWindowSize;
         // Arrival order shared by option-35 IS and ENVIRON DISPLAY writes, so
         // the effective display resolves last-arrived-wins (RFC 1408 §5). Zero
@@ -157,6 +185,94 @@
         }
 
         /// <summary>
+        /// Gets the last MSSP variables reported by the peer, or null when
+        /// none arrived yet. Each MSSP subnegotiation replaces the mapping.
+        /// </summary>
+        public IReadOnlyDictionary<string, object>? MsspData
+        {
+            get
+            {
+                lock (collectorLock)
+                {
+                    return mudMsspData;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the raw MSP payloads received so far, in arrival order.
+        /// </summary>
+        public IReadOnlyList<byte[]> MspData
+        {
+            get
+            {
+                lock (collectorLock)
+                {
+                    return [.. mudMspData];
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the raw MXP payloads received so far, in arrival order.
+        /// </summary>
+        public IReadOnlyList<byte[]> MxpData
+        {
+            get
+            {
+                lock (collectorLock)
+                {
+                    return [.. mudMxpData];
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the latest ZMP arguments by command; each command slot holds
+        /// its most recent message.
+        /// </summary>
+        public IReadOnlyDictionary<string, IReadOnlyList<string>> ZmpData
+        {
+            get
+            {
+                lock (collectorLock)
+                {
+                    return new Dictionary<string, IReadOnlyList<string>>(mudZmpData, StringComparer.Ordinal);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the decoded Aardwolf messages received so far, in arrival
+        /// order.
+        /// </summary>
+        public IReadOnlyList<AardwolfMessage> AardwolfData
+        {
+            get
+            {
+                lock (collectorLock)
+                {
+                    return [.. mudAardwolfData];
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the decoded ATCP <c>(package, value)</c> pairs received so
+        /// far, in arrival order.
+        /// </summary>
+        public IReadOnlyList<(string Package, string Value)> AtcpData
+        {
+            get
+            {
+                lock (collectorLock)
+                {
+                    return [.. mudAtcpData];
+                }
+            }
+        }
+
+        /// <summary>
         /// Maximum terminal-type answers stored in distinct slots, mirroring
         /// telnetlib3's <c>TTYPE_LOOPMAX</c>: answers past slot 8 keep
         /// overwriting the overflow slot (<c>ttype9</c>), so the last answer
@@ -267,6 +383,37 @@
 
             await SendSbAsync(Options.TerminalType, [], cancellationToken).ConfigureAwait(false);
             await PollForResponseAsync(IsTerminalTypeDone, timeout, cancellationToken).ConfigureAwait(false);
+            bool timedOut;
+            lock (collectorLock)
+            {
+                timedOut = expectingTerminalType;
+                if (timedOut)
+                {
+                    // Final wait over with the cycle unresolved (stall): the
+                    // deferred negotiations release now, like the reference
+                    // check_negotiation(final=True).
+                    negotiateEchoPending = true;
+                    negotiateEnvironPending = true;
+                }
+            }
+
+            if (timedOut)
+            {
+                await FlushDeferredNegotiationAsync(cancellationToken).ConfigureAwait(false);
+                bool warnEnviron;
+                bool warnCharset;
+                lock (collectorLock)
+                {
+                    warnEnviron = expectingNewEnvironment || expectingEnvironment;
+                    warnCharset = expectingCharset;
+                }
+
+                if (warnEnviron || warnCharset)
+                {
+                    WriteLog($"Waiting for critical subnegotiation: environ={warnEnviron}, charset={warnCharset}.");
+                }
+            }
+
             lock (collectorLock)
             {
                 expectingTerminalType = false;
@@ -281,6 +428,186 @@
                 }
 
                 return result;
+            }
+        }
+
+        /// <summary>
+        /// Sends whatever deferred opening negotiation is armed: WILL ECHO
+        /// (unless the peer looks like a MUD client), DO NEW_ENVIRON, its
+        /// default SB SEND once agreed, and the encoding check (DO BINARY /
+        /// CHARSET REQUEST). Runs after every read, so TTYPE answers and
+        /// refusals observed mid-read take effect on the same round.
+        /// </summary>
+        /// <param name="cancellationToken">A token to cancel the send.</param>
+        private async Task FlushDeferredNegotiationAsync(CancellationToken cancellationToken)
+        {
+            string? term;
+            List<string> chain;
+            bool wantEcho;
+            bool wantEnviron;
+            lock (collectorLock)
+            {
+                if (presetAdvanced && Negotiation.WasRefusedByPeer((int)Options.TerminalType))
+                {
+                    // A raw client that WONTs TTYPE still releases the
+                    // deferred negotiations (reference check_negotiation).
+                    negotiateEchoPending = true;
+                    negotiateEnvironPending = true;
+                }
+
+                wantEcho = negotiateEchoPending && !echoNegotiated;
+                wantEnviron = negotiateEnvironPending && !environRequested;
+                if (wantEcho)
+                {
+                    echoNegotiated = true;
+                }
+
+                if (wantEnviron)
+                {
+                    environRequested = true;
+                }
+
+                negotiateEchoPending = false;
+                negotiateEnvironPending = false;
+                chain = [.. terminalTypeChain];
+                term = chain.Count >= 3 && chain[2].StartsWith("MTTS ", StringComparison.OrdinalIgnoreCase)
+                    ? chain[1]
+                    : chain.Count > 0 ? chain[^1] : null;
+            }
+
+            if (wantEcho && Settings.OfferEcho &&
+                !MudClientDetector.IsMudClient(term, chain, o => Negotiation.IsEnabledByPeer(o)))
+            {
+                await OfferEnableAsync(Options.Echo, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (wantEnviron && Settings.RequestNewEnvironment)
+            {
+                await RequestEnableAsync(Options.NewEnvironment, cancellationToken).ConfigureAwait(false);
+            }
+
+            await MaybeSendEnvironmentRequestAsync(cancellationToken).ConfigureAwait(false);
+            await CheckEncodingAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Sends the deferred NEW_ENVIRON default SB SEND once the peer WILLs
+        /// the option (RFC 855: no subnegotiation before agreement). Fires
+        /// once; an explicit <c>RequestNewEnvironmentAsync</c> in flight
+        /// suppresses it. Arms the answer latch so the IS lands in
+        /// <c>ClientEnvironment</c>.
+        /// </summary>
+        /// <param name="cancellationToken">A token to cancel the send.</param>
+        private async Task MaybeSendEnvironmentRequestAsync(CancellationToken cancellationToken)
+        {
+            string? ttype1;
+            string? ttype2;
+            bool send;
+            lock (collectorLock)
+            {
+                send = environRequested && !environSent && !expectingNewEnvironment &&
+                    Negotiation.IsEnabledByPeer((int)Options.NewEnvironment);
+                ttype1 = terminalTypeChain.Count > 0 ? terminalTypeChain[0] : null;
+                ttype2 = terminalTypeChain.Count > 1 ? terminalTypeChain[1] : null;
+                if (send)
+                {
+                    environSent = true;
+                    expectingNewEnvironment = true;
+                }
+            }
+
+            if (send)
+            {
+                await SendSbAsync(Options.NewEnvironment, EnvironmentProtocol.BuildDefaultSendRequest(ttype1, ttype2), cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// The periodic encoding check (reference <c>_check_encoding</c>):
+        /// once we send binary, also ask for the inbound direction; once
+        /// CHARSET is agreed both ways, fire one auto REQUEST.
+        /// </summary>
+        /// <param name="cancellationToken">A token to cancel the send.</param>
+        private Task CheckEncodingAsync(CancellationToken cancellationToken)
+        {
+            if (Negotiation.IsEnabledByUs((int)Options.TransmitBinary) &&
+                !Negotiation.IsEnabledByPeer((int)Options.TransmitBinary))
+            {
+                return CheckEncodingWithBinaryRequestAsync(cancellationToken);
+            }
+
+            MaybeLaunchCharsetAutoRequest();
+            return Task.CompletedTask;
+        }
+
+        private async Task CheckEncodingWithBinaryRequestAsync(CancellationToken cancellationToken)
+        {
+            // Our binary offer was accepted outbound: ask for the inbound
+            // direction too. The 1143 machine dedupes while negotiating.
+            await RequestEnableAsync(Options.TransmitBinary, cancellationToken).ConfigureAwait(false);
+            MaybeLaunchCharsetAutoRequest();
+        }
+
+        private void MaybeLaunchCharsetAutoRequest()
+        {
+            bool launch;
+            lock (collectorLock)
+            {
+                launch = Settings.RequestCharacterSet && !charsetAutoRequested && !expectingCharset &&
+                    Negotiation.IsEnabledByPeer((int)Options.CharacterSet) &&
+                    Negotiation.IsEnabledByUs((int)Options.CharacterSet);
+                if (launch)
+                {
+                    charsetAutoRequested = true;
+                }
+            }
+
+            if (launch)
+            {
+                // Background poll: answers latch via TryConsumeCharset, and the
+                // wait ends early on an answer or on session teardown. Never
+                // throws out of the read path.
+                _ = AutoCharsetRequestAsync();
+            }
+        }
+
+        private async Task AutoCharsetRequestAsync()
+        {
+            bool proceed;
+            lock (collectorLock)
+            {
+                // Re-check under the lock: an explicit request (or an answer)
+                // may have landed since the flush armed this.
+                proceed = !expectingCharset && clientCharset is null;
+                if (proceed)
+                {
+                    expectingCharset = true;
+                }
+            }
+
+            if (!proceed)
+            {
+                return;
+            }
+
+            try
+            {
+                await SendFrameAsync((int)Options.CharacterSet, CharsetProtocol.BuildRequest(Settings.CharsetOffers), InternalCancellation.Token).ConfigureAwait(false);
+                await PollForResponseAsync(IsCharsetDone, TimeSpan.FromSeconds(5), InternalCancellation.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                WriteLog("Charset auto-request failed: " + ex.Message);
+            }
+            finally
+            {
+                lock (collectorLock)
+                {
+                    expectingCharset = false;
+                }
             }
         }
 
@@ -606,17 +933,36 @@
                 var text = new byte[payload.Count - 1];
                 payload.CopyTo(1, text, 0, text.Length);
                 var answer = System.Text.Encoding.Latin1.GetString(text);
+                // Every answer negotiates echo (deduped at flush time): ECHO
+                // waits until TTYPE reveals the client because MUD clients
+                // render WILL ECHO as password mode.
+                negotiateEchoPending = true;
                 if (answer.Length == 0)
                 {
                     // Empty IS advances nothing: the next answer fills the same
                     // slot (telnetlib3 stores-then-overwrites to the same net
-                    // effect), so the chain keeps its order.
+                    // effect), so the chain keeps its order. An empty first
+                    // answer still ends the reference cycle, so it arms the
+                    // deferred environ request.
+                    if (terminalTypeChain.Count == 0)
+                    {
+                        negotiateEnvironPending = true;
+                    }
+
                     return true;
                 }
 
                 if (terminalTypeChain.Count == 0)
                 {
                     terminalTypeChain.Add(answer);
+                    if (answer != "ANSI")
+                    {
+                        // Non-Microsoft first answer: enough context to ask for
+                        // the environment (exact "ANSI" match, like the
+                        // reference — Microsoft telnet crashes on NEW_ENVIRON).
+                        negotiateEnvironPending = true;
+                    }
+
                     return true;
                 }
 
@@ -629,14 +975,24 @@
                     return true;
                 }
 
+                bool isSecond = terminalTypeChain.Count == 1;
                 terminalTypeChain.Add(answer);
+                if (isSecond && !environRequested)
+                {
+                    // Second answer: an ANSI first answer is resolved now, so
+                    // the deferred environ request goes out (unless already).
+                    negotiateEnvironPending = true;
+                }
+
                 if (string.Equals(answer, terminalTypeChain[0], StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(answer, terminalTypeChain[^2], StringComparison.OrdinalIgnoreCase) ||
                     (terminalTypeChain.Count == 3 && answer.StartsWith("MTTS ", StringComparison.OrdinalIgnoreCase)))
                 {
                     // Cycle looped (first entry repeated), entry repeated, or
-                    // MTTS capability vector in the third slot: done.
+                    // MTTS capability vector in the third slot: done, and the
+                    // cycle end also releases the deferred environ request.
                     expectingTerminalType = false;
+                    negotiateEnvironPending = true;
                 }
 
                 return true;

@@ -35,6 +35,13 @@
         public bool OfferSuppressGoAhead { get; set; } = true;
 
         /// <summary>
+        /// Gets or sets whether sessions offer <c>WILL TransmitBinary</c>
+        /// (RFC 856) in the opening preset: the server may send 8-bit data.
+        /// Defaults to <c>true</c> (the reference advanced preset offers it).
+        /// </summary>
+        public bool OfferBinary { get; set; } = true;
+
+        /// <summary>
         /// Gets or sets whether sessions request terminal-type reports
         /// (<c>DO TerminalType</c>, RFC 1091) in the opening preset. Defaults
         /// to <c>true</c>.
@@ -103,6 +110,14 @@
         /// (RFC 2066), in preference order. Defaults to UTF-8.
         /// </summary>
         public IList<string> CharsetOffers { get; set; } = ["UTF-8"];
+
+        /// <summary>
+        /// Gets or sets whether sessions may agree MCCP2/MCCP3 compression
+        /// (options 86/87) and inflate the inbound stream. Defaults to
+        /// <c>false</c> (the reference refuses unless opted in); stays refused
+        /// over TLS in any case.
+        /// </summary>
+        public bool EnableMccp { get; set; }
 
         /// <summary>
         /// Gets or sets the prompt sent before reading the login name in
