@@ -47,17 +47,16 @@ namespace telnet_cs.Tests
         public async Task SplitIacSb_ResumesFrameAndAnswersUnhandledOption()
         {
             // RFC 854: a subnegotiation is IAC SB ... IAC SE, one framing
-            // unit across segments like any other command. The option 99
-            // payload [65] is not SEND (1), so the generic fallback answers
-            // WONT 99; option 99 is used because NAWS (31) carries a binary
-            // width/height body per RFC 1073 and never answers WONT to SB.
+            // unit across segments like any other command. An unknown option
+            // payload is ignored without reply: subnegotiation never
+            // synthesizes WONT.
             using var stream = new ScriptedStream(Iac, Sb);
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
             (await ReadOnceAsync(sut)).Should().BeEmpty();
             stream.Enqueue(99, 65, Iac, Se);
             (await ReadOnceAsync(sut)).Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { Iac, Wont, 99 });
+            stream.ByteWrites.Should().BeEmpty();
         }
 
         [Fact]
@@ -77,17 +76,15 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SplitCrNul_AcrossReads_CollapsesToSingleCr()
         {
-            // RFC 854 (NVT printer/keyboard): CR NUL is how a lone carriage
-            // return travels, and a NUL after CR is stripped. TCP is a byte
-            // stream, so the rule holds when CR and NUL arrive in different
-            // reads; telnetlib3 likewise withholds a trailing bare CR and
-            // trims the NUL. The second read must therefore be empty.
+            // Raw reads preserve bytes across segment boundaries: CR arrives
+            // first, NUL arrives next as data. Line-oriented callers trim
+            // CR NUL to CR.
             using var stream = new ScriptedStream(65, 13);
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
             (await ReadOnceAsync(sut)).Should().Be("A\r");
             stream.Enqueue(0);
-            (await ReadOnceAsync(sut)).Should().BeEmpty();
+            (await ReadOnceAsync(sut)).Should().Be("\0");
         }
 
         [Fact]
@@ -108,14 +105,13 @@ namespace telnet_cs.Tests
         {
             // RFC 854 defines no nesting: the outer frame is dropped, but the
             // inner frame is complete (IAC SB 99 [65] IAC SE) and is scanned
-            // fresh like the reference (which clears its SB buffer and
-            // re-buffers from the inner SB). The inner dispatch then follows
-            // the normal stray-payload rule (WONT 99 for non-SEND); see F-N10.
+            // fresh from the inner SB. The inner dispatch follows the normal
+            // rule for unknown options: ignored without reply.
             using var stream = new ScriptedStream(Iac, Sb, 24, 1, Iac, Sb, 99, 65, Iac, Se);
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
             (await ReadOnceAsync(sut)).Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { Iac, Wont, 99 });
+            stream.ByteWrites.Should().BeEmpty();
         }
 
         [Fact]

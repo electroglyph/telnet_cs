@@ -165,6 +165,8 @@
         [Fact]
         public async Task MalformedSubnegotiationSendsWont()
         {
+            // Malformed subnegotiation (IS where SEND is expected) is ignored:
+            // subnegotiation never synthesizes WONT, so nothing is written.
             using var stream = new ScriptedStream(255, 250, 24, 0, 255, 240);
             using var handler = MakeHandler(stream, out var cts);
             using (cts)
@@ -172,8 +174,7 @@
                 (await handler.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
             }
 
-            stream.ByteWrites.Should().ContainSingle()
-              .Which.Should().Equal(new byte[] { 255, 252, 24 });
+            stream.ByteWrites.Should().BeEmpty();
         }
 
         [Fact]
@@ -216,7 +217,7 @@
                 result = await handler.ReadAsync(TimeSpan.FromMilliseconds(100));
             }
 
-            result.Should().Be("A\rB");
+            result.Should().Be("A\r\0B");
         }
 
         [Fact]

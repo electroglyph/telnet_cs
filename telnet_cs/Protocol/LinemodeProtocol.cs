@@ -34,10 +34,10 @@
         internal const byte LiteralEcho = 16;
 
         /// <summary>
-        /// MODE bits this library honors. EDIT/TRAPSIG are the only bits a
-        /// programmatic client can meaningfully confirm; SOFT_TAB/LIT_ECHO
-        /// describe local terminal processing we do not perform, so they are
-        /// dropped from replies (a spec-legal subset, RFC 1184 §2.2).
+        /// MODE bits this library honors. Retained for compatibility; MODE replies
+        /// echo the suggested mask verbatim plus ACK, matching the reference
+        /// behavior, so all bits round-trip even when local processing does not
+        /// implement them.
         /// </summary>
         internal const byte SupportedModeBits = Edit | TrapSignal;
 

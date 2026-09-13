@@ -17,7 +17,7 @@
     {
         private const int IacByte = (int)Commands.InterpretAsCommand;
         private const int SeByte = (int)Commands.SubnegotiationEnd;
-        private const int MaxSubnegotiationBytes = 512;
+        private const int MaxSubnegotiationBytes = 1 << 20;
 
         private readonly IByteStream byteStream;
 
@@ -88,6 +88,18 @@
                 sbResumeOverCap = value?.OverCap ?? false;
                 sbResumeSePending = value?.SePending ?? false;
                 sbResumeIacPending = value?.IacPending ?? false;
+            }
+        }
+
+        internal (bool PendingIac, int? PendingVerb, bool SawCr, int? Pushback) FramingState
+        {
+            get => (pendingIac, pendingVerb, sawCrAwaitingNul, pushbackByte);
+            set
+            {
+                pendingIac = value.PendingIac;
+                pendingVerb = value.PendingVerb;
+                sawCrAwaitingNul = value.SawCr;
+                pushbackByte = value.Pushback;
             }
         }
 
@@ -952,7 +964,6 @@
 
             if (sawCrAwaitingNul && (pushbackByte.HasValue || MccpHasOutput || byteStream.Available > 0))
             {
-                // RFC 854 CR NUL collapses across segment boundaries.
                 var followingCr = ReadNextByte();
                 if (followingCr == -1)
                 {
@@ -962,6 +973,7 @@
                 sawCrAwaitingNul = false;
                 if (followingCr == 0)
                 {
+                    AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "\0", 0);
                     await FlushMccpShutdownAsync().ConfigureAwait(false);
                     return true;
                 }
@@ -1033,20 +1045,6 @@
                         sawCrAwaitingNul = true;
                         break;
                     default:
-                        if (input > 127 && !Negotiation.IsEnabledByPeer((int)Options.TransmitBinary) && TextEncoding is null && !ForceBinaryDecoding)
-                        {
-                            // RFC 856: NVT data is 7-bit until BINARY is agreed
-                            // for this direction (peer's WILL + our DO), so bare
-                            // 8-bit bytes earn no action. An explicitly
-                            // configured TextEncoding opts into 8-bit decoding
-                            // (the user asserts the peer sends 8-bit data), as
-                            // does ForceBinaryDecoding (the peer's environment
-                            // presumed BINARY capability). The
-                            // IAC IAC escape path above is unaffected: a doubled
-                            // IAC is an explicit peer framing act.
-                            break;
-                        }
-
                         AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, (char)input);
                         break;
                 }
@@ -1063,7 +1061,14 @@
             if (mccpShutdownPending)
             {
                 mccpShutdownPending = false;
-                await SendDont(mccpShutdownOption).ConfigureAwait(false);
+                if (mccpShutdownOption == (int)Options.Mccp3)
+                {
+                    await SendWont(mccpShutdownOption).ConfigureAwait(false);
+                }
+                else
+                {
+                    await SendDont(mccpShutdownOption).ConfigureAwait(false);
+                }
             }
         }
 
@@ -1272,8 +1277,18 @@
 
                 if (option == IacByte)
                 {
-                    // An IAC where the option byte belongs: not a real option,
-                    // so there is nothing to frame.
+                    var following = TryReadByte();
+                    if (following == SeByte)
+                    {
+                        WriteLog("Discarding empty subnegotiation without option byte.");
+                        return;
+                    }
+
+                    if (following != -1)
+                    {
+                        pushbackByte = following;
+                    }
+
                     return;
                 }
 
@@ -1535,9 +1550,26 @@
 
             if (inputOption == (int)Options.Mccp2 || inputOption == (int)Options.Mccp3)
             {
-                // A non-empty MCCP SB is a protocol error: framing-level
-                // support only starts compression on the empty SB.
-                WriteLog("Ignoring non-empty MCCP subnegotiation.");
+                WriteLog("Starting MCCP compression; ignoring padding bytes.");
+                if (inputOption == (int)Options.Mccp2)
+                {
+                    Mccp2Active = true;
+                }
+                else
+                {
+                    Mccp3Active = true;
+                }
+
+                ArmMccpStream(inputOption);
+                if (inputOption == (int)Options.Mccp2)
+                {
+                    Mccp2StartReceived?.Invoke();
+                }
+                else
+                {
+                    Mccp3StartReceived?.Invoke();
+                }
+
                 return;
             }
 
@@ -1551,8 +1583,7 @@
 
             if (payload[0] != 1) // Sub-negotiation SEND command.
             {
-                // If we get lost just send WONT to end the negotiation
-                await SendWont(inputOption).ConfigureAwait(false);
+                WriteLog("Ignoring unsolicited subnegotiation answer.");
                 return;
             }
 
@@ -1588,23 +1619,14 @@
                     await ReplyEnvironmentAsync(inputOption, payload).ConfigureAwait(false);
                     break;
                 case (int)Options.XDisplay:
-                    // RFC 1096 §4: IS only answers SEND, never spontaneous. Null
-                    // means unconfigured: skip silently like a malformed speed.
-                    if (XDisplayLocation is null)
-                    {
-                        WriteLog("Skipping X-DISPLAY-LOCATION reply: no display configured.");
-                        break;
-                    }
-
-                    await SendNegotiation(inputOption, XDisplayLocation).ConfigureAwait(false);
+                    // RFC 1096 §4: IS answers SEND, even when unconfigured, with an
+                    // empty display string.
+                    await SendNegotiation(inputOption, XDisplayLocation ?? string.Empty).ConfigureAwait(false);
                     break;
                 case (int)Options.Status:
-                    // RFC 859 §5: only the WILL-sender answers SEND with IS. Anything
-                    // else (never agreed, or still negotiating) gets WONT — symmetric
-                    // with the stray-IS path above.
                     if (!Negotiation.IsEnabledByUs((int)Options.Status))
                     {
-                        await SendWont(inputOption).ConfigureAwait(false);
+                        WriteLog("Ignoring STATUS SEND without agreement.");
                         break;
                     }
 
@@ -1694,7 +1716,8 @@
         private Task ReplyEnvironmentAsync(int inputOption, List<byte> payload)
         {
             var (width, height) = NawsProtocol.GetEffectiveSize(WindowWidth, WindowHeight);
-            var lang = TextEncoding is null ? "C" : "en_US." + TextEncoding.WebName;
+            var lang = TextEncoding is null ? "C" : "en_US." + TextEncoding.WebName.Replace("-", string.Empty, StringComparison.Ordinal);
+            var colorTerm = System.Environment.GetEnvironmentVariable("COLORTERM") ?? string.Empty;
             var response = EnvironmentProtocol.BuildResponse(
               EnvironmentProtocol.Is,
               payload.Skip(1),
@@ -1704,7 +1727,8 @@
               string.IsNullOrEmpty(TerminalType) ? null : TerminalType,
               lang,
               width.ToString(System.Globalization.CultureInfo.InvariantCulture),
-              height.ToString(System.Globalization.CultureInfo.InvariantCulture));
+              height.ToString(System.Globalization.CultureInfo.InvariantCulture),
+              colorTerm);
             WriteLog("Sending: " + Enum.GetName(typeof(Options), inputOption));
             return SendNegotiation(inputOption, response);
         }
@@ -2268,6 +2292,12 @@
                 return Task.CompletedTask;
             }
 
+            if (!Negotiation.IsEnabledByUs((int)Options.LineMode) && !Negotiation.IsEnabledByPeer((int)Options.LineMode))
+            {
+                WriteLog("Ignoring LINEMODE MODE without LINEMODE agreement.");
+                return Task.CompletedTask;
+            }
+
             byte? reply = ApplyLinemodeAsServer ? Linemode.ApplyModeAsServer(payload[1]) : Linemode.ApplyMode(payload[1]);
             if (reply is null)
             {
@@ -2279,10 +2309,9 @@
         }
 
         /// <summary>
-        /// Handle a FORWARDMASK exchange (RFC 1184 §2.3). Only the DO side
-        /// (the server) may propose a mask, and this client never forwards
-        /// buffered input, so a proposal is refused with WONT; DONT and the
-        /// unsolicited WILL/WONT are accepted silently.
+        /// Handle a FORWARDMASK exchange (RFC 1184 §2.3). A well-formed DO with a
+        /// mask is stored silently; malformed empty-DO and payload-DONT shapes are
+        /// ignored without reply. No WONT is emitted for the well-formed case.
         /// </summary>
         /// <param name="payload">The FORWARDMASK payload ([verb, FORWARDMASK, mask…]).</param>
         private Task ReplyForwardMaskAsync(List<byte> payload)
@@ -2298,8 +2327,14 @@
                 return Task.CompletedTask;
             }
 
-            WriteLog("Refusing LINEMODE FORWARDMASK (no input forwarding).");
-            return SendNegotiation((int)Options.LineMode, [(byte)Commands.Wont, LinemodeProtocol.ForwardMask]);
+            if (payload.Count < 3)
+            {
+                WriteLog("Ignoring empty LINEMODE FORWARDMASK DO.");
+                return Task.CompletedTask;
+            }
+
+            WriteLog("Storing LINEMODE FORWARDMASK.");
+            return Task.CompletedTask;
         }
 
         /// <summary>
@@ -2461,6 +2496,34 @@
         private async Task ReplyToCommandWithOption(int inputVerb, int inputOption)
         {
             WriteLog(Enum.GetName(typeof(Options), inputOption) ?? inputOption.ToString());
+            if (inputOption == (int)Options.TimingMark)
+            {
+                if (inputVerb == (int)Commands.Do)
+                {
+                    await byteStream.WriteAsync([(byte)Commands.InterpretAsCommand, (byte)Commands.Will, (byte)inputOption], 0, 3, internalCancellation.Token).ConfigureAwait(false);
+                    return;
+                }
+
+                if (inputVerb == (int)Commands.Will)
+                {
+                    WriteLog("Ignoring unsolicited WILL TIMING-MARK.");
+                    return;
+                }
+            }
+
+            if (inputOption == (int)Options.Logout && inputVerb == (int)Commands.Do)
+            {
+                WriteLog("Peer requested LOGOUT; closing without negotiation bytes.");
+                LogoutRequested?.Invoke();
+                return;
+            }
+
+            if (inputOption == (int)Options.Echo && IsServerRole && inputVerb == (int)Commands.Will)
+            {
+                WriteLog("Ignoring WILL ECHO on server role.");
+                return;
+            }
+
             var reply = inputVerb switch
             {
                 (int)Commands.Do => Negotiation.ReceivedDo(inputOption, AgreeEcho(inputOption, peerPerforms: false)),
@@ -2510,7 +2573,7 @@
             }
         }
 
-        private bool WeAgree(int inputOption)
+        private bool WeAgree(int inputOption, bool peerWill)
         {
             if (inputOption == (int)Options.Mccp2 || inputOption == (int)Options.Mccp3)
             {
@@ -2531,6 +2594,36 @@
                 // decline), while a server agrees. The client stack applies
                 // its setting over the default-true plumbing value.
                 return EnableMudOptions;
+            }
+
+            if (IsServerRole)
+            {
+                if (!peerWill)
+                {
+                    if (inputOption == (int)Options.TerminalType ||
+                        inputOption == (int)Options.WindowSize ||
+                        inputOption == (int)Options.TerminalSpeed ||
+                        inputOption == (int)Options.RemoteFlowControl ||
+                        inputOption == (int)Options.LineMode ||
+                        inputOption == (int)Options.XDisplay ||
+                        inputOption == (int)Options.NewEnvironment ||
+                        inputOption == (int)Options.SendLocation)
+                    {
+                        return false;
+                    }
+                }
+            }
+            else
+            {
+                if (peerWill)
+                {
+                    if (inputOption == (int)Options.WindowSize ||
+                        inputOption == (int)Options.LineMode ||
+                        inputOption == (int)Options.SendLocation)
+                    {
+                        return false;
+                    }
+                }
             }
 
             return inputOption == (int)Options.SuppressGoAhead ||
@@ -2562,15 +2655,20 @@
         {
             if (inputOption != (int)Options.Echo)
             {
-                return WeAgree(inputOption);
+                return WeAgree(inputOption, peerPerforms);
             }
 
-            // Accept a server WILL (it echoes; we suppress local echo instead)
-            // unless we are already echoing; accept a server DO only with explicit
-            // opt-in and a silent peer.
-            return peerPerforms
-              ? !Negotiation.IsEnabledByUs(inputOption)
-              : AllowRemoteEcho && !Negotiation.IsEnabledByPeer(inputOption);
+            if (peerPerforms)
+            {
+                return !Negotiation.IsEnabledByUs(inputOption);
+            }
+
+            if (!IsServerRole)
+            {
+                return false;
+            }
+
+            return AllowRemoteEcho && !Negotiation.IsEnabledByPeer(inputOption);
         }
 
         /// <summary>

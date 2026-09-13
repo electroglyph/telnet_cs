@@ -302,8 +302,67 @@ internal sealed class MccpDecompressor : IDisposable
             return ReInflateMatches(ms => new GZipStream(ms, CompressionMode.Decompress, leaveOpen: true));
         }
 
-        // Raw deflate has no footer: no end to confirm.
-        return false;
+        // Raw deflate has no footer: confirm end by parsing stored blocks for a
+        // final-block bit at a block boundary. Huffman raw streams stay
+        // never-ending here.
+        var rawBuffer = input.GetBuffer();
+        return TryConfirmRawStoredEnd(rawBuffer, consumed);
+    }
+
+    private static bool TryConfirmRawStoredEnd(byte[] buffer, long length)
+    {
+        var bitPos = 0L;
+        var totalBits = length * 8;
+        while (true)
+        {
+            if (bitPos + 3 > totalBits)
+            {
+                return false;
+            }
+
+            var bfinal = (buffer[bitPos / 8] >> (int)(bitPos % 8)) & 1;
+            var btype = (buffer[bitPos / 8] >> (int)(bitPos % 8) >> 1) & 3;
+            // Handle split across byte boundary for 3-bit header.
+            if (bitPos % 8 > 5)
+            {
+                var next = buffer[bitPos / 8 + 1];
+                var combined = buffer[bitPos / 8] | (next << 8);
+                var shift = (int)(bitPos % 8);
+                bfinal = (combined >> shift) & 1;
+                btype = (combined >> (shift + 1)) & 3;
+            }
+
+            bitPos += 3;
+            if (btype != 0)
+            {
+                return false;
+            }
+
+            bitPos = ((bitPos + 7) / 8) * 8;
+            if (bitPos + 32 > totalBits)
+            {
+                return false;
+            }
+
+            var pos = bitPos / 8;
+            var len = buffer[pos] | (buffer[pos + 1] << 8);
+            var nlen = buffer[pos + 2] | (buffer[pos + 3] << 8);
+            if ((len ^ nlen) != 0xFFFF)
+            {
+                return false;
+            }
+
+            bitPos += 32 + (long)len * 8;
+            if (bitPos > totalBits)
+            {
+                return false;
+            }
+
+            if (bfinal == 1)
+            {
+                return bitPos == totalBits;
+            }
+        }
     }
 
     private bool ReInflateMatches(Func<MemoryStream, Stream> factory)

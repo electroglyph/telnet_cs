@@ -58,6 +58,7 @@ namespace telnet_cs.Server
                     break;
                 }
 
+                await session.WriteAsync(LineFeed.Rfc854, cancellationToken).ConfigureAwait(false);
                 if (line.Length == 0)
                 {
                     continue;
@@ -119,7 +120,7 @@ namespace telnet_cs.Server
 
         private static async Task<bool> QuitAsync(ServerSession session, CancellationToken cancellationToken)
         {
-            await session.WriteAsync($"Bye.{LineFeed.Rfc854}", cancellationToken).ConfigureAwait(false);
+            await session.WriteAsync($"Goodbye.{LineFeed.Rfc854}", cancellationToken).ConfigureAwait(false);
             return false;
         }
 
@@ -193,7 +194,7 @@ namespace telnet_cs.Server
 
         private static async Task<bool> UnknownAsync(ServerSession session, CancellationToken cancellationToken)
         {
-            await session.WriteAsync($"Unknown command. Type 'help'.{LineFeed.Rfc854}", cancellationToken).ConfigureAwait(false);
+            await session.WriteAsync($"no such command.{LineFeed.Rfc854}", cancellationToken).ConfigureAwait(false);
             return true;
         }
     }

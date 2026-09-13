@@ -226,22 +226,24 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RawDeflateStream_Inflates_WithoutEnd()
         {
-            // Hand-built stored block: BFINAL=1, BTYPE=00, LEN=2, "Hi". No
-            // footer exists, so agreement must stay armed.
+            // Hand-built stored block: BFINAL=1, BTYPE=00, LEN=2, "Hi". A final
+            // stored block terminates the stream, so agreement ends in the
+            // same read and trailing plaintext would resume after it.
             var (output, _, sut) = await ReadOnceAsync(
               h => h.EnableMccp = true,
               Mccp2Stream([0x01, 0x02, 0x00, 0xFD, 0xFF, (byte)'H', (byte)'i']));
             output.Should().Be("Hi");
-            sut.Mccp2Active.Should().BeTrue();
+            sut.Mccp2Active.Should().BeFalse();
         }
 
         [Fact]
         public async Task RawStreamStartingWithZlibMagic_RetriesRawInsteadOfFailing()
         {
             // A raw deflate stream may start with 0x78 and mis-sniff as zlib
-            // (the reference tries zlib first, then raw). Hand-built wire:
+            // (zlib is tried first, then raw). Hand-built wire:
             // non-final stored block with pad bits 11110 (byte 0x78, LEN=2,
-            // "Hi") + final stored block ("!"). Inflates with no DONT.
+            // "Hi") + final stored block ("!"). The final block ends the
+            // stream, so agreement ends in the same read. Inflates with no DONT.
             var (output, writes, sut) = await ReadOnceAsync(
               h => h.EnableMccp = true,
               Mccp2Stream([0x78, 0x02, 0x00, 0xFD, 0xFF, (byte)'H', (byte)'i', 0x01, 0x01, 0x00, 0xFE, 0xFF, (byte)'!']));
@@ -249,7 +251,7 @@ namespace telnet_cs.Tests
             // Only the WILL→DO agreement reply: no DONT (the stream never
             // failed) and no other negotiation.
             writes.SelectMany(w => w).Should().Equal(Iac, Do, Mccp2);
-            sut.Mccp2Active.Should().BeTrue();
+            sut.Mccp2Active.Should().BeFalse();
         }
 
         [Fact]

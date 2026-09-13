@@ -68,11 +68,9 @@ namespace telnet_cs.Tests
         public async Task EmptySb_WithNoOptionByte_IsDiscardedWithoutReply()
         {
             // Port of test_sb_empty_subnegotiation: IAC SB IAC SE (no option
-            // byte at all) is discarded without a reply. Mechanism: the SB
-            // branch consumes IAC SB IAC as an unframeable abort, and the
-            // orphaned bare 0xF0 is dropped by the 8-bit gate (unframed bytes
-            // >127 need BINARY) — so all four bytes vanish, exactly like the
-            // reference. (A framed IAC SE pair would still deliver ð; see
+            // byte at all) is discarded without a reply. The empty frame is
+            // consumed as a unit, so no orphaned bytes leak as data.
+            // (A framed IAC SE pair would still deliver ð; see
             // StraySeOutsideSb_IsDeliveredAsData.)
             var (output, writes) = await ReadScriptedAsync(255, 250, 255, 240, 111, 107);
             output.Should().Be("ok");
@@ -84,9 +82,10 @@ namespace telnet_cs.Tests
         {
             // Over-long subnegotiation input keeps being consumed (so the
             // stream resynchronises at IAC SE) but the payload is ignored —
-            // including escaped IAC IAC pairs past the cap.
+            // including escaped IAC IAC pairs past the cap. The cap matches the
+            // reference 1 MiB bound.
             var reads = new int[] { 255, 250, 24 }
-                .Concat(Enumerable.Repeat(65, 600))
+                .Concat(Enumerable.Repeat(65, (1 << 20) + 10))
                 .Concat(new[] { 255, 255 })
                 .Concat(Enumerable.Repeat(66, 10))
                 .Concat(new[] { 255, 240, 67, 68 })
@@ -153,15 +152,14 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SplitCrNul_LeaksNulAsData()
         {
-            // RFC 854 NVT rule: CR NUL collapses to a single CR even when the
-            // two bytes arrive in different reads, so the NUL is swallowed.
+            // Raw reads preserve: CR arrives first, NUL arrives next as data.
             using var stream = new ScriptedStream(65, 13);
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("A\r");
             stream.Enqueue(0);
             var second = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
-            second.Should().BeEmpty();
+            second.Should().Be("\0");
         }
 
         [Fact]

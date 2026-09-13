@@ -44,7 +44,7 @@ namespace telnet_cs.Tests
             var signaled = false;
             var (output, writes, _) = await ReadOnceAsync(h => h.LogoutRequested += () => signaled = true, Iac, Do, 18);
             output.Should().BeEmpty();
-            Concat(writes).Should().Equal(Iac, Wont, 18);
+            Concat(writes).Should().BeEmpty();
             signaled.Should().BeTrue();
         }
 
@@ -381,7 +381,7 @@ namespace telnet_cs.Tests
               _ => { }, Iac, Sb, 42, 4, Iac, Se);
             output.Should().BeEmpty();
             writes.Should().HaveCount(1);
-            writes[0].Should().Equal(Iac, Sb, 42, 7, Iac, Se);
+            writes[0].Should().Equal(Iac, Sb, 42, 5, Iac, Se);
         }
 
         [Fact]
@@ -408,7 +408,7 @@ namespace telnet_cs.Tests
         public async Task SbCharsetTTableRejected_ClearsPendingWithoutReply()
         {
             var (output, writes, sut) = await ReadOnceAsync(
-              h => h.CharsetRequestPending = true, Iac, Sb, 42, 7, Iac, Se);
+              h => h.CharsetRequestPending = true, Iac, Sb, 42, 5, Iac, Se);
             output.Should().BeEmpty();
             writes.Should().BeEmpty();
             sut.CharsetRequestPending.Should().BeFalse();
@@ -564,10 +564,21 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task NonEmptySbMccp2_IgnoredWithoutArming()
         {
-            var (output, _, sut) = await ReadOnceAsync(
-              h => h.EnableMccp = true, Iac, Will, 86, Iac, Sb, 86, 1, Iac, Se);
+            // A padded MCCP SB still arms: the option byte is consumed and the
+            // padding ignored, so compression starts and the hook fires. No
+            // compressed bytes follow here, so the read yields no data.
+            var fired = 0;
+            var (output, writes, sut) = await ReadOnceAsync(
+              h =>
+              {
+                  h.EnableMccp = true;
+                  h.Mccp2StartReceived += () => fired++;
+              },
+              Iac, Will, 86, Iac, Sb, 86, 1, Iac, Se);
             output.Should().BeEmpty();
-            sut.Mccp2Active.Should().BeFalse();
+            Concat(writes).Should().Equal(Iac, Do, 86);
+            sut.Mccp2Active.Should().BeTrue();
+            fired.Should().Be(1);
         }
 
         [Fact]

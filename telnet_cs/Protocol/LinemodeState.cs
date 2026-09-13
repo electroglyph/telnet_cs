@@ -50,9 +50,8 @@
         /// <summary>
         /// Applies an inbound MODE mask per the client rules (RFC 1184 §2.2).
         /// A MODE with MODE_ACK set is never answered; an unchanged mask is
-        /// ignored; otherwise the reply is the requested mask plus MODE_ACK,
-        /// reduced to <see cref="LinemodeProtocol.SupportedModeBits"/> (a
-        /// spec-legal subset — EDIT/TRAPSIG are never cleared).
+        /// ignored; otherwise the reply echoes the requested mask verbatim plus
+        /// MODE_ACK.
         /// </summary>
         /// <param name="requested">The received MODE mask byte.</param>
         /// <returns>The reply mask (with MODE_ACK set), or null for no reply.</returns>
@@ -63,12 +62,9 @@
 
         /// <summary>
         /// Applies an inbound MODE mask per the server rules (RFC 1184 §2.2):
-        /// the server may set EDIT/TRAPSIG and the client may not clear them,
-        /// so the reply is the requested mask <em>plus</em>
-        /// <see cref="LinemodeProtocol.SupportedModeBits"/> (union, not the
-        /// client's intersection), with MODE_ACK set. An ACKed mask that
-        /// differs is adopted silently (the server switches); anything already
-        /// agreed is ignored.
+        /// the reply echoes the requested mask verbatim with MODE_ACK set. An
+        /// ACKed mask that differs is adopted silently (the server switches);
+        /// anything already agreed is ignored.
         /// </summary>
         /// <param name="requested">The received MODE mask byte.</param>
         /// <returns>The reply mask (with MODE_ACK set), or null for no reply.</returns>
@@ -80,13 +76,11 @@
         /// <summary>
         /// Shared MODE-mask engine: unchanged masks are silent; an ACKed mask
         /// that differs is never answered by a client but adopted silently by a
-        /// server (it switches); otherwise the reply combines the request with
-        /// <see cref="LinemodeProtocol.SupportedModeBits"/> (intersection for a
-        /// client, union for a server) plus MODE_ACK.
+        /// server (it switches); otherwise the reply echoes the request verbatim
+        /// plus MODE_ACK.
         /// </summary>
         /// <param name="requested">The received MODE mask byte.</param>
-        /// <param name="union">Whether to union (server) rather than intersect
-        /// (client) the supported bits.</param>
+        /// <param name="union">Whether this is the server path (adopts ACKed masks).</param>
         /// <returns>The reply mask (with MODE_ACK set), or null for no reply.</returns>
         private byte? ApplyModeCore(byte requested, bool union)
         {
@@ -109,9 +103,7 @@
                     return null;
                 }
 
-                byte basis = union
-                  ? (byte)(mask | LinemodeProtocol.SupportedModeBits)
-                  : (byte)(requested & LinemodeProtocol.SupportedModeBits);
+                byte basis = mask;
                 byte reply = (byte)(basis | LinemodeProtocol.ModeAck);
                 mode = (byte)(reply & ~LinemodeProtocol.ModeAck);
                 return reply;

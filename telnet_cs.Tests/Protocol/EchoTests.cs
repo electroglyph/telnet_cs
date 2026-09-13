@@ -76,6 +76,7 @@
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
             sut.AllowRemoteEcho = true;
+            sut.IsServerRole = true;
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             CountWrites(stream, 251, 1).Should().Be(1);
             sut.Negotiation.IsEnabledByUs(1).Should().BeTrue();
@@ -91,6 +92,7 @@
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
             sut.AllowRemoteEcho = true;
+            sut.IsServerRole = true;
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             CountWrites(stream, 251, 1).Should().Be(1);
             sut.Negotiation.IsEnabledByUs(1).Should().BeTrue();
@@ -106,6 +108,7 @@
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
             sut.AllowRemoteEcho = true;
+            sut.IsServerRole = true;
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             CountWrites(stream, 251, 1).Should().Be(1);
             CountWrites(stream, 252, 1).Should().Be(1);
@@ -119,13 +122,14 @@
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
             sut.AllowRemoteEcho = true;
+            sut.IsServerRole = true;
             stream.Enqueue(255, 251, 1);
             await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             stream.Enqueue(255, 253, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
-            CountWrites(stream, 253, 1).Should().Be(1);
-            CountWrites(stream, 252, 1).Should().Be(1);
-            CountWrites(stream, 251, 1).Should().Be(0);
+            CountWrites(stream, 253, 1).Should().Be(0);
+            CountWrites(stream, 252, 1).Should().Be(0);
+            CountWrites(stream, 251, 1).Should().Be(1);
         }
 
         [Fact]
@@ -135,12 +139,13 @@
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
             sut.AllowRemoteEcho = true;
+            sut.IsServerRole = true;
             stream.Enqueue(255, 253, 1);
             await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             stream.Enqueue(255, 251, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             CountWrites(stream, 251, 1).Should().Be(1);
-            CountWrites(stream, 254, 1).Should().Be(1);
+            CountWrites(stream, 254, 1).Should().Be(0);
             CountWrites(stream, 253, 1).Should().Be(0);
         }
 
@@ -151,6 +156,7 @@
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
             sut.AllowRemoteEcho = true;
+            sut.IsServerRole = true;
             stream.Enqueue(255, 253, 1);
             await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             stream.Enqueue(65, 66);
@@ -177,6 +183,7 @@
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
             sut.AllowRemoteEcho = true;
+            sut.IsServerRole = true;
             stream.Enqueue(255, 253, 1);
             await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             stream.Enqueue(255, 243, 65);
@@ -192,6 +199,7 @@
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
             sut.AllowRemoteEcho = true;
+            sut.IsServerRole = true;
             stream.Enqueue(255, 253, 1);
             await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             stream.Enqueue(3);
@@ -206,6 +214,7 @@
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
             sut.AllowRemoteEcho = true;
+            sut.IsServerRole = true;
             stream.Enqueue(255, 253, 1);
             await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             stream.Enqueue(255, 255);
@@ -239,10 +248,10 @@
                 client.Settings.AllowRemoteEcho = true;
                 stream.Enqueue(255, 253, 1);
                 (await client.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
-                CountWrites(stream, 251, 1).Should().Be(1);
+                CountWrites(stream, 252, 1).Should().Be(1);
                 stream.Enqueue(65);
                 (await client.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().Be("A");
-                stream.ByteWrites.Should().Contain(b => b.SequenceEqual(new byte[] { 65 }));
+                stream.ByteWrites.SelectMany(b => b).Should().NotContain((byte)65);
             }
         }
 

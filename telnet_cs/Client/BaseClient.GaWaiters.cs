@@ -45,8 +45,7 @@ namespace telnet_cs.Client
         /// <returns><c>true</c> when the GA byte pair was sent, <c>false</c> when SGA suppressed it.</returns>
         public async Task<bool> SendGaAsync(CancellationToken cancellationToken = default)
         {
-            if (SessionNegotiation.IsEnabledByUs((int)Options.SuppressGoAhead) ||
-                SessionNegotiation.IsEnabledByPeer((int)Options.SuppressGoAhead))
+            if (SessionNegotiation.IsEnabledByUs((int)Options.SuppressGoAhead))
             {
                 return false;
             }
@@ -82,7 +81,8 @@ namespace telnet_cs.Client
         /// <param name="condition">The predicate over the live negotiation state.</param>
         /// <param name="timeout">The maximum time to wait.</param>
         /// <param name="cancellationToken">Token to cancel the wait.</param>
-        /// <returns><c>true</c> when the condition held before the deadline, otherwise <c>false</c> (timeout or cancellation).</returns>
+        /// <returns><c>true</c> when the condition held before the deadline.</returns>
+        /// <exception cref="TimeoutException">The condition did not hold before the deadline.</exception>
         public async Task<bool> WaitForNegotiationAsync(Func<NegotiationState, bool> condition, TimeSpan timeout, CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(condition);
@@ -100,7 +100,7 @@ namespace telnet_cs.Client
                     var remaining = deadline - DateTimeOffset.UtcNow;
                     if (remaining <= TimeSpan.Zero)
                     {
-                        return false;
+                        throw new TimeoutException("Wait for negotiation timed out.");
                     }
 
                     try
@@ -113,11 +113,13 @@ namespace telnet_cs.Client
                     }
                     catch (OperationCanceledException)
                     {
-                        return false;
+                        cancellationToken.ThrowIfCancellationRequested();
+                        throw new TimeoutException("Wait for negotiation timed out.", new OperationCanceledException());
                     }
                 }
 
-                return false;
+                cancellationToken.ThrowIfCancellationRequested();
+                throw new TimeoutException("Wait for negotiation timed out.");
             }
             finally
             {

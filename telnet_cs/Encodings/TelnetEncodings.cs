@@ -76,7 +76,13 @@ namespace telnet_cs.Encodings
         /// <returns>True when the encoding is in <see cref="ForceBinaryEncodings"/>.</returns>
         public static bool RequiresBinaryMode(string? name)
         {
-            return name is not null && ForceBinary.Contains(name);
+            if (name is null)
+            {
+                return false;
+            }
+
+            var normalized = name.ToLowerInvariant().Replace('-', '_');
+            return ForceBinary.Contains(normalized);
         }
     }
 }

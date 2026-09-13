@@ -27,13 +27,16 @@
         [Fact(Timeout = 2000)]
         public async Task ShouldTerminateWithAColon()
         {
-            using (var stream = new DummyByteStream())
+            using (GlobalStateGuard.SkipProactive(false))
             {
-                using (var client = new Client(stream, new CancellationToken()))
+                using (var stream = new DummyByteStream())
                 {
-                    client.IsConnected.Should().Be(true);
-                    (await client.TerminatedReadAsync(":", TimeSpan.FromMilliseconds(timeoutMs)))
-                      .Should().EndWith(":");
+                    using (var client = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
+                    {
+                        client.IsConnected.Should().Be(true);
+                        (await client.TerminatedReadAsync(":", TimeSpan.FromMilliseconds(timeoutMs)))
+                          .Should().EndWith(":");
+                    }
                 }
             }
         }
@@ -41,14 +44,17 @@
         [Fact(Timeout = 2000)]
         public async Task ShouldBePromptingForAccount()
         {
-            using (var stream = new DummyByteStream())
+            using (GlobalStateGuard.SkipProactive(false))
             {
-                using (var client = new Client(stream, new CancellationToken()))
+                using (var stream = new DummyByteStream())
                 {
-                    client.IsConnected.Should().Be(true);
-                    var s = await client.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(timeoutMs));
+                    using (var client = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
+                    {
+                        client.IsConnected.Should().Be(true);
+                        var s = await client.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(timeoutMs));
 
-                    s.Should().Contain("Account:");
+                        s.Should().Contain("Account:");
+                    }
                 }
             }
         }
@@ -56,15 +62,18 @@
         [Fact(Timeout = 2000)]
         public async Task ShouldBePromptingForPassword()
         {
-            using (var stream = new DummyByteStream())
+            using (GlobalStateGuard.SkipProactive(false))
             {
-                using (var client = new Client(stream, new CancellationToken()))
+                using (var stream = new DummyByteStream())
                 {
-                    client.IsConnected.Should().Be(true);
-                    var s = await client.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(timeoutMs));
-                    s.Should().Contain("Account:");
-                    await client.WriteLineAsync("username");
-                    s = await client.TerminatedReadAsync("Password:", TimeSpan.FromMilliseconds(timeoutMs));
+                    using (var client = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
+                    {
+                        client.IsConnected.Should().Be(true);
+                        var s = await client.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(timeoutMs));
+                        s.Should().Contain("Account:");
+                        await client.WriteLineAsync("username");
+                        s = await client.TerminatedReadAsync("Password:", TimeSpan.FromMilliseconds(timeoutMs));
+                    }
                 }
             }
         }
@@ -72,16 +81,19 @@
         [Fact(Timeout = 3000)]
         public async Task ShouldPromptForInput()
         {
-            using (var stream = new DummyByteStream())
+            using (GlobalStateGuard.SkipProactive(false))
             {
-                using (var client = new Client(stream, new CancellationToken()))
+                using (var stream = new DummyByteStream())
                 {
-                    client.IsConnected.Should().Be(true);
-                    await client.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(timeoutMs));
-                    await client.WriteLineAsync("username");
-                    await client.TerminatedReadAsync("Password:", TimeSpan.FromMilliseconds(timeoutMs));
-                    await client.WriteLineAsync("password");
-                    await client.TerminatedReadAsync(">", TimeSpan.FromMilliseconds(timeoutMs));
+                    using (var client = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
+                    {
+                        client.IsConnected.Should().Be(true);
+                        await client.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(timeoutMs));
+                        await client.WriteLineAsync("username");
+                        await client.TerminatedReadAsync("Password:", TimeSpan.FromMilliseconds(timeoutMs));
+                        await client.WriteLineAsync("password");
+                        await client.TerminatedReadAsync(">", TimeSpan.FromMilliseconds(timeoutMs));
+                    }
                 }
             }
         }
@@ -89,23 +101,26 @@
         [Fact(Timeout = 5000)]
         public async Task ShouldRespondWithWan2Info()
         {
-            using (var stream = new DummyByteStream())
+            using (GlobalStateGuard.SkipProactive(false))
             {
-                using (var client = new Client(stream, new CancellationToken()))
+                using (var stream = new DummyByteStream())
                 {
-                    client.IsConnected.Should().Be(true);
-                    await client.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(timeoutMs));
-                    await client.WriteLineAsync("username");
-                    await client.TerminatedReadAsync("Password:", TimeSpan.FromMilliseconds(timeoutMs));
-                    await client.WriteLineAsync("password");
-                    // Consume the post-login "Command >" prompt first: the
-                    // statistics read below must see the command output, not
-                    // the tail of the login exchange.
-                    await client.TerminatedReadAsync(">", TimeSpan.FromMilliseconds(timeoutMs));
-                    await client.WriteLineAsync("show statistic wan2");
-                    var s = await client.TerminatedReadAsync(">", TimeSpan.FromMilliseconds(timeoutMs));
-                    s.Should().Contain(">");
-                    s.Should().Contain("WAN2");
+                    using (var client = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
+                    {
+                        client.IsConnected.Should().Be(true);
+                        await client.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(timeoutMs));
+                        await client.WriteLineAsync("username");
+                        await client.TerminatedReadAsync("Password:", TimeSpan.FromMilliseconds(timeoutMs));
+                        await client.WriteLineAsync("password");
+                        // Consume the post-login "Command >" prompt first: the
+                        // statistics read below must see the command output, not
+                        // the tail of the login exchange.
+                        await client.TerminatedReadAsync(">", TimeSpan.FromMilliseconds(timeoutMs));
+                        await client.WriteLineAsync("show statistic wan2");
+                        var s = await client.TerminatedReadAsync(">", TimeSpan.FromMilliseconds(timeoutMs));
+                        s.Should().Contain(">");
+                        s.Should().Contain("WAN2");
+                    }
                 }
             }
         }
@@ -113,16 +128,19 @@
         [Fact(Timeout = 5000)]
         public async Task ShouldLogin()
         {
-            using (var stream = new DummyByteStream())
+            using (GlobalStateGuard.SkipProactive(false))
             {
-                using (var client = new Client(stream, new CancellationToken()))
+                using (var stream = new DummyByteStream())
                 {
-                    client.IsConnected.Should().Be(true);
-                    await client.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(timeoutMs));
-                    await client.WriteLineAsync("username");
-                    var s = await client.TerminatedReadAsync("Password:", TimeSpan.FromMilliseconds(timeoutMs));
-                    s.Should().Contain("Password:");
-                    await client.WriteLineAsync("password");
+                    using (var client = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
+                    {
+                        client.IsConnected.Should().Be(true);
+                        await client.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(timeoutMs));
+                        await client.WriteLineAsync("username");
+                        var s = await client.TerminatedReadAsync("Password:", TimeSpan.FromMilliseconds(timeoutMs));
+                        s.Should().Contain("Password:");
+                        await client.WriteLineAsync("password");
+                    }
                 }
             }
         }
@@ -130,20 +148,23 @@
         [Fact]
         public async Task ShouldRespondWithWan2InfoRegexTerminated()
         {
-            using (var stream = new DummyByteStream())
+            using (GlobalStateGuard.SkipProactive(false))
             {
-                using (var client = new Client(stream, new CancellationToken()))
+                using (var stream = new DummyByteStream())
                 {
-                    client.IsConnected.Should().Be(true);
-                    await client.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(timeoutMs));
-                    await client.WriteLineAsync("username");
-                    await client.TerminatedReadAsync("Password:", TimeSpan.FromMilliseconds(timeoutMs));
-                    await client.WriteLineAsync("password");
-                    await client.TerminatedReadAsync(">", TimeSpan.FromMilliseconds(timeoutMs));
-                    await client.WriteLineAsync("show statistic wan2");
-                    var s = await client.TerminatedReadAsync(new Regex(".*>$"), TimeSpan.FromMilliseconds(timeoutMs));
-                    s.Should().Contain(">");
-                    s.Should().Contain("WAN2");
+                    using (var client = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
+                    {
+                        client.IsConnected.Should().Be(true);
+                        await client.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(timeoutMs));
+                        await client.WriteLineAsync("username");
+                        await client.TerminatedReadAsync("Password:", TimeSpan.FromMilliseconds(timeoutMs));
+                        await client.WriteLineAsync("password");
+                        await client.TerminatedReadAsync(">", TimeSpan.FromMilliseconds(timeoutMs));
+                        await client.WriteLineAsync("show statistic wan2");
+                        var s = await client.TerminatedReadAsync(new Regex(".*>$"), TimeSpan.FromMilliseconds(timeoutMs));
+                        s.Should().Contain(">");
+                        s.Should().Contain("WAN2");
+                    }
                 }
             }
         }

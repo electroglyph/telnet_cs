@@ -65,7 +65,7 @@ namespace telnet_cs.Tests
         {
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, XDisplaySend);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().BeEmpty();
+            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(XDisplayIsFrame(string.Empty));
         }
 
         [Fact]
@@ -83,13 +83,15 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task StrayXDisplayIs_WithoutOutstandingRequest_AnswersWont()
         {
+            // Stray XDISPLAY IS without an outstanding request is ignored:
+            // subnegotiation never synthesizes WONT, so nothing is sent.
             using var stream = new ScriptedStream();
             stream.Enqueue([.. XDisplayIsFrame("x:0")]);
             using var session = NewSession(stream);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientXDisplay.Should().BeNull();
             session.ClientEffectiveDisplay.Should().BeNull();
-            OutboundBytes(stream).Should().Equal(255, 252, 35);
+            OutboundBytes(stream).Should().BeEmpty();
         }
 
         [Fact]

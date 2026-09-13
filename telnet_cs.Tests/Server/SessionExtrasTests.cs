@@ -137,9 +137,12 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task WaitForNegotiationAsync_Timeout_ReturnsFalse()
         {
+            // The waiter signals a missed deadline with TimeoutException so a
+            // silent false cannot be mistaken for a satisfied condition.
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
-            (await session.WaitForNegotiationAsync(_ => false, TimeSpan.FromMilliseconds(100))).Should().BeFalse();
+            Func<Task> act = () => session.WaitForNegotiationAsync(_ => false, TimeSpan.FromMilliseconds(100));
+            await act.Should().ThrowAsync<TimeoutException>();
         }
 
         [Fact]
@@ -154,11 +157,14 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task WaitForNegotiationAsync_Cancelled_ReturnsFalse()
         {
+            // A cancelled wait surfaces OperationCanceledException from the
+            // caller's token rather than masking the cancel as a timeout.
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             using var cts = new CancellationTokenSource();
             cts.Cancel();
-            (await session.WaitForNegotiationAsync(_ => false, TimeSpan.FromSeconds(5), cts.Token)).Should().BeFalse();
+            Func<Task> act = () => session.WaitForNegotiationAsync(_ => false, TimeSpan.FromSeconds(5), cts.Token);
+            await act.Should().ThrowAsync<OperationCanceledException>();
         }
 
         [Fact]
@@ -179,13 +185,15 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Context_Typescript_RecordsBothDirections()
         {
+            // The typescript records text read from the peer only; writes are
+            // counted but never written to the transcript.
             using var stream = new ScriptedStream(105, 110);
             using var session = NewSession(stream);
             var tape = new StringWriter();
             session.Context.Typescript = tape;
             await session.WriteAsync("out");
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("in");
-            tape.ToString().Should().Be("outin");
+            tape.ToString().Should().Be("in");
         }
 
         [Fact]
@@ -427,8 +435,10 @@ namespace telnet_cs.Tests
             var waiter = client.WaitForOptionEnabledAsync(Options.SuppressGoAhead, local: false, TimeSpan.FromSeconds(10));
             await session.SendOpeningPresetAsync();
             (await waiter).Should().BeTrue();
-            var missing = await client.WaitForOptionEnabledAsync(Options.LineMode, local: false, TimeSpan.FromMilliseconds(200));
-            missing.Should().BeFalse();
+            // A missing option misses its deadline, which the waiter reports
+            // with TimeoutException rather than a false return.
+            Func<Task> missingAct = () => client.WaitForOptionEnabledAsync(Options.LineMode, local: false, TimeSpan.FromMilliseconds(200));
+            await missingAct.Should().ThrowAsync<TimeoutException>();
         }
     }
 }

@@ -38,7 +38,8 @@ namespace telnet_cs.Tests
             {
                 using var stream = new ScriptedStream("HI");
                 using var sut = new Client(stream, TimeSpan.FromMilliseconds(50), default);
-                (await sut.WaitForNegotiationAsync(_ => false, TimeSpan.FromMilliseconds(200))).Should().BeFalse();
+                Func<Task> act = () => sut.WaitForNegotiationAsync(_ => false, TimeSpan.FromMilliseconds(200));
+                await act.Should().ThrowAsync<TimeoutException>();
                 (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().Be("HI");
             }
         }

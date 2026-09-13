@@ -405,6 +405,7 @@
                     finally
                     {
                         sbResumeState = handler.SbResumeState;
+                        framingState = handler.FramingState;
                     }
                 }
             }
@@ -424,7 +425,7 @@
                 s += read;
             }
 
-            return s;
+            return s.Replace("\r\0", "\r", StringComparison.Ordinal);
         }
     }
 }

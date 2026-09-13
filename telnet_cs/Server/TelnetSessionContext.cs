@@ -22,8 +22,9 @@ namespace telnet_cs.Server
         public DateTimeOffset ConnectedAtUtc { get; } = DateTimeOffset.UtcNow;
 
         /// <summary>
-        /// Gets the last text read or written (UTC). Reads that returned no
-        /// data do not move it, so an idle peer is genuinely idle.
+        /// Gets the last text read (UTC). Only receive activity moves it, so a
+        /// transmit-only server still times out. Reads that returned no data do
+        /// not move it.
         /// </summary>
         public DateTimeOffset LastActivityUtc { get; private set; } = DateTimeOffset.UtcNow;
 
@@ -33,23 +34,19 @@ namespace telnet_cs.Server
         public TimeSpan Idle => DateTimeOffset.UtcNow - LastActivityUtc;
 
         /// <summary>
-        /// Gets the count of text characters read. Raw-byte writes bypass
-        /// accounting (only the string write paths note their text).
+        /// Gets the count of wire bytes read, negotiation included.
         /// </summary>
         public long CharsReceived { get; private set; }
 
         /// <summary>
-        /// Gets the count of text characters written. Both the string and the
-        /// byte write paths note their length here.
+        /// Gets the count of wire bytes written.
         /// </summary>
         public long CharsSent { get; private set; }
 
         /// <summary>
         /// Gets or sets the typescript recorder. When set, every text chunk
-        /// read or written is appended raw (both directions, no prefixes —
-        /// the reference records server output only; recording both keeps one
-        /// hook for the two string paths). A failing writer is detached, never
-        /// fatal to the session.
+        /// read is appended raw. Writes are not recorded. A failing writer is
+        /// detached, never fatal to the session.
         /// </summary>
         public TextWriter? Typescript { get; set; }
 
@@ -67,21 +64,18 @@ namespace telnet_cs.Server
         internal void NoteRead(string text)
         {
             LastActivityUtc = DateTimeOffset.UtcNow;
-            CharsReceived += text.Length;
+            CharsReceived += System.Text.Encoding.UTF8.GetByteCount(text);
             RecordTranscript(text);
         }
 
         internal void NoteWritten(string text)
         {
-            LastActivityUtc = DateTimeOffset.UtcNow;
             CharsSent += text.Length;
-            RecordTranscript(text);
         }
 
         internal void NoteWritten(int byteCount)
         {
             ArgumentOutOfRangeException.ThrowIfNegative(byteCount);
-            LastActivityUtc = DateTimeOffset.UtcNow;
             CharsSent += byteCount;
         }
 

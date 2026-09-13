@@ -39,14 +39,17 @@
         [Fact]
         public async Task MultiRegexMatchesViaDummyLoginFlow()
         {
-            using var stream = new DummyByteStream();
-            using var client = new Client(stream, new CancellationToken());
-            var result = await client.TerminatedReadAsync(
-              new[] { new Regex("Nope>"), new Regex("Account") }, TimeSpan.FromSeconds(5), 1);
-            // The match ("Account") ends before the buffer: the cut keeps the
-            // match, the trailing ":" is stashed for the next read.
-            result.Should().Be("Account");
-            (await client.ReadAsync(TimeSpan.FromSeconds(2))).Should().Be(":");
+            using (GlobalStateGuard.SkipProactive(false))
+            {
+                using var stream = new DummyByteStream();
+                using var client = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false);
+                var result = await client.TerminatedReadAsync(
+                  new[] { new Regex("Nope>"), new Regex("Account") }, TimeSpan.FromSeconds(5), 1);
+                // The match ("Account") ends before the buffer: the cut keeps the
+                // match, the trailing ":" is stashed for the next read.
+                result.Should().Be("Account");
+                (await client.ReadAsync(TimeSpan.FromSeconds(2))).Should().Be(":");
+            }
         }
 
         [Fact]

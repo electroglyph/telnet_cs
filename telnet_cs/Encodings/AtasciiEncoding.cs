@@ -139,12 +139,96 @@ namespace telnet_cs.Encodings
         private sealed class AtasciiEncoder(AtasciiEncoding encoding) : Encoder
         {
             private bool pendingCr;
+            private char? pendingLead;
 
             public override int GetByteCount(char[] chars, int index, int count, bool flush)
             {
-                // Folding is length-neutral except for CRLF pairs; count the
-                // worst case (no folding) so the buffer always fits.
-                return count;
+                ArgumentNullException.ThrowIfNull(chars);
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
+                ArgumentOutOfRangeException.ThrowIfNegative(count);
+                ArgumentOutOfRangeException.ThrowIfGreaterThan(count, chars.Length - index);
+                var end = index + count;
+                var i = index;
+                var bytes = 0;
+                var pending = pendingCr;
+                char? lead = pendingLead;
+                if (pending)
+                {
+                    bytes++;
+                    if (i < end && chars[i] == '\n')
+                    {
+                        i++;
+                    }
+
+                    pending = false;
+                }
+
+                if (lead.HasValue)
+                {
+                    if (i < end && char.IsLowSurrogate(chars[i]))
+                    {
+                        bytes++;
+                        i++;
+                    }
+                    else if (flush)
+                    {
+                        bytes += encoding.EncodeWithFallback([lead.Value], 0, 1, null, 0);
+                    }
+
+                    lead = null;
+                    if (!flush && i >= end)
+                    {
+                        return bytes;
+                    }
+                }
+
+                while (i < end)
+                {
+                    if (chars[i] == '\r')
+                    {
+                        if (i + 1 < end && chars[i + 1] == '\n')
+                        {
+                            bytes++;
+                            i += 2;
+                        }
+                        else if (i + 1 == end && !flush)
+                        {
+                            pending = true;
+                            i++;
+                        }
+                        else
+                        {
+                            bytes++;
+                            i++;
+                        }
+                    }
+                    else if (char.IsHighSurrogate(chars[i]))
+                    {
+                        if (i + 1 < end && char.IsLowSurrogate(chars[i + 1]))
+                        {
+                            var scalar = new string([chars[i], chars[i + 1]]);
+                            bytes += encoding.TryEncodeScalar(scalar, out _) ? 1 : encoding.EncodeWithFallback(chars, i, 2, null, 0);
+                            i += 2;
+                        }
+                        else if (i + 1 == end && !flush)
+                        {
+                            break;
+                        }
+                        else
+                        {
+                            bytes += encoding.EncodeWithFallback(chars, i, 1, null, 0);
+                            i++;
+                        }
+                    }
+                    else
+                    {
+                        var scalar = chars[i].ToString();
+                        bytes += encoding.TryEncodeScalar(scalar, out _) ? 1 : encoding.EncodeWithFallback(chars, i, 1, null, 0);
+                        i++;
+                    }
+                }
+
+                return bytes;
             }
 
             public override int GetBytes(char[] chars, int charIndex, int charCount, byte[] bytes, int byteIndex, bool flush)
@@ -152,11 +236,55 @@ namespace telnet_cs.Encodings
                 var end = charIndex + charCount;
                 var i = charIndex;
                 var written = 0;
+                if (pendingLead.HasValue)
+                {
+                    if (i < end && char.IsLowSurrogate(chars[i]))
+                    {
+                        var lead = pendingLead.Value;
+                        var scalar = new string([lead, chars[i]]);
+                        pendingLead = null;
+                        if (byteIndex + written >= bytes.Length)
+                        {
+                            return written;
+                        }
+
+                        if (!encoding.TryEncodeScalar(scalar, out var mapped))
+                        {
+                            written += encoding.EncodeWithFallback([lead, chars[i]], 0, 2, bytes, byteIndex + written);
+                        }
+                        else
+                        {
+                            bytes[byteIndex + written] = mapped;
+                            written++;
+                        }
+
+                        i++;
+                    }
+                    else if (flush)
+                    {
+                        var lead = pendingLead.Value;
+                        pendingLead = null;
+                        written += encoding.EncodeWithFallback([lead], 0, 1, bytes, byteIndex + written);
+                    }
+                    else if (i >= end)
+                    {
+                        return written;
+                    }
+                    else
+                    {
+                        var lead = pendingLead.Value;
+                        pendingLead = null;
+                        written += encoding.EncodeWithFallback([lead], 0, 1, bytes, byteIndex + written);
+                    }
+                }
+
                 if (pendingCr)
                 {
-                    // A CR straddled the previous chunk boundary: it folds to
-                    // LF either way; a leading LF here is the second half of
-                    // CRLF and is consumed, not re-emitted.
+                    if (i >= end && !flush)
+                    {
+                        return written;
+                    }
+
                     if (byteIndex + written >= bytes.Length)
                     {
                         return written;
@@ -205,6 +333,12 @@ namespace telnet_cs.Encodings
                         scalar = new string([chars[i], chars[i + 1]]);
                         next = i + 2;
                     }
+                    else if (char.IsHighSurrogate(chars[i]) && i + 1 == end && !flush)
+                    {
+                        pendingLead = chars[i];
+                        i++;
+                        continue;
+                    }
                     else
                     {
                         scalar = chars[i].ToString();
@@ -229,6 +363,7 @@ namespace telnet_cs.Encodings
             public override void Reset()
             {
                 pendingCr = false;
+                pendingLead = null;
             }
 
             private bool TryWriteScalar(char[] chars, int start, int length, string scalar, byte[] bytes, int byteIndex, ref int written)

@@ -650,10 +650,11 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task TlsOptions_Defaults_PlaintextUnchanged()
         {
-            // A default options object interposes no TLS wrapper: the first
-            // wire bytes are the plaintext proactive IAC DO SGA, observable
-            // directly (BaseClient.ByteStream is protected, so bytes — not
-            // internals — are the honest assertion).
+            // A default options object interposes no TLS wrapper: application
+            // text goes out as plaintext, observable directly
+            // (BaseClient.ByteStream is protected, so bytes — not
+            // internals — are the honest assertion). The client sends nothing
+            // on connect by default, so write first and read the app bytes.
             using var listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
             var port = ((IPEndPoint)listener.LocalEndpoint).Port;
@@ -664,13 +665,14 @@ namespace telnet_cs.Tests
                 CancellationToken.None, TimeSpan.FromSeconds(10));
 
             using var peer = await acceptTask;
+            await client.WriteAsync("hi");
             peer.ReceiveTimeout = 5000;
             using var raw = peer.GetStream();
-            var first = new byte[3];
+            var first = new byte[2];
             int seen = 0;
-            while (seen < 3)
+            while (seen < 2)
             {
-                int n = raw.Read(first, seen, 3 - seen);
+                int n = raw.Read(first, seen, 2 - seen);
                 if (n == 0)
                 {
                     break;
@@ -679,8 +681,8 @@ namespace telnet_cs.Tests
                 seen += n;
             }
 
-            seen.Should().Be(3);
-            first.Should().Equal(255, 253, 3); // IAC DO SuppressGoAhead.
+            seen.Should().Be(2);
+            first.Should().Equal((byte)'h', (byte)'i');
         }
     }
 }

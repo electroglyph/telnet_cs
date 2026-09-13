@@ -156,6 +156,11 @@
                       nameof(command), command, "Only standalone control commands (BRK, IP, AO, AYT, EC, EL, GA, NOP, EOF, SUSP, ABORT) can be sent with SendCommand. Option negotiation verbs (DO, DONT, WILL, WONT, SB, SE, IAC) go through the RFC 1143 negotiation API.");
             }
 
+            if (command == Commands.GoAhead && Negotiation.IsEnabledByUs((int)Options.SuppressGoAhead))
+            {
+                return;
+            }
+
             if (ByteStream.Connected && !cancellationToken.IsCancellationRequested)
             {
                 await SendRateLimit.WaitAsync(cancellationToken).ConfigureAwait(false);

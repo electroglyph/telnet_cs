@@ -49,22 +49,23 @@
         [Fact]
         public async Task StatusSend_NoAgreements_GetsWont()
         {
-            // RFC 859 §5: only the WILL-sender answers SEND. Nothing agreed → WONT.
+            // A STATUS SEND with no agreement is ignored silently: no IS and
+            // no WONT reply.
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 250, 5, 1, 255, 240);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 252, 5 });
+            stream.ByteWrites.Should().BeEmpty();
         }
 
         [Fact]
         public async Task StatusSend_WhileOursOutstanding_GetsWont()
         {
-            // Strict Yes-only: a locally-requested (WantYes) STATUS is not the
-            // agreed WILL-sender yet, so an early SEND still earns WONT.
+            // A locally-requested (WantYes) STATUS is not agreed yet, so an
+            // early SEND is still ignored silently with no reply.
             var (output, stream) = await ReadHandlerOnceAsync(
               static sut => sut.Negotiation.RequestEnable((int)Options.Status),
               255, 250, 5, 1, 255, 240);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 252, 5 });
+            stream.ByteWrites.Should().BeEmpty();
         }
 
         [Fact]
@@ -131,7 +132,7 @@
         {
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 250, 5, 0, 255, 240);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 252, 5 });
+            stream.ByteWrites.Should().BeEmpty();
         }
 
         [Fact]
@@ -155,7 +156,7 @@
         {
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 251, 6);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 253, 6 });
+            stream.ByteWrites.Should().BeEmpty();
         }
 
         [Fact]
@@ -226,10 +227,9 @@
                   [(Commands.Will, Options.TimingMark)]);
                 stream.Enqueue(255, 253, 5, 255, 250, 5, 1, 255, 240);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
-                stream.ByteWrites.Should().HaveCount(3);
-                stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 6 });
-                stream.ByteWrites[1].Should().Equal(new byte[] { 255, 251, 5 });
-                stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 5, 251, 6, 255, 240 });
+                stream.ByteWrites.Should().HaveCount(2);
+                stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 5 });
+                stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 5, 255, 240 });
             }
         }
 
@@ -256,24 +256,24 @@
         [Fact]
         public async Task StatusBareSe_TerminatesScanAndPreservesTrailingBytes()
         {
-            // RFC 859 inner framing: a bare SE ends a STATUS payload, so the
-            // bytes after it (here "AB") belong to the subsequent stream.
-            // Payload [IS] is a stray IS and earns WONT. The trailing stray
-            // IAC SE delivers 0xF0 as data (never-drop-bytes).
+            // A bare SE ends a STATUS payload, so the bytes after it (here
+            // "AB") belong to the subsequent stream. Payload [IS] is a stray
+            // IS and is ignored silently. The trailing stray IAC SE delivers
+            // 0xF0 as data.
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 250, 5, 0, 240, 65, 66, 255, 240);
             output.Should().Be("ABð");
-            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 252, 5 });
+            stream.ByteWrites.Should().BeEmpty();
         }
 
         [Fact]
         public async Task StatusDoubledSe_StaysInPayload()
         {
-            // SE SE inside STATUS escapes a literal SE data byte (RFC 859):
-            // payload [IS, SE] is still a stray IS, and nothing leaks to data.
-            // (The final IAC SE here is the SB's own terminator, not a stray.)
+            // SE SE inside STATUS escapes a literal SE data byte: payload
+            // [IS, SE] is still a stray IS, ignored silently with nothing
+            // leaked to data. The final IAC SE is the SB terminator.
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 250, 5, 0, 240, 240, 255, 240);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 252, 5 });
+            stream.ByteWrites.Should().BeEmpty();
         }
     }
 }

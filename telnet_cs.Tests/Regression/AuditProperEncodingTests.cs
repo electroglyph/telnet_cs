@@ -101,9 +101,9 @@ namespace telnet_cs.Tests
         {
             // Source of truth: the .NET Encoder contract for flush:false buffers an
             // incomplete sequence instead of falling back. One-shot
-            // GetBytes("\U0001FB82") correctly yields 0x0D (ATASCII astral cell), so a
-            // chunk ending with the lead "\uD83D" must buffer (0 bytes, no throw) and
-            // complete to 0x0D when the trail "\uDE02" arrives with flush:true.
+            // GetBytes("\U0001FB82") correctly yields 0x0D (ATASCII astral cell, lead
+            // D83E trail DF82), so a chunk ending with that lead must buffer (0 bytes,
+            // no throw) and complete to 0x0D when the trail arrives with flush:true.
             // Our code pairs surrogates only within one chunk; a lone lead falls into
             // scalar fallback and throws via EncoderExceptionFallback, violating the
             // buffering contract (Python str chunks are codepoint-indexed so the case
@@ -116,10 +116,10 @@ namespace telnet_cs.Tests
             var encoder = encoding.GetEncoder();
             var bytes = new byte[16];
             int written = -1;
-            Action act = () => { written = encoder.GetBytes("\uD83D".ToCharArray(), 0, 1, bytes, 0, flush: false); };
+            Action act = () => { written = encoder.GetBytes("\uD83E".ToCharArray(), 0, 1, bytes, 0, flush: false); };
             act.Should().NotThrow("a split surrogate must buffer, not fall back");
             written.Should().Be(0);
-            encoder.GetBytes("\uDE02".ToCharArray(), 0, 1, bytes, 0, flush: true).Should().Be(1);
+            encoder.GetBytes("\uDF82".ToCharArray(), 0, 1, bytes, 0, flush: true).Should().Be(1);
             bytes[0].Should().Be(0x0D);
         }
     }

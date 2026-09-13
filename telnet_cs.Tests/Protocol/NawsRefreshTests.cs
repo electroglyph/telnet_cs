@@ -99,25 +99,25 @@
         [Fact]
         public async Task InboundNawsVerbFirst_IsRefusedWithWont()
         {
-            // The client sends NAWS and never parses inbound NAWS: a server IS
-            // falls to the stray-IS arm and earns WONT.
+            // Inbound NAWS has no reply path: subnegotiation frames never
+            // synthesize WONT, so the frame is consumed and ignored silently.
             using var stream = new ScriptedStream(255, 250, 31, 0, 0, 80, 0, 24, 255, 240);
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 252, 31 });
+            stream.ByteWrites.Should().BeEmpty();
         }
 
         [Fact]
         public async Task InboundNawsBareShape_IsRefusedWithWont()
         {
-            // Bare shape (no verb): the width-high byte is the SEND-gate byte, so
-            // small widths (< 256) hit the stray-IS arm and earn WONT.
+            // Bare shape (no verb) is also consumed and ignored: no WONT is
+            // synthesized for subnegotiation payloads.
             using var stream = new ScriptedStream(255, 250, 31, 0, 80, 0, 30, 255, 240);
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 252, 31 });
+            stream.ByteWrites.Should().BeEmpty();
         }
 
         [Fact]

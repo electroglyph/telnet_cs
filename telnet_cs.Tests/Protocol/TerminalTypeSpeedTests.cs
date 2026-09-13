@@ -267,15 +267,35 @@
         [Theory]
         [InlineData("abc")]
         [InlineData("9600")]
-        [InlineData("9600,4800,2400")]
         [InlineData("")]
         [InlineData("9600,abc")]
-        [InlineData(" 9600,9600")]
         public async Task SpeedSend_MalformedSendsNothing(string speed)
         {
             var (output, stream) = await ReadHandlerOnceAsync(h => h.TerminalSpeed = speed, SpeedSend);
             output.Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task SpeedSend_ExtraTailIgnored()
+        {
+            // Validation splits on commas and keeps the first two rates, so a
+            // trailing third rate is ignored instead of rejecting the frame.
+            var (output, stream) = await ReadHandlerOnceAsync(
+              static h => h.TerminalSpeed = "9600,4800,2400", SpeedSend);
+            output.Should().BeEmpty();
+            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(SpeedIsFrame("9600,4800"));
+        }
+
+        [Fact]
+        public async Task SpeedSend_SurroundingWhitespaceTrimmed()
+        {
+            // Each rate is trimmed before validation, so leading whitespace
+            // does not reject the frame.
+            var (output, stream) = await ReadHandlerOnceAsync(
+              static h => h.TerminalSpeed = " 9600,9600", SpeedSend);
+            output.Should().BeEmpty();
+            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(SpeedIsFrame("9600,9600"));
         }
     }
 }

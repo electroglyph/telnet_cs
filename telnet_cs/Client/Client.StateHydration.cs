@@ -94,6 +94,7 @@
             handler.Linemode = linemodeState;
             handler.GoAheadReceived = OnGoAheadReceived;
             handler.SbResumeState = sbResumeState;
+            handler.FramingState = framingState;
         }
 
         private TerminalTypeCycler? terminalTypeCycler;
@@ -107,5 +108,6 @@
         /// (telnetlib3 _sb_buffer parity).
         /// </summary>
         private (int Option, byte[] Payload, bool OverCap, bool SePending, bool IacPending)? sbResumeState;
+        private (bool PendingIac, int? PendingVerb, bool SawCr, int? Pushback) framingState;
     }
 }

@@ -41,7 +41,7 @@
 
         internal static FlowLocal<bool> SkipProactiveOverride => _skipProactiveFlow;
 
-        private static bool _skipProactiveDefault;
+        private static bool _skipProactiveDefault = true;
 
         private static readonly FlowLocal<bool> _skipProactiveFlow = new();
 
@@ -88,12 +88,12 @@
         /// <param name="timeout">The timeout to wait for initial successful connection to <paramref name="byteStream"/>.</param>
         /// <param name="token">The cancellation token.</param>
         /// <param name="options">Additional options to send during negotiation.</param>
-        /// <param name="skipProactiveNegotiation">When <c>true</c>, suppresses the
-        /// opening <c>IAC DO SuppressGoAhead</c> (and the <paramref name="options"/>
-        /// sends). Per-instance alternative to the process-global
-        /// <see cref="SkipProactiveOptionNegotiation"/>: a client and a server
-        /// session can coexist in one process with different choices.</param>
-        public Client(IByteStream byteStream, TimeSpan timeout, CancellationToken token, (Commands Command, Options Option)[] options, bool skipProactiveNegotiation = false)
+        /// <param name="skipProactiveNegotiation">When <c>true</c> (the default),
+        /// suppresses the opening <c>IAC DO SuppressGoAhead</c> (and the
+        /// <paramref name="options"/> sends). Per-instance alternative to the
+        /// process-global <see cref="SkipProactiveOptionNegotiation"/>: a client
+        /// and a server session can coexist in one process with different choices.</param>
+        public Client(IByteStream byteStream, TimeSpan timeout, CancellationToken token, (Commands Command, Options Option)[] options, bool skipProactiveNegotiation = true)
           : base(byteStream, token)
         {
             // NOTE: byteStream is validated by the base constructor; options cannot

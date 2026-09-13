@@ -137,11 +137,14 @@
         [Fact]
         public async Task Refusal_AllowsExplicitReRequest()
         {
+            // Explicit options are sent only when the per-instance skip is
+            // off. After the peer's WONT marks a refusal, only an explicit
+            // re-request goes out again; automatic repeats stay silent.
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
                 using var client = new Client(stream, TimeSpan.FromMilliseconds(10), default,
-                  new[] { (Commands.Do, Options.Echo) });
+                  new[] { (Commands.Do, Options.Echo) }, skipProactiveNegotiation: false);
                 CountWrites(stream, 253, 1).Should().Be(1);
                 stream.Enqueue(255, 252, 1);
                 (await ReadOnceAsync(client)).Should().BeEmpty();

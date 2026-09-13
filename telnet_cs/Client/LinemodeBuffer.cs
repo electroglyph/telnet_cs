@@ -32,14 +32,20 @@ namespace telnet_cs.Client
         private const int SlcEraseWord = 12;
 
         /// <summary>
-        /// Gets the default SLC value table (erase-char DEL, erase-line NAK,
-        /// erase-word ETB): used when the server sent no SLC triplets.
+        /// Gets the default SLC value table matching the reference BSD defaults:
+        /// EOF, EC, EL, IP, ABORT, SUSP, EW and AYT. Used when the server sent no
+        /// SLC triplets.
         /// </summary>
         public static IReadOnlyDictionary<int, int> DefaultSlc { get; } = new Dictionary<int, int>
         {
+            [LinemodeProtocol.SlcEof] = 0x04,
             [LinemodeProtocol.SlcEraseCharacter] = 0x7F,
             [LinemodeProtocol.SlcEraseLine] = 0x15,
+            [LinemodeProtocol.SlcIp] = 0x03,
+            [LinemodeProtocol.SlcAbort] = 0x1C,
+            [LinemodeProtocol.SlcSuspend] = 0x1A,
             [SlcEraseWord] = 0x17,
+            [LinemodeProtocol.SlcAyt] = 0x14,
         }.ToFrozenDictionary();
 
         private readonly Dictionary<int, int> slcValues;

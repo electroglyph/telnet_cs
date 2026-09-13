@@ -357,7 +357,7 @@ namespace telnet_cs.Protocol
             private string ReadKey()
             {
                 var start = this.idx;
-                while (this.idx < this.buf.Length && this.buf[this.idx] is not (MsdpVar or MsdpVal or MsdpTableOpen or MsdpTableClose or MsdpArrayOpen or MsdpArrayClose))
+                while (this.idx < this.buf.Length && this.buf[this.idx] is not (MsdpVar or MsdpVal))
                 {
                     this.idx++;
                 }

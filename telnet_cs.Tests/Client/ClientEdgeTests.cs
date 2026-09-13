@@ -49,16 +49,17 @@
         [Fact]
         public void CtorStreamFailureThrowsIOExceptionDirectly()
         {
-            // PROPER: a negotiation write failure must surface as its own exception,
-            // not wrapped in AggregateException. Currently fails: the ctor's
-            // Task.Run(...).Wait() wraps the IOException in an AggregateException.
-            // NOTE: FluentAssertions' Throw<T> unwraps single-inner AggregateExceptions,
-            // so the raw exception must be captured to pin this (see test.md §8).
-            var fake = ConnectedFake();
-            A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored))
-              .Throws(new IOException("boom"));
-            var ex = Record.Exception(() => new Client(fake, TimeSpan.FromMilliseconds(10), default));
-            ex.Should().BeOfType<IOException>().Which.Message.Should().Be("boom");
+            // A proactive write failure surfaces directly. The default ctor
+            // skips proactive negotiation so it would send nothing here; opt
+            // into the opening send to pin the unwrapped failure.
+            using (GlobalStateGuard.SkipProactive(false))
+            {
+                var fake = ConnectedFake();
+                A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored))
+                  .Throws(new IOException("boom"));
+                var ex = Record.Exception(() => new Client(fake, TimeSpan.FromMilliseconds(10), default, Array.Empty<(Commands, Options)>(), skipProactiveNegotiation: false));
+                ex.Should().BeOfType<IOException>().Which.Message.Should().Be("boom");
+            }
         }
 
         [Fact]
@@ -88,10 +89,13 @@
         [Fact]
         public async Task CtorDefaultSendsSuppressGoAhead()
         {
+            // The opening DO SuppressGoAhead is sent only when proactive
+            // negotiation is opted into both globally and per instance; the
+            // default skips it.
             using (GlobalStateGuard.SkipProactive(false))
             {
                 var fake = ConnectedFake();
-                using var _ = new Client(fake, TimeSpan.FromMilliseconds(10), default);
+                using var _ = new Client(fake, TimeSpan.FromMilliseconds(10), default, Array.Empty<(Commands, Options)>(), skipProactiveNegotiation: false);
                 A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, 0, 3, A<CancellationToken>.Ignored))
                   .WhenArgumentsMatch(o => o[0] is byte[] b && b.SequenceEqual(Client.SuppressGoAheadBuffer))
                   .MustHaveHappened();
@@ -114,6 +118,9 @@
         [Fact]
         public async Task CtorCustomOptionsSendExactTriplesInOrder()
         {
+            // Explicit options are sent only when the per-instance skip is
+            // off; the global skip only gates the automatic opening send, so
+            // the two triples go out in order here.
             using (GlobalStateGuard.SkipProactive(true))
             {
                 var fake = ConnectedFake();
@@ -121,7 +128,7 @@
                 A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored))
                   .Invokes(call => writes.Add(((byte[])call.Arguments[0]!).ToArray()));
                 using var _ = new Client(fake, TimeSpan.FromMilliseconds(10), default,
-                  new[] { (Commands.Do, Options.Echo), (Commands.Will, Options.WindowSize) });
+                  new[] { (Commands.Do, Options.Echo), (Commands.Will, Options.WindowSize) }, skipProactiveNegotiation: false);
                 writes.Should().HaveCount(2);
                 writes[0].Should().Equal(new byte[] { 255, 253, 1 });
                 writes[1].Should().Equal(new byte[] { 255, 251, 31 });
@@ -173,18 +180,23 @@
         [Fact]
         public async Task WriteWhenDisconnectedIsNoop()
         {
+            // The scripted login replies only after the opening negotiation,
+            // so opt into proactive to establish the baseline write.
             var connected = true;
             var fake = A.Fake<IByteStream>();
             A.CallTo(() => fake.Connected).ReturnsLazily(() => connected);
-            using var sut = new Client(fake, TimeSpan.FromMilliseconds(10), default);
-            connected = false;
-            await sut.WriteAsync("hi");
-            await sut.WriteAsync(new byte[] { 1 });
-            // Proactive SGA happens in ctor while connected; post-disconnect writes must be no-ops.
-            A.CallTo(() => fake.WriteAsync(A<string>.Ignored, A<CancellationToken>.Ignored)).MustNotHaveHappened();
-            A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored)).MustHaveHappenedOnceExactly();
-            // ctor SGA did happen exactly once before disconnect
-            A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, 0, 3, A<CancellationToken>.Ignored)).MustHaveHappenedOnceExactly();
+            using (GlobalStateGuard.SkipProactive(false))
+            {
+                using var sut = new Client(fake, TimeSpan.FromMilliseconds(10), default, Array.Empty<(Commands, Options)>(), skipProactiveNegotiation: false);
+                connected = false;
+                await sut.WriteAsync("hi");
+                await sut.WriteAsync(new byte[] { 1 });
+                // Proactive SGA happens in ctor while connected; post-disconnect writes must be no-ops.
+                A.CallTo(() => fake.WriteAsync(A<string>.Ignored, A<CancellationToken>.Ignored)).MustNotHaveHappened();
+                A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored)).MustHaveHappenedOnceExactly();
+                // ctor SGA did happen exactly once before disconnect
+                A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, 0, 3, A<CancellationToken>.Ignored)).MustHaveHappenedOnceExactly();
+            }
         }
 
         [Fact]
@@ -241,17 +253,27 @@
         [Fact]
         public async Task TerminatedReadDefaultTimeoutOverloadReadsAccountPrompt()
         {
-            using var stream = new DummyByteStream();
-            using var sut = new Client(stream, new CancellationToken());
-            (await sut.TerminatedReadAsync(":")).Should().EndWith(":");
+            // The dummy server emits Account: only after the opening
+            // negotiation, so opt into proactive for this login script.
+            using (GlobalStateGuard.SkipProactive(false))
+            {
+                using var stream = new DummyByteStream();
+                using var sut = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), Array.Empty<(Commands, Options)>(), skipProactiveNegotiation: false);
+                (await sut.TerminatedReadAsync(":")).Should().EndWith(":");
+            }
         }
 
         [Fact]
         public async Task ReadDefaultOverloadReadsAccountPrompt()
         {
-            using var stream = new DummyByteStream();
-            using var sut = new Client(stream, new CancellationToken());
-            (await sut.ReadAsync()).Should().Contain("Account:");
+            // Same login-script requirement as above: no prompt without the
+            // opening negotiation.
+            using (GlobalStateGuard.SkipProactive(false))
+            {
+                using var stream = new DummyByteStream();
+                using var sut = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), Array.Empty<(Commands, Options)>(), skipProactiveNegotiation: false);
+                (await sut.ReadAsync()).Should().Contain("Account:");
+            }
         }
 
         [Fact]

@@ -44,6 +44,7 @@
         /// <param name="lang">Value volunteered for <c>LANG</c>, or null to omit.</param>
         /// <param name="columns">Value volunteered for <c>COLUMNS</c>, or null to omit.</param>
         /// <param name="lines">Value volunteered for <c>LINES</c>, or null to omit.</param>
+        /// <param name="colorTerm">Value volunteered for <c>COLORTERM</c>, or null to omit.</param>
         internal static byte[] BuildResponse(
           byte verb,
           IEnumerable<byte> requestedTypes,
@@ -53,7 +54,8 @@
           string? term = null,
           string? lang = null,
           string? columns = null,
-          string? lines = null)
+          string? lines = null,
+          string? colorTerm = null)
         {
             // RFC 1572 section 2: SEND is a request; responses are IS and INFO only.
             if (verb is not (Is or Info))
@@ -76,7 +78,7 @@
                 seenAny = true;
                 if (type == Var)
                 {
-                    AddWellKnown(entries, user, display, term, lang, columns, lines);
+                    AddWellKnown(entries, user, display, term, lang, columns, lines, colorTerm);
                 }
                 else if (type == UserVar && userVars is not null)
                 {
@@ -89,7 +91,7 @@
 
             if (!seenAny)
             {
-                AddWellKnown(entries, user, display, term, lang, columns, lines);
+                AddWellKnown(entries, user, display, term, lang, columns, lines, colorTerm);
                 if (userVars is not null)
                 {
                     foreach (var pair in userVars)
@@ -277,7 +279,8 @@
           string? term,
           string? lang,
           string? columns,
-          string? lines)
+          string? lines,
+          string? colorTerm = null)
         {
             if (user is not null)
             {
@@ -307,6 +310,11 @@
             if (lines is not null)
             {
                 entries.Add((Var, Encode("LINES"), Escape(Encode(lines))));
+            }
+
+            if (colorTerm is not null)
+            {
+                entries.Add((Var, Encode("COLORTERM"), Escape(Encode(colorTerm))));
             }
         }
 

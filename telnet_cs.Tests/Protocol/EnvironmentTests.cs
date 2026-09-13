@@ -72,7 +72,8 @@
         private static byte[] LangCEntry() => Concat([0], L("LANG"), [1], L("C"));
         private static byte[] ColumnsEntry() => Concat([0], L("COLUMNS"), [1], L("80"));
         private static byte[] LinesEntry() => Concat([0], L("LINES"), [1], L("24"));
-        private static byte[][] SystemEntries() => [TermEntry(), LangCEntry(), ColumnsEntry(), LinesEntry()];
+        private static byte[] ColorTermEntry() => Concat([0], L("COLORTERM"), [1], L(System.Environment.GetEnvironmentVariable("COLORTERM") ?? string.Empty));
+        private static byte[][] SystemEntries() => [TermEntry(), LangCEntry(), ColumnsEntry(), LinesEntry(), ColorTermEntry()];
 
         [Fact]
         public async Task EnvironSend_AllRequested_ReturnsExactIsFrame()
@@ -157,7 +158,8 @@
               Concat([0], L("TERM"), [1], L("vt220")),
               Concat([0], L("LANG"), [1], L("C")),
               Concat([0], L("COLUMNS"), [1], L("19")),
-              Concat([0], L("LINES"), [1], L("84")));
+              Concat([0], L("LINES"), [1], L("84")),
+              Concat([0], L("COLORTERM"), [1], L(System.Environment.GetEnvironmentVariable("COLORTERM") ?? string.Empty)));
             stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(expected);
         }
 
@@ -171,9 +173,10 @@
             output.Should().BeEmpty();
             var expected = ExpectedIsFrame(0, 39,
               Concat([0], L("TERM"), [1], L("vt100")),
-              Concat([0], L("LANG"), [1], L("en_US.utf-8")),
+              Concat([0], L("LANG"), [1], L("en_US.utf8")),
               Concat([0], L("COLUMNS"), [1], L("80")),
-              Concat([0], L("LINES"), [1], L("24")));
+              Concat([0], L("LINES"), [1], L("24")),
+              Concat([0], L("COLORTERM"), [1], L(System.Environment.GetEnvironmentVariable("COLORTERM") ?? string.Empty)));
             stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(expected);
         }
 
@@ -214,7 +217,7 @@
         {
             var (output, stream) = await ReadHandlerOnceAsync(ConfigureFull, 255, 250, 36, 0, 255, 240);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 252, 36 });
+            stream.ByteWrites.Should().BeEmpty();
         }
 
         [Fact]

@@ -66,10 +66,13 @@
         [Fact]
         public async Task ModeRequest_IsConfirmedWithAck()
         {
-            var (output, stream) = await ReadWithStreamAsync(255, 250, 34, 1, 3, 255, 240);
+            // MODE is only answered after LINEMODE agreement: DO is agreed with
+            // WILL, then the mask is echoed verbatim plus ACK.
+            var (output, stream) = await ReadWithStreamAsync(255, 253, 34, 255, 250, 34, 1, 3, 255, 240);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should()
-              .Equal(new byte[] { 255, 250, 34, 1, 7, 255, 240 });
+            stream.ByteWrites.Should().HaveCount(2);
+            stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 34 });
+            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 1, 7, 255, 240 });
         }
 
         [Fact]
@@ -77,56 +80,69 @@
         {
             // Port of test_client_process_chunk_split_sb_linemode: IAC SB
             // LINEMODE MODE split across reads must be stashed, then
-            // answered once the mode byte and IAC SE arrive.
-            using var stream = new ScriptedStream(255, 250, 34, 1);
+            // answered once the mode byte and IAC SE arrive. Agreement comes
+            // first so the completed MODE is answered verbatim plus ACK.
+            using var stream = new ScriptedStream(255, 253, 34, 255, 250, 34, 1);
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
-            stream.ByteWrites.Should().BeEmpty();
+            stream.ByteWrites.Should().ContainSingle().Which.Should()
+              .Equal(new byte[] { 255, 251, 34 });
             stream.Enqueue(3, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should()
-              .Equal(new byte[] { 255, 250, 34, 1, 7, 255, 240 });
+            stream.ByteWrites.Should().HaveCount(2);
+            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 1, 7, 255, 240 });
         }
 
         [Fact]
         public async Task ModeRepeatAcrossReads_RepliesOnce()
         {
+            // Agreement first, then the same MODE twice: the first is echoed
+            // verbatim plus ACK, the repeat is already in effect and silent.
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
                 using var client = new Client(stream, new CancellationToken());
-                stream.Enqueue(255, 250, 34, 1, 3, 255, 240);
+                stream.Enqueue(255, 253, 34);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 stream.Enqueue(255, 250, 34, 1, 3, 255, 240);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
-                stream.ByteWrites.Should().ContainSingle().Which.Should()
-                  .Equal(new byte[] { 255, 250, 34, 1, 7, 255, 240 });
+                stream.Enqueue(255, 250, 34, 1, 3, 255, 240);
+                (await ReadClientOnceAsync(client)).Should().BeEmpty();
+                stream.ByteWrites.Should().HaveCount(2);
+                stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 34 });
+                stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 1, 7, 255, 240 });
             }
         }
 
         [Fact]
         public async Task ModeUnsupportedBits_AnsweredAsSubset()
         {
-            // EDIT | TRAPSIG | SOFT_TAB | LIT_ECHO: the terminal-processing bits
-            // are dropped, EDIT/TRAPSIG are never cleared, ACK is set.
-            var (_, stream) = await ReadWithStreamAsync(255, 250, 34, 1, 27, 255, 240);
-            stream.ByteWrites.Should().ContainSingle().Which.Should()
-              .Equal(new byte[] { 255, 250, 34, 1, 7, 255, 240 });
+            // EDIT | TRAPSIG | SOFT_TAB | LIT_ECHO: the mask is echoed verbatim
+            // plus ACK with no subsetting, even for bits without local handling.
+            var (_, stream) = await ReadWithStreamAsync(255, 253, 34, 255, 250, 34, 1, 27, 255, 240);
+            stream.ByteWrites.Should().HaveCount(2);
+            stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 34 });
+            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 1, 31, 255, 240 });
         }
 
         [Fact]
         public async Task ModeAck_IsNeverAnswered()
         {
+            // Agreement first: MODE without ACK is echoed verbatim plus ACK,
+            // then the ACK echoing the agreed mask is already in effect and silent.
             using var stream = new ScriptedStream();
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
+            stream.Enqueue(255, 253, 34);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.Enqueue(255, 250, 34, 1, 3, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.Enqueue(255, 250, 34, 1, 7, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should()
-              .Equal(new byte[] { 255, 250, 34, 1, 7, 255, 240 });
+            stream.ByteWrites.Should().HaveCount(2);
+            stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 34 });
+            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 1, 7, 255, 240 });
         }
 
         [Fact]
@@ -142,8 +158,7 @@
         {
             var (output, stream) = await ReadWithStreamAsync(255, 250, 34, 253, 2, 0, 0, 255, 240);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should()
-              .Equal(new byte[] { 255, 250, 34, 252, 2, 255, 240 });
+            stream.ByteWrites.Should().BeEmpty();
         }
 
         public static TheoryData<int> ForwardMaskSilentVerbs => new()

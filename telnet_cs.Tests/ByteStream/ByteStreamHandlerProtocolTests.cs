@@ -62,14 +62,13 @@
         [Theory]
         // Port of test_telnet_reader_using_readline_unicode and
         // test_telnet_reader_using_readline_bytes (same 9 vectors, bytes and
-        // unicode): strict-NVT line-break handling. telnetlib3 blocks on
-        // unterminated tails until EOF; C# returns what arrived when the read
-        // ends (CONFLICT on "---\r"/"xxxxxxxxxxx", left failing if it diverges).
-        [InlineData("alpha\r\0", "alpha\r")]
+        // unicode): ReadAsync preserves CR NUL bytes verbatim; trimming of
+        // CR NUL to CR happens only in line-oriented TerminatedRead callers.
+        [InlineData("alpha\r\0", "alpha\r\0")]
         [InlineData("bravo\r\n", "bravo\r\n")]
         [InlineData("charlie\n", "charlie\n")]
         [InlineData("---\r", "---\r")]
-        [InlineData("\r\0", "\r")]
+        [InlineData("\r\0", "\r\0")]
         [InlineData("\n", "\n")]
         [InlineData("\r\n", "\r\n")]
         [InlineData("xxxxxxxxxxx", "xxxxxxxxxxx")]
@@ -365,14 +364,14 @@
         [Fact]
         public async Task SubnegotiationMalformedSendsWont()
         {
-            // SEND missing (0 instead of 1) -> fallback IAC WONT opt
+            // Malformed subnegotiation (IS where SEND is expected) is ignored:
+            // subnegotiation never synthesizes WONT, so nothing is written.
             var fake = FakeStreamOnce(new[] { 255, 250, 24, 0, 255, 240 });
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(fake, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
-            A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, 0, 3, A<CancellationToken>.Ignored))
-              .WhenArgumentsMatch(o => o[0] is byte[] b && b[0] == 255 && b[1] == 252 && b[2] == 24)
-              .MustHaveHappened();
+            A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored)).MustNotHaveHappened();
+            A.CallTo(() => fake.WriteByteAsync(A<byte>.Ignored, A<CancellationToken>.Ignored)).MustNotHaveHappened();
         }
 
         [Fact]

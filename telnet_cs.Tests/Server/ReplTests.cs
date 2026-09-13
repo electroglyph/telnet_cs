@@ -29,7 +29,7 @@ namespace telnet_cs.Tests
             all.Should().Contain("Ready.");
             all.Should().Contain("tel:sh> ");
             all.Should().Contain("quit/help/version/negotiation/stats/environ");
-            all.Should().Contain("Bye.");
+            all.Should().Contain("Goodbye.");
             stream.ByteWrites.Count(w => w.SequenceEqual(new byte[] { 255, 249 })).Should().Be(2);
         }
 
@@ -41,7 +41,7 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream, options);
             await ServerShells.RunReplAsync(session, CancellationToken.None);
             stream.ByteWrites.Should().BeEmpty();
-            string.Concat(stream.StringWrites).Should().Contain("Bye.");
+            string.Concat(stream.StringWrites).Should().Contain("Goodbye.");
         }
 
         [Fact]
@@ -51,7 +51,7 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             await ServerShells.RunReplAsync(session, CancellationToken.None);
             string all = string.Concat(stream.StringWrites);
-            all.Should().Contain("Unknown command");
+            all.Should().Contain("no such command.");
             all.Should().Contain("Echo:");
             all.Should().Contain("rx=45");
             all.Should().Contain("(empty)");

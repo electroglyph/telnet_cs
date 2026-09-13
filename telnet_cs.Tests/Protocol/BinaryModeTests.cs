@@ -61,12 +61,10 @@
         [Fact]
         public async Task HighBytes_WithoutAgreement_AreDropped()
         {
-            // RFC 856: NVT is 7-bit until BINARY is agreed for the inbound
-            // direction, so a bare 8-bit byte earns no action (neither data
-            // nor echo). The doubled IAC still decodes: it is an explicit
-            // peer framing act, not a bare byte.
+            // The bytes path is 8-bit-clean: bare high bytes arrive as Latin-1
+            // even without BINARY. The doubled IAC still decodes as well.
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 200, 255, 255);
-            output.Should().Be("\u00ff");
+            output.Should().Be("\u00c8\u00ff");
             stream.ByteWrites.Should().BeEmpty();
         }
 

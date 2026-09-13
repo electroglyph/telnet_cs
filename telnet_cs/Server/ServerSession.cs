@@ -166,6 +166,7 @@
                     finally
                     {
                         sbResumeState = handler.SbResumeState;
+                        framingState = handler.FramingState;
                     }
                 }
             }
@@ -386,6 +387,7 @@
             // per-read): a frame split across reads reassembles instead of
             // dropping its first half (telnetlib3 _sb_buffer parity).
             handler.SbResumeState = sbResumeState;
+            handler.FramingState = framingState;
             // TerminalType/TerminalSpeed keep their "vt100"/"19200,19200"
             // defaults: harmless responder values if a peer ever SENDs to us.
         }

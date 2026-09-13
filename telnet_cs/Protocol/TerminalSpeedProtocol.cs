@@ -26,13 +26,13 @@
         internal static string? Validate(string? configured)
         {
             string[]? parts = configured?.Split(',');
-            if (parts?.Length != 2)
+            if (parts is null || parts.Length < 2)
             {
                 return null;
             }
 
-            string? tx = NormalizeRate(parts[0]);
-            string? rx = NormalizeRate(parts[1]);
+            string? tx = NormalizeRate(parts[0].Trim());
+            string? rx = NormalizeRate(parts[1].Trim());
             if (tx is null || rx is null)
             {
                 return null;

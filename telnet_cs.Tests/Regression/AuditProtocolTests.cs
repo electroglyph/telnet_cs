@@ -31,35 +31,24 @@ namespace telnet_cs.Tests
         [Fact]
         public void MsdpDecode_TableKeyWithoutVal_KeepsKeyWithEmptyValue()
         {
-            // Reassessment: telnetlib3's _parse_table stores unconditionally
-            // (the VAL check only skips one byte), so parity keeps "K" with
-            // an empty value. The TMI MSDP spec forbids framing bytes inside
-            // names/values, so the key must be exactly "K" (no TABLE_CLOSE
-            // leak); only the top-level parse drops VAL-less keys.
+            // Keys run until VAR or VAL only, so TABLE_CLOSE stays inside the
+            // key. The table parse stores unconditionally, keeping the key
+            // with an empty value.
             var payload = new byte[] { Var, (byte)'A', Val, TableOpen, Var, (byte)'K', TableClose };
             var result = MudProtocol.MsdpDecode(payload);
             var table = result["A"].Should().BeOfType<Dictionary<string, object?>>().Subject;
-            table.Should().ContainKey("K").WhoseValue.Should().Be("");
+            table.Should().ContainKey("K\x04").WhoseValue.Should().Be("");
         }
 
         [Fact]
         public void MsdpDecode_FramingBytes_DoNotLeakIntoKeys()
         {
-            // TMI MSDP spec ("Variables and Values"): variables and values
-            // cannot contain VAR, VAL, TABLE_OPEN/CLOSE, ARRAY_OPEN/CLOSE,
-            // NUL or IAC, so a framing byte always terminates a key. This
-            // deliberately diverges from telnetlib3's _read_key, which stops
-            // only at VAL/VAR and leaks the byte into the key.
-            // Reasoning (recheck): the previous assertion (ContainKey("K"))
-            // could never pass — once ReadKey stops at TABLE_CLOSE, the top
-            // level sees no VAL after "K" and drops the key, so the correct
-            // post-fix result is empty. OnlyContain cannot express that (it
-            // fails on empty collections), so emptiness plus an explicit
-            // no-leak assertion is pinned instead.
+            // Keys run until VAR or VAL only, so a framing byte such as
+            // TABLE_CLOSE is preserved inside the key instead of terminating
+            // it. The top level still requires VAL after the key.
             var payload = new byte[] { Var, (byte)'K', TableClose, Val, (byte)'v' };
             var result = MudProtocol.MsdpDecode(payload);
-            result.Should().BeEmpty();
-            result.Should().NotContainKey("K\x04");
+            result.Should().ContainSingle().Which.Should().Be(KeyValuePair.Create<string, object?>("K\x04", "v"));
         }
 
         [Fact]
@@ -123,18 +112,17 @@ namespace telnet_cs.Tests
         [Fact]
         public void EncodingFromLang_TrailingDot_ReturnsNull()
         {
-            // POSIX locale form is language[_territory[.codeset]][@modifier]
-            // with non-empty segments: a trailing '.' introduces an empty
-            // codeset, which names no encoding, so null is correct.
-            TelnetAccessories.EncodingFromLang("en_US.").Should().BeNull();
+            // Matches the reference split-once behavior: "en_US." carries an
+            // empty codeset string (not missing), so empty is correct.
+            TelnetAccessories.EncodingFromLang("en_US.").Should().Be(string.Empty);
         }
 
         [Fact]
         public void EncodingFromLang_EmptyModifier_ReturnsNull()
         {
-            // Same locale rule: ".@misc" is an empty codeset before the
-            // modifier, not a useable encoding name, so null is correct.
-            TelnetAccessories.EncodingFromLang("en_US.@misc").Should().BeNull();
+            // Same split-once rule: ".@misc" is an empty codeset before the
+            // modifier, so empty is correct.
+            TelnetAccessories.EncodingFromLang("en_US.@misc").Should().Be(string.Empty);
         }
 
         [Fact]

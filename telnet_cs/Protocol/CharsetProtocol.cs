@@ -28,14 +28,14 @@ namespace telnet_cs.Protocol
         /// <summary>Offer a translation table (4). Answered with <see cref="TTableRejected"/>.</summary>
         public const byte TTableIs = 4;
 
-        /// <summary>Acknowledge a translation table (5). Logged and ignored.</summary>
-        public const byte TTableAck = 5;
+        /// <summary>Reject a translation table (5). Leaves the charset unchanged.</summary>
+        public const byte TTableRejected = 5;
 
-        /// <summary>Negative-acknowledge a translation table (6). Logged and ignored.</summary>
-        public const byte TTableNak = 6;
+        /// <summary>Acknowledge a translation table (6). Logged and ignored.</summary>
+        public const byte TTableAck = 6;
 
-        /// <summary>Reject a translation table (7). Leaves the charset unchanged.</summary>
-        public const byte TTableRejected = 7;
+        /// <summary>Negative-acknowledge a translation table (7). Logged and ignored.</summary>
+        public const byte TTableNak = 7;
 
         /// <summary>
         /// Builds a <c>REQUEST</c> payload (verb first, without IAC SB/SE

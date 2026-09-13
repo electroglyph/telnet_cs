@@ -186,7 +186,7 @@
         /// <summary>
         /// Gets or sets the idle disconnect timeout (the reference
         /// <c>timeout = 300</c>): a session whose <see cref="TelnetSessionContext"/>
-        /// saw no text read or written for this long is sent
+        /// saw no text read for this long is sent
         /// <c>"Timeout."</c> and closed. Defaults to 300 seconds;
         /// <c>Timeout.InfiniteTimeSpan</c> (or any non-positive span) disables.
         /// </summary>

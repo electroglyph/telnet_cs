@@ -89,11 +89,14 @@
         [Fact]
         public async Task MultiTerminatorMatchesAny()
         {
-            using var stream = new DummyByteStream();
-            using var client = new Client(stream, new CancellationToken());
-            var result = await client.TerminatedReadAsync(
-              new[] { "Nope>", "Account:" }, TimeSpan.FromSeconds(5), 1);
-            result.Should().Be("Account:");
+            using (GlobalStateGuard.SkipProactive(false))
+            {
+                using var stream = new DummyByteStream();
+                using var client = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false);
+                var result = await client.TerminatedReadAsync(
+                  new[] { "Nope>", "Account:" }, TimeSpan.FromSeconds(5), 1);
+                result.Should().Be("Account:");
+            }
         }
 
         [Fact]
@@ -105,8 +108,8 @@
                 using var client = new Client(stream, new CancellationToken());
                 client.Settings.TerminalType = "xterm";
                 await client.ReadAsync(TimeSpan.FromMilliseconds(200));
-                stream.ByteWrites.Should().HaveCount(2);
-                stream.ByteWrites[1].Should().Equal(
+                stream.ByteWrites.Should().HaveCount(1);
+                stream.ByteWrites[0].Should().Equal(
                   new byte[] { 255, 250, 24, 0, 120, 116, 101, 114, 109, 255, 240 });
                 Client.TerminalType.Should().Be("vt100");
             }
@@ -120,8 +123,8 @@
             client.Settings.TextEncoding = Encoding.UTF8;
             await client.WriteAsync("caf\u00E9");
             stream.StringWrites.Should().BeEmpty();
-            stream.ByteWrites.Should().HaveCount(2); // ctor negotiation + encoded write
-            stream.ByteWrites[1].Should().Equal(new byte[] { 99, 97, 102, 195, 169 });
+            stream.ByteWrites.Should().HaveCount(1);
+            stream.ByteWrites[0].Should().Equal(new byte[] { 99, 97, 102, 195, 169 });
         }
 
         [Fact]

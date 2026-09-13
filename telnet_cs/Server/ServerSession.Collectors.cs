@@ -55,7 +55,9 @@
         private MccpDecompressor? mccpStream;
         // Subnegotiation continuation stashed by the last read, fed into the
         // next per-read handler (telnetlib3 _sb_buffer parity).
-        private (int Option, byte[] Payload, bool OverCap, bool SePending, bool IacPending)? sbResumeState;        // MUD stores survive across per-read handlers: append collections are
+        private (int Option, byte[] Payload, bool OverCap, bool SePending, bool IacPending)? sbResumeState;
+        private (bool PendingIac, int? PendingVerb, bool SawCr, int? Pushback) framingState;
+        // MUD stores survive across per-read handlers: append collections are
         // injected into each handler, and the replaced MSSP mapping is
         // captured through the MSSP hook.
         private IReadOnlyDictionary<string, object>? mudMsspData;
@@ -533,7 +535,8 @@
         private Task CheckEncodingAsync(CancellationToken cancellationToken)
         {
             if (Negotiation.IsEnabledByUs((int)Options.TransmitBinary) &&
-                !Negotiation.IsEnabledByPeer((int)Options.TransmitBinary))
+                !Negotiation.IsEnabledByPeer((int)Options.TransmitBinary) &&
+                !Negotiation.WasRefusedByPeer((int)Options.TransmitBinary))
             {
                 return CheckEncodingWithBinaryRequestAsync(cancellationToken);
             }
@@ -956,16 +959,8 @@
                 negotiateEchoPending = true;
                 if (answer.Length == 0)
                 {
-                    // Empty IS advances nothing: the next answer fills the same
-                    // slot (telnetlib3 stores-then-overwrites to the same net
-                    // effect), so the chain keeps its order. An empty first
-                    // answer still ends the reference cycle, so it arms the
-                    // deferred environ request.
-                    if (terminalTypeChain.Count == 0)
-                    {
-                        negotiateEnvironPending = true;
-                    }
-
+                    negotiateEnvironPending = true;
+                    expectingTerminalType = false;
                     return true;
                 }
 
@@ -1193,7 +1188,11 @@
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
             while (!isDone() && DateTime.UtcNow < end && !linked.Token.IsCancellationRequested)
             {
-                await ReadAsync(TimeSpan.FromMilliseconds(MillisecondReadDelay), linked.Token).ConfigureAwait(false);
+                var text = await ReadAsync(TimeSpan.FromMilliseconds(MillisecondReadDelay), linked.Token).ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(text))
+                {
+                    PendingText += text;
+                }
             }
         }
 
