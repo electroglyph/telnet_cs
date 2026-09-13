@@ -143,10 +143,13 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task EnvironInfo_SentOnNewEnvironment_WhenOnlyNewAgreed()
         {
-            // Source of truth: ~/telnetlib3/telnetlib3 answers environment
-            // changes on whichever option was negotiated; gating INFO on
-            // OLD-only drops updates for NEW-only sessions, leaving
-            // LANG/COLUMNS/LINES stale there.
+            // Source of truth: the reference server only DOs NEW_ENVIRON
+            // (~/telnetlib3/telnetlib3/server.py _negotiate_environ) and its
+            // client sends no spontaneous INFO (IS replies only), so a
+            // change-gated INFO framed on OLD-only is dead against reference
+            // peers: OLD is never enabled, and NEW-only updates are dropped.
+            // The fix frames INFO on the negotiated option; the payload shape
+            // below mirrors the pinned OLD-path frame, only the option differs.
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
@@ -168,9 +171,11 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task EnvironInfo_ExplicitDisplay_IsVolunteered()
         {
-            // Source of truth: ~/telnetlib3/telnetlib3/client.py withholds
-            // DISPLAY unless configured; here Settings.EnvironmentDisplay
-            // (null by default) is the explicit opt-in and then appears in INFO.
+            // Source of truth: ~/telnetlib3/telnetlib3/client.py never sends
+            // DISPLAY at all ("intentionally not available (security)"); here
+            // Settings.EnvironmentDisplay (null by default) is the explicit
+            // opt-in, and then DISPLAY appears in INFO. This pins the Cs
+            // superset shape.
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
@@ -206,11 +211,13 @@ namespace telnet_cs.Tests
         {
             // Source of truth: ~/telnetlib3/telnetlib3/stream_writer.py sends
             // the STATUS IS snapshot immediately on DO STATUS, without waiting
-            // for a SEND first.
+            // for a SEND first. The snapshot reflects live option state, so
+            // with nothing negotiated yet it is empty (executed: WILL 05 then
+            // FF FA 05 00 FF F0).
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 253, 5);
             output.Should().BeEmpty();
             var will = new byte[] { 255, 251, 5 };
-            var snapshot = new byte[] { 255, 250, 5, 0, 251, 5, 255, 240 };
+            var snapshot = new byte[] { 255, 250, 5, 0, 255, 240 };
             stream.ByteWrites.Should().Contain(w => w.SequenceEqual(will));
             stream.ByteWrites.Should().Contain(w => w.SequenceEqual(snapshot));
         }
@@ -229,8 +236,11 @@ namespace telnet_cs.Tests
         public void LinemodeBuffer_DefaultSlc_CoversBsdEditingRows()
         {
             // Source of truth: ~/telnetlib3/telnetlib3/slc.py BSD_SLC_TAB gives
-            // RP, LNEXT, XON, XOFF and AO negotiated values; the edit table
-            // must know them or those rows can never trigger local editing.
+            // RP, LNEXT, XON, XOFF and AO negotiated values (executed on the
+            // reference: func4=0x0F, func13=0x12, func14=0x16, func15=0x11,
+            // func16=0x13); the edit table lacks those rows entirely today
+            // (KeyNotFound), so the "connect edit table to negotiation table"
+            // half has nothing to consult for them.
             LinemodeBuffer.DefaultSlc[13].Should().Be(0x12); // RP ^R
             LinemodeBuffer.DefaultSlc[14].Should().Be(0x16); // LNEXT ^V
             LinemodeBuffer.DefaultSlc[15].Should().Be(0x11); // XON ^Q
@@ -261,8 +271,11 @@ namespace telnet_cs.Tests
         public async Task Server_AckedMode_PublishesSlcAutomatically()
         {
             // Source of truth: ~/telnetlib3/telnetlib3/stream_writer.py sends
-            // the SLC table on the first ACKed MODE; without it the peer never
-            // learns our special characters.
+            // the SLC table on the first server-side MODE (executed: the full
+            // 16-row default table); without it the peer never learns our
+            // special characters. Cs-shaped expectation: the configured-rows
+            // export (PublishSpecialCharactersAsync semantics), here the one
+            // row set above.
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             session.SetLinemodeEntry(3, 2, 5);
@@ -301,8 +314,13 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task IacWhereOptionBelongs_DroppedSilently()
         {
-            // A 0xFF byte where the option byte belongs is not a real option:
-            // drop it with no reply and no data, for both negotiation verbs.
+            // A 0xFF byte where the option byte belongs is not a real option.
+            // Parity boundary (executed on the reference): the 3-byte prefix
+            // parks Py with no reply and no data, matching this drop; but on
+            // the full 6-byte feed Py swallows the IAC pair, consumes the
+            // 0xFB as DO's option byte and answers WONT 251, while Cs drops
+            // everything. This pins the Cs silent-drop (pathological peer
+            // only); the 6-byte WONT-251 delta is a known Low divergence.
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 253, 255, 255, 251, 255);
             output.Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
