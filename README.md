@@ -69,7 +69,28 @@ speed), 1091 (terminal type), 1096 (X display), 1184 (linemode), 1372
     `Server.TelnetSessionContext` (activity timestamps, rx/tx counters,
     typescript recorder, property bag), `IdleTimeout` (default 300 s),
     `StatusInterval` (default 20 s), and opt-in `TlsAutoDetect` peek.
-- 997 tests, full suite green with warnings-as-errors. Requires the
+- 1180 tests, full suite green with warnings-as-errors. Requires the
   .NET 10 SDK and runtime; build with
   `dotnet build telnet_cs.sln -c Release`.
 - Usage guides: [client](docs/client.md), [server](docs/server.md).
+
+## Testing
+
+Run the full suite (builds first, so a separate build step is optional):
+
+```sh
+dotnet test telnet_cs.sln -c Release
+```
+
+For a focused run, filter by test name or class:
+
+```sh
+dotnet test telnet_cs.sln -c Release --filter "FullyQualifiedName~MccpTests"
+dotnet test telnet_cs.sln -c Release --filter "FullyQualifiedName~RetroEncodingTests"
+```
+
+Check formatting (CI treats warnings as errors; unformatted pushes fail):
+
+```sh
+dotnet format --verify-no-changes
+```
