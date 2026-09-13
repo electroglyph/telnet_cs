@@ -34,12 +34,13 @@ namespace telnet_cs.Client
         public abstract Task<string> ReadAsync(TimeSpan timeout, CancellationToken cancellationToken);
 
         /// <summary>
-        /// Sends <c>IAC GA</c> (Go-Ahead, RFC 854) unless Suppress-GA is in
-        /// effect in either direction, in which case GA is a NOP and nothing
-        /// is sent. Mirrors the reference <c>send_ga</c>, which returns
-        /// <c>False</c> once the local WILL-SGA state holds after
-        /// <c>DO SGA</c> (unlike <c>SendCommand(Commands.GoAhead)</c>, which
-        /// transmits unconditionally).
+        /// Sends <c>IAC GA</c> (Go-Ahead, RFC 854) unless our WILL
+        /// Suppress-GA holds, in which case GA is a NOP and nothing is
+        /// sent. Only the local side suppresses: mirrors the reference
+        /// <c>send_ga</c>, which returns <c>False</c> once the local
+        /// WILL-SGA state holds after <c>DO SGA</c> (unlike
+        /// <c>SendCommand(Commands.GoAhead)</c>, which transmits
+        /// unconditionally).
         /// </summary>
         /// <param name="cancellationToken">A token to cancel the send.</param>
         /// <returns><c>true</c> when the GA byte pair was sent, <c>false</c> when SGA suppressed it.</returns>
@@ -66,7 +67,17 @@ namespace telnet_cs.Client
                 SendRateLimit.Release();
             }
 
+            NoteGaSent();
             return true;
+        }
+
+        /// <summary>
+        /// Notes a transmitted <c>IAC GA</c> pair for transport accounting.
+        /// The base implementation is a no-op; the server session reports
+        /// the two wire bytes to its session counters.
+        /// </summary>
+        protected virtual void NoteGaSent()
+        {
         }
 
         /// <summary>
@@ -77,6 +88,12 @@ namespace telnet_cs.Client
         /// where those wait for one subnegotiation reply, this waits for any
         /// caller-supplied negotiation predicate (the reference
         /// <c>wait_for</c>/<c>wait_for_condition</c> hook).
+        /// Polling contract: the waiter pumps the wire in 50 ms slices (a
+        /// condition met mid-slice is observed up to a slice late) and
+        /// restores any pumped application text to <c>PendingText</c> in
+        /// arrival order, so the next <c>ReadAsync</c> sees it first. The
+        /// waiter is a data-path participant, not a passive observer (the
+        /// reference never reads while waiting).
         /// </summary>
         /// <param name="condition">The predicate over the live negotiation state.</param>
         /// <param name="timeout">The maximum time to wait.</param>

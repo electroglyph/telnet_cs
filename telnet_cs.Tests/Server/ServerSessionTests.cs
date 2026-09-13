@@ -169,6 +169,31 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task DoLogout_ClosesStreamWithoutReply()
+        {
+            // RFC 727: a DO LOGOUT asks us to end the session — no
+            // negotiation bytes go out, the stream closes (the reference
+            // closes its transport).
+            using var stream = new ScriptedStream(255, 253, 18);
+            using var session = NewSession(stream);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
+            stream.Connected.Should().BeFalse();
+            stream.ByteWrites.Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task DoLogout_RepeatedDo_StaysClosedWithoutThrowing()
+        {
+            // The hook fires on every DO LOGOUT (repeats included); Close
+            // is idempotent so the second close is a no-op.
+            using var stream = new ScriptedStream(255, 253, 18, 255, 253, 18);
+            using var session = NewSession(stream);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
+            stream.Connected.Should().BeFalse();
+            stream.ByteWrites.Should().BeEmpty();
+        }
+
+        [Fact]
         public async Task PlainListener_TlsClientHello_ClosesWithWarning()
         {
             // A 0x16 lead byte on a plaintext listener is a TLS ClientHello:
@@ -441,6 +466,18 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             var line = await session.TerminatedReadAsync("\n", TimeSpan.FromMilliseconds(500));
             line.Should().Be("hi\n");
+        }
+
+        [Fact]
+        public async Task TerminatedReadAsync_CrNulCollapsesToSingleCr()
+        {
+            // CR NUL is the wire spelling of a lone CR (RFC 854): raw reads
+            // preserve both bytes, line helpers normalize — same as the
+            // client reader.
+            using var stream = new ScriptedStream("A\r\0B\n");
+            using var session = NewSession(stream);
+            var line = await session.TerminatedReadAsync("\n", TimeSpan.FromMilliseconds(500));
+            line.Should().Be("A\rB\n");
         }
 
         // NOTE: multi-line auth conversations need later lines Enqueued after
@@ -753,6 +790,31 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task RequestTerminalTypesAsync_OverflowPastCap_StopsAndReleasesEnviron()
+        {
+            // Past TTYPE_LOOPMAX the reference stops soliciting and moves on
+            // to the environment: the 10th distinct answer ends the wait at
+            // once (no timeout), overwriting the single overflow slot (last
+            // wins) with the deferred DO NEW_ENVIRON released.
+            var options = new TelnetServerOptions { RequestNewEnvironment = true };
+            using var stream = new ScriptedStream();
+            var frames = new List<int>();
+            for (int n = 0; n < 10; n++)
+            {
+                frames.AddRange(TtypeIsFrame("term" + n));
+            }
+
+            stream.Enqueue([.. frames]);
+            using var session = new ServerSession(stream, options, CancellationToken.None);
+            var sw = Stopwatch.StartNew();
+            var types = await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5));
+            sw.Stop();
+            types.Should().Equal("term0", "term1", "term2", "term3", "term4", "term5", "term6", "term7", "term9");
+            sw.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(4));
+            ContainsSubsequence(OutboundBytes(stream), [255, 253, 39]).Should().BeTrue();
+        }
+
+        [Fact]
         public async Task RequestTerminalTypesAsync_NonConsecutiveRepeat_StopsAtFirstRepeat()
         {
             // A repeat of the first entry looped the cycle: the terminating
@@ -780,10 +842,12 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task RequestTerminalTypesAsync_BeyondLoopMax_OverflowSlotKeepsLast()
+        public async Task RequestTerminalTypesAsync_BeyondLoopMax_StopsAtCap()
         {
-            // Past slot 8, answers keep overwriting the overflow slot, so the
-            // last answer wins there (telnetlib3's ttype{LOOPMAX+1}).
+            // Past slot 8 the cycle stops at once (the reference stops at
+            // TTYPE_LOOPMAX and moves on to the environment): the 10th answer
+            // overwrites the single overflow slot a final time, and answers
+            // after the stop are ignored instead of spinning to the timeout.
             using var stream = new ScriptedStream();
             var script = new System.Collections.Generic.List<int>();
             for (var i = 1; i <= 12; i++)
@@ -794,7 +858,7 @@ namespace telnet_cs.Tests
             stream.Enqueue([.. script]);
             using var session = NewSession(stream);
             await session.RequestTerminalTypesAsync(TimeSpan.FromMilliseconds(300));
-            session.ClientTerminalTypes.Should().Equal("T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T12");
+            session.ClientTerminalTypes.Should().Equal("T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T10");
         }
 
         [Fact]
@@ -1226,10 +1290,9 @@ namespace telnet_cs.Tests
         public async Task ForwardMask_WillWithoutLinemode_IsIgnored()
         {
             // Port of test_handle_sb_forwardmask_server_without_linemode
-            // (DIVERGENCE on the state half): an inbound WILL FORWARDMASK
-            // with no LINEMODE agreement is ignored — no reply, no data —
-            // instead of setting a remote-forwardmask flag (no such state
-            // exists here).
+            // (wire half): an inbound WILL FORWARDMASK with no LINEMODE
+            // agreement is ignored on the wire — no reply, no data — while
+            // still recording the remote sub-state.
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             stream.Enqueue([255, 250, 34, 251, 2, 255, 240]);
@@ -1493,6 +1556,40 @@ namespace telnet_cs.Tests
               251, 0, 251, 3, 251, 5,
               253, 24, 253, 31, 253, 32, 253, 34, 253, 36,
               255, 240);
+        }
+
+        [Fact]
+        public async Task StatusIs_RecordsPairsWithoutReplyOrStateChange()
+        {
+            // RFC 859: STATUS IS is display-only — parsed and recorded,
+            // never fed back into the Q-machine, no reply.
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            session.PeerStatusReport.Should().BeNull();
+            stream.Enqueue([255, 250, 5, 0, 251, 3, 253, 3, 255, 240]);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+            session.PeerStatusReport.Should().Equal(
+                new ServerSession.StatusReportItem(Commands.Will, 3, null),
+                new ServerSession.StatusReportItem(Commands.Do, 3, null));
+            session.Negotiation.GetStates(3).Should().Be((NegotiationState.SideState.No, NegotiationState.SideState.No));
+        }
+
+        [Fact]
+        public async Task StatusIs_SbBlock_RecordsDataBytes()
+        {
+            // RFC 859 §5 inner framing: SB <opt> <data> with a bare-SE
+            // terminator records the block bytes; the byte after it belongs
+            // to the subsequent stream.
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            stream.Enqueue([255, 250, 5, 0, 250, 31, 0, 80, 0, 24, 240, 65]);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("A");
+            stream.ByteWrites.Should().BeEmpty();
+            var item = session.PeerStatusReport.Should().ContainSingle().Which;
+            item.Verb.Should().Be(Commands.Subnegotiation);
+            item.Option.Should().Be(31);
+            item.Data.Should().Equal(0, 80, 0, 24);
         }
 
         [Fact]

@@ -67,6 +67,10 @@
         private readonly List<AardwolfMessage> mudAardwolfData = [];
         private readonly List<(string Package, string Value)> mudAtcpData = [];
         private (ushort Width, ushort Height)? clientWindowSize;
+        // Last parsed STATUS IS report (RFC 859): verb/option pairs and SB
+        // blocks, recorded for display only — never fed back into the
+        // Q-machine.
+        private IReadOnlyList<StatusReportItem>? peerStatusReport;
         // Arrival order shared by option-35 IS and ENVIRON DISPLAY writes, so
         // the effective display resolves last-arrived-wins (RFC 1408 §5). Zero
         // means "never arrived" on both sides.
@@ -278,9 +282,10 @@
 
         /// <summary>
         /// Maximum terminal-type answers stored in distinct slots, mirroring
-        /// telnetlib3's <c>TTYPE_LOOPMAX</c>: answers past slot 8 keep
-        /// overwriting the overflow slot (<c>ttype9</c>), so the last answer
-        /// always wins there.
+        /// telnetlib3's <c>TTYPE_LOOPMAX</c>: the answer arriving past slot 8
+        /// is recorded once in the overflow slot (<c>ttype9</c>) then the
+        /// cycle stops and the deferred environ request is released, so the
+        /// last answer wins there without waiting out the timeout.
         /// </summary>
         internal const int TerminalTypeLoopMax = 8;
 
@@ -364,15 +369,43 @@
         }
 
         /// <summary>
+        /// One parsed STATUS IS item (RFC 859): a <c>WILL</c>/<c>WONT</c>/
+        /// <c>DO</c>/<c>DONT</c> option pair (<c>Data</c> null), or an
+        /// <c>SB &lt;opt&gt; &lt;data&gt; SE</c> block (<c>Verb</c> is
+        /// <c>Subnegotiation</c>).
+        /// </summary>
+        /// <param name="Verb">The item verb.</param>
+        /// <param name="Option">The option byte.</param>
+        /// <param name="Data">The SB block bytes, or null for verb pairs.</param>
+        public readonly record struct StatusReportItem(Commands Verb, byte Option, byte[]? Data);
+
+        /// <summary>
+        /// Gets the last STATUS IS report from the peer (RFC 859), or null
+        /// when none arrived. Recorded for display only: arriving reports
+        /// never affect negotiation state.
+        /// </summary>
+        public IReadOnlyList<StatusReportItem>? PeerStatusReport
+        {
+            get
+            {
+                lock (collectorLock)
+                {
+                    return peerStatusReport is null ? null : [.. peerStatusReport];
+                }
+            }
+        }
+
+        /// <summary>
         /// Asks the peer for its terminal-type list (RFC 1091: <c>SEND</c>,
         /// then one <c>IS</c> per entry). The returned list ends at the first
         /// repeat: a reply equal to the first entry (cycle looped) or to the
         /// previous entry terminates the list, as does an <c>MTTS</c>
         /// capability vector in the third slot; the terminating duplicate is
         /// excluded. Empty answers advance nothing (the next answer fills the
-        /// same slot). Answers past slot <see cref="TerminalTypeLoopMax"/>
-        /// keep overwriting the overflow slot, so a peer that never repeats
-        /// is bounded and the last answer wins there. Returns whatever arrived
+        /// same slot). The answer arriving past slot <see cref="TerminalTypeLoopMax"/>
+        /// is recorded once in the overflow slot and the cycle stops there
+        /// (releasing the deferred environ request), so a peer that never
+        /// repeats is bounded and the last answer wins. Returns whatever arrived
         /// when the timeout elapses (possibly empty).
         /// </summary>
         /// <param name="timeout">The maximum time to wait for the full chain.</param>
@@ -890,6 +923,14 @@
                 return TryConsumeCharset(payload);
             }
 
+            if (inputOption == (int)Options.Status)
+            {
+                // RFC 859: STATUS IS reports the peer's option state for
+                // display only — parse and record it, never touching the
+                // Q-machine (the reference only logs the comparison).
+                return TryConsumeStatus(payload);
+            }
+
             if (payload[0] != EnvironmentProtocol.Is && payload[0] != EnvironmentProtocol.Info)
             {
                 return false;
@@ -941,6 +982,61 @@
             }
         }
 
+        private bool TryConsumeStatus(List<byte> payload)
+        {
+            // RFC 859: IS followed by WILL/WONT/DO/DONT <opt> pairs and
+            // SB <opt> <data> SE blocks. Anything else (including a trailing
+            // lone byte, which the reference logs and stops at) ends the
+            // parse; the frame is still consumed.
+            if (payload.Count == 0 || payload[0] != StatusProtocol.Is)
+            {
+                return false;
+            }
+
+            var items = new List<StatusReportItem>();
+            int i = 1;
+            while (i < payload.Count)
+            {
+                if (i + 1 >= payload.Count)
+                {
+                    break;
+                }
+
+                if (payload[i] == (byte)Commands.Subnegotiation)
+                {
+                    byte option = payload[i + 1];
+                    int end = payload.IndexOf((byte)Commands.SubnegotiationEnd, i + 2);
+                    byte[] data = end < 0
+                      ? [.. payload.Skip(i + 2)]
+                      : [.. payload.Skip(i + 2).Take(end - (i + 2))];
+                    items.Add(new StatusReportItem(Commands.Subnegotiation, option, data));
+                    if (end < 0)
+                    {
+                        break;
+                    }
+
+                    i = end + 1;
+                    continue;
+                }
+
+                if (payload[i] is (byte)Commands.Will or (byte)Commands.Wont or (byte)Commands.Do or (byte)Commands.Dont)
+                {
+                    items.Add(new StatusReportItem((Commands)payload[i], payload[i + 1], null));
+                    i += 2;
+                    continue;
+                }
+
+                break;
+            }
+
+            lock (collectorLock)
+            {
+                peerStatusReport = [.. items];
+            }
+
+            return true;
+        }
+
         private bool TryConsumeTerminalType(List<byte> payload)
         {
             lock (collectorLock)
@@ -980,10 +1076,13 @@
 
                 if (terminalTypeChain.Count > TerminalTypeLoopMax)
                 {
-                    // Overflow slot: keep overwriting with the latest answer
-                    // (telnetlib3's ttype{LOOPMAX+1}), staying open until a
-                    // repeat, an MTTS vector, or the timeout ends the wait.
+                    // Past the cap: record the final answer once, then stop
+                    // soliciting and release the deferred environ request
+                    // (the reference stops at TTYPE_LOOPMAX and moves on to
+                    // the environment instead of waiting out the timeout).
                     terminalTypeChain[^1] = answer;
+                    expectingTerminalType = false;
+                    negotiateEnvironPending = true;
                     return true;
                 }
 
@@ -1206,6 +1305,7 @@
                 try
                 {
                     await ByteStream.WriteAsync(frame, 0, frame.Length, linked.Token).ConfigureAwait(false);
+                    Context.NoteWritten(frame.Length);
                 }
                 finally
                 {
@@ -1224,6 +1324,7 @@
                 try
                 {
                     await ByteStream.WriteAsync(frame, 0, frame.Length, linked.Token).ConfigureAwait(false);
+                    Context.NoteWritten(frame.Length);
                 }
                 finally
                 {

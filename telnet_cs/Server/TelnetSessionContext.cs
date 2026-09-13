@@ -34,12 +34,19 @@ namespace telnet_cs.Server
         public TimeSpan Idle => DateTimeOffset.UtcNow - LastActivityUtc;
 
         /// <summary>
-        /// Gets the count of wire bytes read, negotiation included.
+        /// Gets the count of raw wire bytes received, negotiation frames
+        /// included (the reference counts <c>len(data)</c> on receipt, so a
+        /// multibyte character contributes its encoded length and every IAC
+        /// frame counts). Fed by the session from the per-read handler's
+        /// wire counters; decoded text is never counted here.
         /// </summary>
         public long CharsReceived { get; private set; }
 
         /// <summary>
-        /// Gets the count of wire bytes written.
+        /// Gets the count of raw wire bytes written, protocol frames
+        /// included (the reference counts <c>len(buf)</c> on transmit, so an
+        /// escaped IAC counts twice). Fed by every session write path with
+        /// the exact on-the-wire length.
         /// </summary>
         public long CharsSent { get; private set; }
 
@@ -64,13 +71,21 @@ namespace telnet_cs.Server
         internal void NoteRead(string text)
         {
             LastActivityUtc = DateTimeOffset.UtcNow;
-            CharsReceived += System.Text.Encoding.UTF8.GetByteCount(text);
             RecordTranscript(text);
         }
 
-        internal void NoteWritten(string text)
+        /// <summary>
+        /// Adds raw wire-byte deltas observed below the text layer (IAC
+        /// frames, MCCP-compressed bytes, bytes consumed by negotiation
+        /// replies). The session calls this once per read with the
+        /// per-read handler's counters.
+        /// </summary>
+        internal void NoteWireTransfer(long bytesReceived, long bytesSent)
         {
-            CharsSent += text.Length;
+            ArgumentOutOfRangeException.ThrowIfNegative(bytesReceived);
+            ArgumentOutOfRangeException.ThrowIfNegative(bytesSent);
+            CharsReceived += bytesReceived;
+            CharsSent += bytesSent;
         }
 
         internal void NoteWritten(int byteCount)

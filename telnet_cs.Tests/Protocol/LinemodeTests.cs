@@ -186,6 +186,87 @@
         }
 
         [Fact]
+        public async Task ForwardMaskDo_StoresMaskAndMarksOffered()
+        {
+            // RFC 1184 §2.3: a well-formed DO FORWARDMASK is stored silently
+            // (no reply) and marks the local sub-state.
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            stream.Enqueue(255, 250, 34, 253, 2, 0x01, 0x02, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+            sut.Linemode.ForwardMask.Should().Equal(0x01, 0x02);
+            sut.Linemode.ForwardMaskOffered.Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task ForwardMaskOversized_NotStored_OfferedStillMarked()
+        {
+            // Masks longer than 32 bytes are rejected without a reply, like
+            // the reference ("invalid length"); the sub-state still flips.
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            var frame = new List<int> { 255, 250, 34, 253, 2 };
+            frame.AddRange(Enumerable.Repeat(1, 33));
+            frame.AddRange([255, 240]);
+            stream.Enqueue(frame.ToArray());
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+            sut.Linemode.ForwardMask.Should().BeNull();
+            sut.Linemode.ForwardMaskOffered.Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task ForwardMaskDont_ClearsOffered_KeepsStoredMask()
+        {
+            // DONT clears the local sub-state but keeps stored bytes (the
+            // reference only flips its local flag).
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            stream.Enqueue(255, 250, 34, 253, 2, 0x01, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.Enqueue(255, 250, 34, 254, 2, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+            sut.Linemode.ForwardMaskOffered.Should().BeFalse();
+            sut.Linemode.ForwardMask.Should().Equal(0x01);
+        }
+
+        [Fact]
+        public async Task ForwardMaskWillWont_RecordAcceptedSilently()
+        {
+            // WILL/WONT record the remote sub-state without any reply.
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            stream.Enqueue(255, 250, 34, 251, 2, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            sut.Linemode.ForwardMaskAccepted.Should().BeTrue();
+            stream.Enqueue(255, 250, 34, 252, 2, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+            sut.Linemode.ForwardMaskAccepted.Should().BeFalse();
+        }
+
+        [Fact]
+        public async Task ForwardMaskEmptyDo_LeavesStateUntouched()
+        {
+            // An empty DO is warned on and ignored: nothing stored, the
+            // sub-state unflipped, no reply.
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            stream.Enqueue(255, 250, 34, 253, 2, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+            sut.Linemode.ForwardMask.Should().BeNull();
+            sut.Linemode.ForwardMaskOffered.Should().BeFalse();
+        }
+
+        [Fact]
         public async Task SlcServerValue_AgreedWithAck()
         {
             var (output, stream) = await ReadWithStreamAsync(255, 250, 34, 3, 3, 2, 9, 255, 240);

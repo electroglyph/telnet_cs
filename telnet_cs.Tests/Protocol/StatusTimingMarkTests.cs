@@ -152,9 +152,57 @@
         }
 
         [Fact]
-        public async Task WillTimingMark_GetsDo()
+        public async Task WillTimingMark_Unsolicited_IgnoredSilently()
         {
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 251, 6);
+            output.Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task WillTimingMark_Solicited_PersistsAgreementWithoutReply()
+        {
+            var stream = new ScriptedStream([255, 251, 6]);
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            sut.Negotiation.RequestTimingMark().Should().Be(Commands.Do);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+            sut.Negotiation.IsEnabledByPeer((int)Options.TimingMark).Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task WillTimingMark_WhileAgreedWithoutOutstanding_IgnoredSilently()
+        {
+            var stream = new ScriptedStream([255, 251, 6]);
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            sut.Negotiation.RequestTimingMark();
+            sut.Negotiation.ReceivedWill((int)Options.TimingMark, agree: true);
+            sut.Negotiation.IsEnabledByPeer((int)Options.TimingMark).Should().BeTrue();
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+            sut.Negotiation.IsEnabledByPeer((int)Options.TimingMark).Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task WontTimingMark_Solicited_ClearsOutstandingWithoutReply()
+        {
+            var stream = new ScriptedStream([255, 252, 6]);
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            sut.Negotiation.RequestTimingMark().Should().Be(Commands.Do);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+            sut.Negotiation.GetStates((int)Options.TimingMark).Him
+              .Should().Be(NegotiationState.SideState.No);
+            sut.Negotiation.WasRefusedByPeer((int)Options.TimingMark).Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task WontTimingMark_Unsolicited_IgnoredSilently()
+        {
+            var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 252, 6);
             output.Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
         }
@@ -181,6 +229,41 @@
                 await client.SendTimingMarkAsync();
                 await client.SendTimingMarkAsync();
                 stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 253, 6 });
+            }
+        }
+
+        [Fact]
+        public async Task TimingMarkRoundTrip_PeerWill_RecordsAgreement()
+        {
+            using (GlobalStateGuard.SkipProactive(true))
+            {
+                using var stream = new ScriptedStream();
+                using var client = new Client(stream, new CancellationToken());
+                await client.SendTimingMarkAsync();
+                stream.Enqueue(255, 251, 6);
+                (await ReadClientOnceAsync(client)).Should().BeEmpty();
+                stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 253, 6 });
+                client.Negotiation.IsEnabledByPeer((int)Options.TimingMark).Should().BeTrue();
+            }
+        }
+
+        [Fact]
+        public async Task SendTimingMarkAsync_AfterAgreement_Repings()
+        {
+            // Every DO TM is answered, so a ping after agreement goes out
+            // again instead of being suppressed as already-negotiated.
+            using (GlobalStateGuard.SkipProactive(true))
+            {
+                using var stream = new ScriptedStream();
+                using var client = new Client(stream, new CancellationToken());
+                await client.SendTimingMarkAsync();
+                stream.Enqueue(255, 251, 6);
+                (await ReadClientOnceAsync(client)).Should().BeEmpty();
+                await client.SendTimingMarkAsync();
+                stream.ByteWrites.Should().HaveCount(2);
+                stream.ByteWrites[1].Should().Equal(new byte[] { 255, 253, 6 });
+                client.Negotiation.GetStates((int)Options.TimingMark).Him
+                  .Should().Be(NegotiationState.SideState.WantYes);
             }
         }
 

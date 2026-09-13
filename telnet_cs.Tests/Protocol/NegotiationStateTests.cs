@@ -435,6 +435,40 @@
         }
 
         [Fact]
+        public void RequestTimingMark_Fresh_SendsDoThenSuppressesWhileOutstanding()
+        {
+            var state = new NegotiationState();
+            state.RequestTimingMark().Should().Be(Commands.Do);
+            state.GetStates(6).Him.Should().Be(NegotiationState.SideState.WantYes);
+            state.RequestTimingMark().Should().BeNull();
+        }
+
+        [Fact]
+        public void RequestTimingMark_WhenAgreed_ResendsDo()
+        {
+            // Unlike RequestEnable, an agreed timing mark still re-pings:
+            // every DO TM is answered, so suppression would break the
+            // round-trip measurement.
+            var state = new NegotiationState();
+            state.RequestTimingMark().Should().Be(Commands.Do);
+            state.ReceivedWill(6, agree: true).Should().BeNull();
+            state.IsEnabledByPeer(6).Should().BeTrue();
+            state.RequestTimingMark().Should().Be(Commands.Do);
+            state.GetStates(6).Him.Should().Be(NegotiationState.SideState.WantYes);
+        }
+
+        [Fact]
+        public void RequestTimingMark_AfterRefusal_ClearsRefusalAndSendsDo()
+        {
+            var state = new NegotiationState();
+            state.RequestTimingMark().Should().Be(Commands.Do);
+            state.ReceivedWont(6).Should().BeNull();
+            state.WasRefusedByPeer(6).Should().BeTrue();
+            state.RequestTimingMark().Should().Be(Commands.Do);
+            state.WasRefusedByPeer(6).Should().BeFalse();
+        }
+
+        [Fact]
         public void InvalidOption_ThrowsOutOfRange()
         {
             var state = new NegotiationState();

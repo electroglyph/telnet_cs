@@ -106,6 +106,12 @@ namespace telnet_cs.Encodings
             set => decoderFallbackOverride = value;
         }
 
+        /// <inheritdoc/>
+        public override Encoder GetEncoder()
+        {
+            return new CharmapEncoder(this);
+        }
+
         /// <summary>
         /// Adjusts the built encode table (e.g. ATASCII maps LF to 0x9B).
         /// </summary>
@@ -313,6 +319,185 @@ namespace telnet_cs.Encodings
         {
             ArgumentOutOfRangeException.ThrowIfNegative(byteCount);
             return checked(byteCount * 2);
+        }
+
+        private sealed class CharmapEncoder(CharmapEncoding encoding) : Encoder
+        {
+            private char? pendingLead;
+
+            public override int GetByteCount(char[] chars, int index, int count, bool flush)
+            {
+                ArgumentNullException.ThrowIfNull(chars);
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
+                ArgumentOutOfRangeException.ThrowIfNegative(count);
+                ArgumentOutOfRangeException.ThrowIfGreaterThan(count, chars.Length - index);
+                var end = index + count;
+                var i = index;
+                var bytes = 0;
+                char? lead = pendingLead;
+                if (lead.HasValue)
+                {
+                    if (i < end && char.IsLowSurrogate(chars[i]))
+                    {
+                        var pair = new string([lead.Value, chars[i]]);
+                        bytes += encoding.TryEncodeScalar(pair, out _)
+                            ? 1
+                            : encoding.EncodeWithFallback([lead.Value, chars[i]], 0, 2, null, 0);
+                        i++;
+                    }
+                    else if (flush)
+                    {
+                        bytes += encoding.EncodeWithFallback([lead.Value], 0, 1, null, 0);
+                    }
+
+                    lead = null;
+                    if (!flush && i >= end)
+                    {
+                        return bytes;
+                    }
+                }
+
+                while (i < end)
+                {
+                    if (char.IsHighSurrogate(chars[i]))
+                    {
+                        if (i + 1 < end && char.IsLowSurrogate(chars[i + 1]))
+                        {
+                            var scalar = new string([chars[i], chars[i + 1]]);
+                            bytes += encoding.TryEncodeScalar(scalar, out _)
+                                ? 1
+                                : encoding.EncodeWithFallback(chars, i, 2, null, 0);
+                            i += 2;
+                        }
+                        else if (i + 1 == end && !flush)
+                        {
+                            break;
+                        }
+                        else
+                        {
+                            bytes += encoding.EncodeWithFallback(chars, i, 1, null, 0);
+                            i++;
+                        }
+                    }
+                    else
+                    {
+                        var scalar = chars[i].ToString();
+                        bytes += encoding.TryEncodeScalar(scalar, out _)
+                            ? 1
+                            : encoding.EncodeWithFallback(chars, i, 1, null, 0);
+                        i++;
+                    }
+                }
+
+                return bytes;
+            }
+
+            public override int GetBytes(char[] chars, int charIndex, int charCount, byte[] bytes, int byteIndex, bool flush)
+            {
+                var end = charIndex + charCount;
+                var i = charIndex;
+                var written = 0;
+                if (pendingLead.HasValue)
+                {
+                    if (i < end && char.IsLowSurrogate(chars[i]))
+                    {
+                        var lead = pendingLead.Value;
+                        var scalar = new string([lead, chars[i]]);
+                        pendingLead = null;
+                        if (byteIndex + written >= bytes.Length)
+                        {
+                            return written;
+                        }
+
+                        if (!encoding.TryEncodeScalar(scalar, out var mapped))
+                        {
+                            written += encoding.EncodeWithFallback([lead, chars[i]], 0, 2, bytes, byteIndex + written);
+                        }
+                        else
+                        {
+                            bytes[byteIndex + written] = mapped;
+                            written++;
+                        }
+
+                        i++;
+                    }
+                    else if (flush)
+                    {
+                        var lead = pendingLead.Value;
+                        pendingLead = null;
+                        written += encoding.EncodeWithFallback([lead], 0, 1, bytes, byteIndex + written);
+                    }
+                    else if (i >= end)
+                    {
+                        return written;
+                    }
+                    else
+                    {
+                        var lead = pendingLead.Value;
+                        pendingLead = null;
+                        written += encoding.EncodeWithFallback([lead], 0, 1, bytes, byteIndex + written);
+                    }
+                }
+
+                while (i < end)
+                {
+                    var start = i;
+                    string scalar;
+                    int next;
+                    if (char.IsHighSurrogate(chars[i]) && i + 1 < end && char.IsLowSurrogate(chars[i + 1]))
+                    {
+                        scalar = new string([chars[i], chars[i + 1]]);
+                        next = i + 2;
+                    }
+                    else if (char.IsHighSurrogate(chars[i]) && i + 1 == end && !flush)
+                    {
+                        pendingLead = chars[i];
+                        i++;
+                        continue;
+                    }
+                    else
+                    {
+                        scalar = chars[i].ToString();
+                        next = i + 1;
+                    }
+
+                    if (byteIndex + written >= bytes.Length)
+                    {
+                        return written;
+                    }
+
+                    i = next;
+                    if (!TryWriteScalar(chars, start, next - start, scalar, bytes, byteIndex, ref written))
+                    {
+                        return written;
+                    }
+                }
+
+                return written;
+            }
+
+            public override void Reset()
+            {
+                pendingLead = null;
+            }
+
+            private bool TryWriteScalar(char[] chars, int start, int length, string scalar, byte[] bytes, int byteIndex, ref int written)
+            {
+                if (byteIndex + written >= bytes.Length)
+                {
+                    return false;
+                }
+
+                if (!encoding.TryEncodeScalar(scalar, out var mapped))
+                {
+                    written += encoding.EncodeWithFallback(chars, start, length, bytes, byteIndex + written);
+                    return true;
+                }
+
+                bytes[byteIndex + written] = mapped;
+                written++;
+                return true;
+            }
         }
     }
 }

@@ -237,6 +237,76 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task RawFixedHuffmanStream_ResumesPlaintext()
+        {
+            // Hand-built fixed-Huffman final block (BFINAL=1, BTYPE=01)
+            // spelling "HI", followed by plaintext "YO": the block walker
+            // proves the end at the exact byte, so the same read resumes
+            // plaintext and agreement ends.
+            var wire = Mccp2Stream([0xF3, 0xF0, 0x04, 0x00]).Concat("YO".Select(c => (int)c)).ToArray();
+            var (output, _, sut) = await ReadOnceAsync(h => h.EnableMccp = true, wire);
+            output.Should().Be("HIYO");
+            sut.Mccp2Active.Should().BeFalse();
+        }
+
+        [Fact]
+        public async Task RawDynamicHuffmanStream_ResumesPlaintext()
+        {
+            // Raw deflate with a dynamic-Huffman final block (BTYPE=10, as
+            // emitted by zlib level 9 for repetitive text): no footer
+            // exists, so only the block walker can prove the end and resume
+            // the trailing plaintext in the same read.
+            const string segment = "Pack my box with five dozen liquor jugs! 0123456789 ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz. ";
+            var expected = string.Concat(Enumerable.Repeat(segment, 40));
+            var compressed = Convert.FromHexString(
+              "edcd4516c2301405d0ad7c36c0c1650814b760456695b44d2d54525b3d6b60feee062e33ac80a29a4c595129728" +
+              "f1c5170b265c3630a45a2644abe72b31675babdfe60381a4fa6349b2fb4e56abdd9eef687e3e9cc2ed7dbfda13f5" +
+              "fef0f19a66573c7f5841f84512cbf499ae5aa28abba691343850a152a54a850a142850a152a54a850a1faa7fa01");
+            var wire = Mccp2Stream(compressed).Concat("YO".Select(c => (int)c)).ToArray();
+            var (output, _, sut) = await ReadOnceAsync(h => h.EnableMccp = true, wire);
+            output.Should().Be(expected + "YO");
+            sut.Mccp2Active.Should().BeFalse();
+        }
+
+        [Fact]
+        public async Task RawFixedHuffmanStream_SplitDelivery_ResumesPlaintext()
+        {
+            // The first two bytes decode "H" but leave the block open, so
+            // agreement stays; the rest (plus trailing "YO") completes the
+            // block on a carried stream and resumes plaintext.
+            var first = Mccp2Stream([0xF3, 0xF0]);
+            var second = new byte[] { 0x04, 0x00, (byte)'Y', (byte)'O' }.Select(b => (int)b).ToArray();
+
+            using var stream = new ScriptedStream(first);
+            using var cts = new CancellationTokenSource();
+            string output1;
+            MccpDecompressor? carried;
+            bool carriedActive;
+            using (var sut = new ByteStreamHandler(stream, cts, 1))
+            {
+                sut.EnableMccp = true;
+                output1 = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
+                carried = sut.MccpStream;
+                carriedActive = sut.Mccp2Active;
+            }
+
+            output1.Should().Be("H");
+            carriedActive.Should().BeTrue();
+
+            stream.Enqueue(second);
+            using (var sut = new ByteStreamHandler(stream, cts, 1))
+            {
+                sut.EnableMccp = true;
+                // Session carry, exactly what FeedSession/FeedHandler persist.
+                sut.Mccp2Active = carriedActive;
+                sut.MccpStream = carried;
+                var output2 = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
+                (output1 + output2).Should().Be("HIYO");
+                sut.Mccp2Active.Should().BeFalse();
+            }
+        }
+
+        [Fact]
         public async Task RawStreamStartingWithZlibMagic_RetriesRawInsteadOfFailing()
         {
             // A raw deflate stream may start with 0x78 and mis-sniff as zlib

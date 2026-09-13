@@ -277,6 +277,19 @@
         }
 
         [Fact]
+        public async Task DoLogout_ClosesStreamWithoutReply()
+        {
+            // RFC 727: a DO LOGOUT asks us to end the session — no
+            // negotiation bytes go out, the stream closes (the reference
+            // closes its transport).
+            using var stream = new ScriptedStream(255, 253, 18);
+            using var sut = new Client(stream, new CancellationToken());
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
+            stream.Connected.Should().BeFalse();
+            stream.ByteWrites.Should().BeEmpty();
+        }
+
+        [Fact]
         public async Task TerminatedReadEmptyTerminatorReturnsAfterFirstRead()
         {
             // An empty terminator is meaningless (String.IndexOf("") is 0,

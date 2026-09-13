@@ -93,6 +93,10 @@
             handler.EnableComPort = Settings.EnableComPort;
             handler.Linemode = linemodeState;
             handler.GoAheadReceived = OnGoAheadReceived;
+            // RFC 727: a DO LOGOUT asks us to end the session. No
+            // negotiation bytes go out; the hook closes the stream.
+            // Close is idempotent, so repeat DOs are harmless.
+            handler.LogoutRequested = () => ByteStream.Close();
             handler.SbResumeState = sbResumeState;
             handler.FramingState = framingState;
         }

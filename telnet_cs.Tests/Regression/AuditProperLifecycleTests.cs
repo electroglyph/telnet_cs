@@ -156,6 +156,69 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task SessionCounters_NegotiationIncludedInReceivedBytes()
+        {
+            // IAC DO TTYPE (3 wire bytes) plus C3 A9 ("é" in UTF-8, 2 wire
+            // bytes): the counter must see all 5 raw bytes, not the single
+            // decoded char.
+            var options = new TelnetServerOptions { TextEncoding = System.Text.Encoding.UTF8 };
+            using var stream = new ScriptedStream(255, 253, 24, 195, 169);
+            using var session = new ServerSession(stream, options, CancellationToken.None);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("é");
+            session.Context.CharsReceived.Should().Be(5);
+        }
+
+        [Fact]
+        public async Task SessionCounters_Latin1Byte_CountsOneWireByte()
+        {
+            // Default Latin-1 mapping: byte E9 decodes to "é" (one char) but
+            // is a single wire byte. A UTF-8-hardcoded count would report 2.
+            using var stream = new ScriptedStream(0xE9);
+            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("é");
+            session.Context.CharsReceived.Should().Be(1);
+        }
+
+        [Fact]
+        public async Task SessionCounters_Utf8Write_CountsEncodedBytes()
+        {
+            // "é" is one char but two UTF-8 wire bytes (C3 A9). A
+            // char-counting write path would report 1.
+            var options = new TelnetServerOptions { TextEncoding = System.Text.Encoding.UTF8 };
+            using var stream = new ScriptedStream();
+            using var session = new ServerSession(stream, options, CancellationToken.None);
+            await session.WriteAsync("é", CancellationToken.None);
+            session.Context.CharsSent.Should().Be(2);
+            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 195, 169 });
+        }
+
+        [Fact]
+        public async Task SessionCounters_EscapedIacWrite_CountsBothWireBytes()
+        {
+            // One 0xFF data byte goes out IAC-doubled: two wire bytes, not
+            // the one pre-escape input byte.
+            using var stream = new ScriptedStream();
+            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            await session.WriteAsync(new byte[] { 0xFF }, CancellationToken.None);
+            session.Context.CharsSent.Should().Be(2);
+            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 255 });
+        }
+
+        [Fact]
+        public async Task SessionCounters_NegotiationReply_CountsWireBytes()
+        {
+            // An inbound WILL TTYPE is answered with a 3-byte DO/DONT frame;
+            // the reply must reach the transmit counter even though it never
+            // passes through a WriteAsync overload.
+            using var stream = new ScriptedStream(255, 251, 24);
+            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
+            session.Context.CharsReceived.Should().Be(3);
+            session.Context.CharsSent.Should().Be(3);
+            stream.ByteWrites.SelectMany(w => w).Should().HaveCount(3);
+        }
+
+        [Fact]
         public async Task Typescript_RecordsServerOutputOnly()
         {
             // Source of truth: the typescript records server output only.

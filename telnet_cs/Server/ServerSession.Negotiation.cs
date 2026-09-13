@@ -102,13 +102,17 @@
         /// <c>IAC DO</c>), unless already enabled, already negotiating, or
         /// refused without new stimulus (see <see cref="Negotiation"/>).
         /// An explicit call is new stimulus and clears a remembered refusal.
+        /// Timing-mark pings go through the ping path so repeats re-emit.
         /// </summary>
         /// <param name="telnetOption">The option to request.</param>
         /// <param name="cancellationToken">A token to cancel the send.</param>
         /// <returns>An awaitable Task.</returns>
         public Task RequestEnableAsync(Options telnetOption, CancellationToken cancellationToken = default)
         {
-            return SendRequestAsync(Negotiation.RequestEnable((int)telnetOption), telnetOption, cancellationToken);
+            var verb = telnetOption == Options.TimingMark
+              ? Negotiation.RequestTimingMark()
+              : Negotiation.RequestEnable((int)telnetOption);
+            return SendRequestAsync(verb, telnetOption, cancellationToken);
         }
 
         /// <summary>
@@ -168,6 +172,7 @@
                 {
                     // A command frame has no data bytes, so no IAC escaping is needed.
                     await ByteStream.WriteAsync([(byte)Commands.InterpretAsCommand, (byte)command], 0, 2, cancellationToken).ConfigureAwait(false);
+                    Context.NoteWritten(2);
                 }
                 finally
                 {
@@ -543,10 +548,11 @@
 
         // The single caller (SendRequestAsync) already drops null verbs, so the
         // non-nullable parameter lets the compiler enforce that contract.
-        private Task SendNegotiationBytesAsync(Commands verb, Options option, CancellationToken cancellationToken)
+        private async Task SendNegotiationBytesAsync(Commands verb, Options option, CancellationToken cancellationToken)
         {
             var buffer = new byte[] { (byte)Commands.InterpretAsCommand, (byte)verb, (byte)option };
-            return ByteStream.WriteAsync(buffer, 0, buffer.Length, cancellationToken);
+            await ByteStream.WriteAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
+            Context.NoteWritten(buffer.Length);
         }
 
         private async Task<string> TerminatedReadAsync(Func<string, bool> isTerminated, TimeSpan timeout, int millisecondSpin, CancellationToken cancellationToken)
@@ -559,7 +565,9 @@
                 s += read;
             }
 
-            return s;
+            // CR NUL is the wire spelling of a lone CR (RFC 854): raw reads
+            // preserve both bytes, line helpers normalize — same as the client.
+            return s.Replace("\r\0", "\r", StringComparison.Ordinal);
         }
 
         private void WriteLog(string message)

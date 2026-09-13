@@ -42,7 +42,11 @@ namespace telnet_cs.Server
         public static async Task RunReplAsync(ServerSession session, CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(session);
-            await session.WriteAsync($"Ready.{LineFeed.Rfc854}", cancellationToken).ConfigureAwait(false);
+            // The reference greets TLS peers with "Ready (secure: <ver>).":
+            // only the TLS-vs-plain distinction survives here (no handshake
+            // version string is kept), falling back to the bare "Ready.".
+            string banner = session.IsTls ? "Ready (secure: TLS)." : "Ready.";
+            await session.WriteAsync($"{banner}{LineFeed.Rfc854}", cancellationToken).ConfigureAwait(false);
             var pending = new System.Text.StringBuilder();
             while (!cancellationToken.IsCancellationRequested && session.IsConnected)
             {

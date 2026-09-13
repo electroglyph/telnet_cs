@@ -34,6 +34,9 @@
         /// </summary>
         private readonly SlcEntry[] defaults = new SlcEntry[LinemodeProtocol.MaxFunction + 1];
         private byte mode;
+        private byte[]? forwardMask;
+        private bool forwardMaskOffered;
+        private bool forwardMaskAccepted;
 
         /// <summary>Gets the agreed MODE mask, without the MODE_ACK bit.</summary>
         internal byte Mode
@@ -44,6 +47,104 @@
                 {
                     return mode;
                 }
+            }
+        }
+
+        /// <summary>
+        /// Gets the last agreed FORWARDMASK bytes (RFC 1184 §2.3), or null when
+        /// no well-formed <c>DO FORWARDMASK</c> has arrived. A defensive copy:
+        /// callers never alias the stored buffer.
+        /// </summary>
+        internal byte[]? ForwardMask
+        {
+            get
+            {
+                lock (sync)
+                {
+                    return forwardMask is null ? null : (byte[])forwardMask.Clone();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets whether the last FORWARDMASK verb was a <c>DO</c> (local
+        /// sub-state: the reference marks <c>local SB+FORWARDMASK</c> on DO,
+        /// clears it on DONT).
+        /// </summary>
+        internal bool ForwardMaskOffered
+        {
+            get
+            {
+                lock (sync)
+                {
+                    return forwardMaskOffered;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets whether the last FORWARDMASK verb was a <c>WILL</c> (remote
+        /// sub-state: the reference marks <c>remote SB+FORWARDMASK</c> on WILL,
+        /// clears it on WONT).
+        /// </summary>
+        internal bool ForwardMaskAccepted
+        {
+            get
+            {
+                lock (sync)
+                {
+                    return forwardMaskAccepted;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Applies an inbound <c>DO FORWARDMASK mask…</c> (RFC 1184 §2.3):
+        /// records the local sub-state and stores the mask. Only 1–32 mask
+        /// bytes are stored (the reference warns on any other length); the
+        /// sub-state is still recorded for overlong masks.
+        /// </summary>
+        /// <param name="mask">The mask bytes following the FORWARDMASK verb.</param>
+        /// <returns>Whether the mask was stored.</returns>
+        internal bool ApplyForwardMaskOffer(byte[] mask)
+        {
+            ArgumentNullException.ThrowIfNull(mask);
+            lock (sync)
+            {
+                forwardMaskOffered = true;
+                if (mask.Length is < 1 or > 32)
+                {
+                    return false;
+                }
+
+                forwardMask = (byte[])mask.Clone();
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Applies an inbound <c>DONT FORWARDMASK</c>: clears the local
+        /// sub-state. Stored bytes are kept (the reference only clears the
+        /// sub-state flag, never the stored mask).
+        /// </summary>
+        internal void ApplyForwardMaskRefusal()
+        {
+            lock (sync)
+            {
+                forwardMaskOffered = false;
+            }
+        }
+
+        /// <summary>
+        /// Applies an inbound <c>WILL</c>/<c>WONT FORWARDMASK</c>: records the
+        /// remote sub-state.
+        /// </summary>
+        /// <param name="accepted">Whether the verb was <c>WILL</c>.</param>
+        internal void ApplyForwardMaskAnswer(bool accepted)
+        {
+            lock (sync)
+            {
+                forwardMaskAccepted = accepted;
             }
         }
 

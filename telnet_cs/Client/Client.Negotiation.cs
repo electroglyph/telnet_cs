@@ -81,14 +81,15 @@
         /// TIMING-MARK</c>, RFC 860). The peer returns <c>IAC WILL
         /// TIMING-MARK</c> once everything sent before the mark has drained,
         /// which implements the round-trip and flush-discard patterns of
-        /// RFC 860 §5. Tracked by <see cref="Negotiation"/> like any other
-        /// request: a repeat while the request is outstanding sends nothing.
+        /// RFC 860 §5. Tracked by <see cref="Negotiation"/>: a repeat while
+        /// the request is outstanding sends nothing, but a repeat after the
+        /// mark was agreed re-pings (every <c>DO TM</c> is answered).
         /// </summary>
         /// <returns>An awaitable Task.</returns>
         /// <param name="cancellationToken">A token to cancel the send.</param>
         public Task SendTimingMarkAsync(CancellationToken cancellationToken = default)
         {
-            return RequestEnableAsync(Options.TimingMark, cancellationToken);
+            return SendRequestAsync(Negotiation.RequestTimingMark(), Options.TimingMark, cancellationToken);
         }
 
         private async Task SendRequestAsync(Commands? verb, Options option, CancellationToken cancellationToken)

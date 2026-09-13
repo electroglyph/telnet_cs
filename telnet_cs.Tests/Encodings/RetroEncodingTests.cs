@@ -183,6 +183,84 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public void Petscii_IncrementalEncoder_HoldsSplitSurrogateAcrossChunks()
+        {
+            var encoding = new PetsciiEncoding();
+            var encoder = encoding.GetEncoder();
+            var first = new byte[16];
+            var usedFirst = encoder.GetBytes(['\uD83D'], 0, 1, first, 0, false);
+            usedFirst.Should().Be(0);
+
+            var counter = encoding.GetEncoder();
+            counter.GetByteCount(['\uD83D'], 0, 1, false).Should().Be(0);
+
+            var second = new byte[16];
+            Action complete = () => encoder.GetBytes(['\uDE00'], 0, 1, second, 0, true);
+            complete.Should().Throw<EncoderFallbackException>();
+        }
+
+        [Fact]
+        public void Atarist_IncrementalEncoder_CompletesSplitSurrogateWithReplacement()
+        {
+            var encoding = new AtaristEncoding
+            {
+                EncoderFallback = EncoderFallback.ReplacementFallback,
+            };
+            var encoder = encoding.GetEncoder();
+            var first = new byte[16];
+            encoder.GetBytes(['\uD83D'], 0, 1, first, 0, false).Should().Be(0);
+
+            var second = new byte[16];
+            var usedSecond = encoder.GetBytes(['\uDE00'], 0, 1, second, 0, true);
+            usedSecond.Should().Be(1);
+            second[0].Should().Be((byte)'?');
+        }
+
+        [Fact]
+        public void Big5Bbs_IncrementalEncoder_StreamsAsciiAndDoubleByteChars()
+        {
+            var encoding = new Big5BbsEncoding();
+            var encoder = encoding.GetEncoder();
+            var buffer = new byte[16];
+            var usedFirst = encoder.GetBytes("A".ToCharArray(), 0, 1, buffer, 0, false);
+            usedFirst.Should().Be(1);
+            var usedSecond = encoder.GetBytes("中".ToCharArray(), 0, 1, buffer, 1, true);
+            usedSecond.Should().Be(2);
+            buffer[0].Should().Be(0x41);
+            buffer[1].Should().Be(0xA4);
+            buffer[2].Should().Be(0xA4);
+            encoding.GetBytes("A中").Should().Equal(buffer[..3]);
+        }
+
+        [Fact]
+        public void Big5Bbs_IncrementalEncoder_HoldsSplitSurrogateAcrossChunks()
+        {
+            var encoding = new Big5BbsEncoding
+            {
+                EncoderFallback = EncoderFallback.ReplacementFallback,
+            };
+            var encoder = encoding.GetEncoder();
+            var first = new byte[16];
+            encoder.GetBytes(['\uD83D'], 0, 1, first, 0, false).Should().Be(0);
+
+            var second = new byte[16];
+            var usedSecond = encoder.GetBytes(['\uDE00'], 0, 1, second, 0, true);
+            usedSecond.Should().Be(1);
+            second[0].Should().Be((byte)'?');
+        }
+
+        [Fact]
+        public void Big5Bbs_IncrementalEncoder_FlushWithLoneLead_Throws()
+        {
+            var encoding = new Big5BbsEncoding();
+            var encoder = encoding.GetEncoder();
+            var buffer = new byte[16];
+            encoder.GetBytes(['\uD83D'], 0, 1, buffer, 0, false).Should().Be(0);
+            Action flush = () => encoder.GetBytes([], 0, 0, buffer, 0, true);
+            flush.Should().Throw<EncoderFallbackException>();
+        }
+
+        [Fact]
         public void ForceBinary_PolicyMatchesReferenceSet()
         {
             TelnetEncodings.RequiresBinaryMode("atascii").Should().BeTrue();

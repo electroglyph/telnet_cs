@@ -167,6 +167,10 @@
                     {
                         sbResumeState = handler.SbResumeState;
                         framingState = handler.FramingState;
+                        // Raw wire bytes the handler pulled (negotiation
+                        // frames included) and wrote (replies, echo-back)
+                        // count here; decoded text never does.
+                        Context.NoteWireTransfer(handler.InboundWireBytes, handler.OutboundWireBytes);
                     }
                 }
             }
@@ -190,7 +194,6 @@
                 // Custom encoding: pre-encode here so the exact bytes hit the stream.
                 // Already IAC-escaped by the converter, so send raw.
                 await WriteRawAsync(ByteStringConverter.ConvertStringToByteArray(command, Settings.TextEncoding), cancellationToken).ConfigureAwait(false);
-                Context.NoteWritten(command);
                 return;
             }
 
@@ -201,7 +204,10 @@
                 try
                 {
                     await ByteStream.WriteAsync(command, linked.Token).ConfigureAwait(false);
-                    Context.NoteWritten(command);
+                    // The stream encodes exactly like the converter with a
+                    // null encoding (its TextEncoding is never set): Latin-1
+                    // plus IAC escaping, so this is the on-the-wire length.
+                    Context.NoteWritten(ByteStringConverter.ConvertStringToByteArray(command, null).Length);
                 }
                 finally
                 {
@@ -216,15 +222,15 @@
         /// <param name="data">The byte array to send.</param>
         /// <param name="cancellationToken">A token to cancel the write.</param>
         /// <returns>An awaitable Task.</returns>
-        public async Task WriteAsync(byte[] data, CancellationToken cancellationToken = default)
+        public Task WriteAsync(byte[] data, CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(data);
             // RFC 854: a literal IAC byte in user data must be escaped by
             // doubling (telnetlib3 write() parity). Protocol frames bypass
             // this method and write to the byte stream directly.
+            // WriteRawAsync counts the escaped on-the-wire length.
             var escaped = ByteStringConverter.EscapeIacBytes(data);
-            await WriteRawAsync(escaped, cancellationToken).ConfigureAwait(false);
-            Context.NoteWritten(data.Length);
+            return WriteRawAsync(escaped, cancellationToken);
         }
 
         private async Task WriteRawAsync(byte[] data, CancellationToken cancellationToken)
@@ -236,12 +242,22 @@
                 try
                 {
                     await ByteStream.WriteAsync(data, 0, data.Length, linked.Token).ConfigureAwait(false);
+                    Context.NoteWritten(data.Length);
                 }
                 finally
                 {
                     SendRateLimit.Release();
                 }
             }
+        }
+
+        /// <summary>
+        /// Reports a transmitted <c>IAC GA</c> pair (see
+        /// <see cref="BaseClient.SendGaAsync"/>) to the session counters.
+        /// </summary>
+        protected override void NoteGaSent()
+        {
+            Context.NoteWritten(2);
         }
 
         /// <summary>
@@ -326,6 +342,10 @@
             // WILL LFLOW volunteers the configured restart mode.
             handler.SendLineflowAsServer = true;
             handler.GoAheadReceived = OnGoAheadReceived;
+            // RFC 727: a DO LOGOUT asks us to end the session. No
+            // negotiation bytes go out; the hook closes the stream.
+            // Close is idempotent, so repeat DOs are harmless.
+            handler.LogoutRequested = () => ByteStream.Close();
             // A server has no local user: console echo defaults off (opt in via
             // settings for debugging), and the machine must never beep at a peer.
             handler.IsWriteConsole = Settings.IsWriteConsole ?? false;

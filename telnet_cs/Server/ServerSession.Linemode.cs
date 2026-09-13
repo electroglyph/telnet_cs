@@ -239,6 +239,7 @@
                 try
                 {
                     await ByteStream.WriteAsync(frame, 0, frame.Length, linked.Token).ConfigureAwait(false);
+                    Context.NoteWritten(frame.Length);
                 }
                 finally
                 {

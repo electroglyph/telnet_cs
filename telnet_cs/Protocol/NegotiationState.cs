@@ -266,6 +266,33 @@
         }
 
         /// <summary>
+        /// Pings the peer with <c>IAC DO TIMING-MARK</c> (RFC 860). Unlike
+        /// <see cref="RequestEnable"/>, an already-agreed mark still goes out:
+        /// each ping is new stimulus and the peer answers every <c>DO TM</c>
+        /// with <c>WILL TM</c>, so suppressing re-pings would break the
+        /// round-trip measurement. Only a ping with a reply still in flight
+        /// sends nothing. An explicit ping also clears a remembered refusal.
+        /// </summary>
+        /// <returns><see cref="Commands.Do"/> when bytes must be sent, else
+        /// <c>null</c>.</returns>
+        public Commands? RequestTimingMark()
+        {
+            const int timingMark = (int)Options.TimingMark;
+            lock (sync)
+            {
+                if (him[timingMark] == SideState.WantYes)
+                {
+                    return null;
+                }
+
+                him[timingMark] = SideState.WantYes;
+                himQueued[timingMark] = false;
+                refusedByPeer[timingMark] = false;
+                return Commands.Do;
+            }
+        }
+
+        /// <summary>
         /// Offers to enable <paramref name="option"/> ourselves (sends
         /// <c>IAC WILL</c>). The <c>us</c>-side mirror of
         /// <see cref="RequestEnable"/>, used for our own offers.

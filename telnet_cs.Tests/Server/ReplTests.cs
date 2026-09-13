@@ -34,6 +34,18 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task Repl_TlsSession_BannerNamesSecure()
+        {
+            // The reference greets TLS peers with "Ready (secure: <ver>).":
+            // a TLS session names the secure banner, a plain one does not.
+            using var stream = new ScriptedStream(Ascii("quit\n"));
+            using var session = NewSession(stream);
+            session.IsTls = true;
+            await ServerShells.RunReplAsync(session, CancellationToken.None);
+            string.Concat(stream.StringWrites).Should().Contain("Ready (secure: TLS).");
+        }
+
+        [Fact]
         public async Task Repl_NeverSendGa_SendsNoGa()
         {
             using var stream = new ScriptedStream(Ascii("quit\n"));

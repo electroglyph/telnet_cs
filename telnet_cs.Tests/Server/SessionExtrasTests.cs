@@ -124,6 +124,18 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task WaitForNegotiationAsync_PumpedText_RestoredInOrder()
+        {
+            // Polling contract: text pumped while waiting is restored to
+            // PendingText in arrival order, so the next read sees it first.
+            var reads = Encoding.ASCII.GetBytes("hello").Select(b => (int)b).Concat([255, 251, 24]).ToArray();
+            using var stream = new ScriptedStream(reads);
+            using var session = NewSession(stream);
+            (await session.WaitForOptionEnabledAsync(Options.TerminalType, local: false, TimeSpan.FromSeconds(5))).Should().BeTrue();
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("hello");
+        }
+
+        [Fact]
         public async Task WaitForOptionEnabledAsync_InvalidOption_ThrowsOutOfRange()
         {
             // Port of test_wait_for_invalid_option (KeyError): an

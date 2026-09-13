@@ -139,7 +139,7 @@
 
             return escaped.Count == 0
                 ? Task.CompletedTask
-                : byteStream.WriteAsync(escaped.ToArray(), 0, escaped.Count, internalCancellation.Token);
+                : WriteWireAsync(escaped.ToArray(), 0, escaped.Count, internalCancellation.Token);
         }
 
         private string DecodeResult(StringBuilder sb, List<byte> rawBytes)

@@ -371,9 +371,9 @@
 
         /// <summary>
         /// Gets or sets the hook invoked when <c>DO LOGOUT</c> (RFC 727)
-        /// arrives. LOGOUT is always refused (WONT) per the RFC 1143 machine;
-        /// the hook signals the logout intent so the caller can close. The
-        /// client feeds a raiser before each read; a directly-constructed
+        /// arrives. No negotiation bytes go out (the reference closes the
+        /// transport); the hook closes the stream. The session feeders wire
+        /// it to their stream before each read; a directly-constructed
         /// handler leaves this null and the signal is dropped.
         /// </summary>
         internal Action? LogoutRequested { get; set; }
@@ -555,12 +555,44 @@
 
         private int firstInboundByte = -1;
 
+        /// <summary>
+        /// Gets the count of raw wire bytes pulled from the stream by this
+        /// handler. Every <c>ReadByte</c> call site reports here, so
+        /// negotiation frames and MCCP-compressed bytes count; inflated
+        /// MCCP output and pushback re-reads do not.
+        /// </summary>
+        internal long InboundWireBytes { get; private set; }
+
+        /// <summary>
+        /// Gets the count of raw wire bytes this handler wrote to the
+        /// stream (replies, echo-back, subnegotiation answers).
+        /// </summary>
+        internal long OutboundWireBytes { get; private set; }
+
         private void NoteInboundByte(int raw)
         {
-            if (raw != -1 && firstInboundByte == -1)
+            if (raw == -1)
+            {
+                return;
+            }
+
+            InboundWireBytes++;
+            if (firstInboundByte == -1)
             {
                 firstInboundByte = raw;
             }
+        }
+
+        /// <summary>
+        /// Writes <paramref name="count"/> bytes to the peer and accounts
+        /// them as outbound wire bytes. The single choke point for every
+        /// handler reply, so session counters match the reference
+        /// <c>len(buf)</c> transmit accounting.
+        /// </summary>
+        private async Task WriteWireAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            await byteStream.WriteAsync(buffer, offset, count, cancellationToken).ConfigureAwait(false);
+            OutboundWireBytes += count;
         }
 
         /// <summary>
@@ -1550,6 +1582,13 @@
 
             if (inputOption == (int)Options.Mccp2 || inputOption == (int)Options.Mccp3)
             {
+                // Padding-carrying SBs start compression under the same gates
+                // as the empty form (agreement first, never over TLS).
+                if (!MccpStartAllowed(inputOption))
+                {
+                    return;
+                }
+
                 WriteLog("Starting MCCP compression; ignoring padding bytes.");
                 if (inputOption == (int)Options.Mccp2)
                 {
@@ -1650,7 +1689,7 @@
             outBuffer[0] = (byte)Commands.InterpretAsCommand;
             outBuffer[1] = (byte)Commands.Wont;
             outBuffer[2] = (byte)inputOption;
-            return byteStream.WriteAsync(outBuffer, 0, outBuffer.Length, internalCancellation.Token);
+            return WriteWireAsync(outBuffer, 0, outBuffer.Length, internalCancellation.Token);
         }
 
         private Task SendDont(int inputOption)
@@ -1659,7 +1698,7 @@
             outBuffer[0] = (byte)Commands.InterpretAsCommand;
             outBuffer[1] = (byte)Commands.Dont;
             outBuffer[2] = (byte)inputOption;
-            return byteStream.WriteAsync(outBuffer, 0, outBuffer.Length, internalCancellation.Token);
+            return WriteWireAsync(outBuffer, 0, outBuffer.Length, internalCancellation.Token);
         }
 
         /// <summary>
@@ -1697,7 +1736,7 @@
         private Task SendNegotiation(int inputOption, byte[] verbFirstPayload)
         {
             var frame = EnvironmentProtocol.FrameSubnegotiation(inputOption, verbFirstPayload);
-            return byteStream.WriteAsync(frame, 0, frame.Length, internalCancellation.Token);
+            return WriteWireAsync(frame, 0, frame.Length, internalCancellation.Token);
         }
 
         /// <summary>
@@ -1858,14 +1897,7 @@
         {
             if (inputOption is (int)Options.Mccp2 or (int)Options.Mccp3)
             {
-                // MCCP starts only after WILL/DO agreement with compression
-                // allowed (never over TLS); otherwise the empty SB is ignored.
-                if (!EnableMccp || IsTlsActive)
-                {
-                    return;
-                }
-
-                if (!Negotiation.IsEnabledByPeer(inputOption) && !Negotiation.IsEnabledByUs(inputOption))
+                if (!MccpStartAllowed(inputOption))
                 {
                     return;
                 }
@@ -1887,6 +1919,18 @@
             }
 
             DispatchMud(inputOption, []);
+        }
+
+        /// <summary>
+        /// Whether an MCCP SB may start inflation: compression opted in,
+        /// never over TLS (CRIME/BREACH), and only after WILL/DO agreement.
+        /// Both the empty and the padding-carrying SB forms share this gate.
+        /// </summary>
+        /// <param name="inputOption">The MCCP option (MCCP2 or MCCP3).</param>
+        private bool MccpStartAllowed(int inputOption)
+        {
+            return EnableMccp && !IsTlsActive &&
+                (Negotiation.IsEnabledByPeer(inputOption) || Negotiation.IsEnabledByUs(inputOption));
         }
 
         /// <summary>
@@ -1918,7 +1962,7 @@
             var items = StatusProtocol.BuildIsPayload(Negotiation);
             WriteLog("Sending: " + nameof(Options.Status));
             var frame = StatusProtocol.FrameStatusIs(items);
-            return byteStream.WriteAsync(frame, 0, frame.Length, internalCancellation.Token);
+            return WriteWireAsync(frame, 0, frame.Length, internalCancellation.Token);
         }
 
         /// <summary>
@@ -1989,7 +2033,7 @@
             {
                 WriteLog("Rejecting simultaneous CHARSET request: our own REQUEST is outstanding.");
                 var rejected = EnvironmentProtocol.FrameSubnegotiation((int)Options.CharacterSet, [CharsetProtocol.Rejected]);
-                return byteStream.WriteAsync(rejected, 0, rejected.Length, internalCancellation.Token);
+                return WriteWireAsync(rejected, 0, rejected.Length, internalCancellation.Token);
             }
 
             var offers = CharsetProtocol.ParseRequest(payload);
@@ -2005,7 +2049,7 @@
                 WriteLog("Rejecting CHARSET request: no supported offer.");
                 CharsetRejected?.Invoke();
                 var frame = EnvironmentProtocol.FrameSubnegotiation((int)Options.CharacterSet, [CharsetProtocol.Rejected]);
-                return byteStream.WriteAsync(frame, 0, frame.Length, internalCancellation.Token);
+                return WriteWireAsync(frame, 0, frame.Length, internalCancellation.Token);
             }
 
             WriteLog("Sending: " + nameof(Options.CharacterSet) + " ACCEPTED " + selected);
@@ -2013,7 +2057,7 @@
             CharsetAccepted?.Invoke(selected);
             var accepted = EnvironmentProtocol.FrameSubnegotiation(
               (int)Options.CharacterSet, CharsetProtocol.BuildAccepted(selected));
-            return byteStream.WriteAsync(accepted, 0, accepted.Length, internalCancellation.Token);
+            return WriteWireAsync(accepted, 0, accepted.Length, internalCancellation.Token);
         }
 
         /// <summary>
@@ -2082,7 +2126,7 @@
             {
                 WriteLog("Declining CHARSET table transfer with TTABLE-REJECTED.");
                 var frame = EnvironmentProtocol.FrameSubnegotiation((int)Options.CharacterSet, CharsetProtocol.BuildTTableRejected());
-                return byteStream.WriteAsync(frame, 0, frame.Length, internalCancellation.Token);
+                return WriteWireAsync(frame, 0, frame.Length, internalCancellation.Token);
             }
 
             if (payload[0] == CharsetProtocol.TTableRejected)
@@ -2110,7 +2154,7 @@
             }
 
             var frame = new byte[] { (byte)Commands.InterpretAsCommand, (byte)Commands.EndOfRecord };
-            await byteStream.WriteAsync(frame, 0, frame.Length, internalCancellation.Token).ConfigureAwait(false);
+            await WriteWireAsync(frame, 0, frame.Length, internalCancellation.Token).ConfigureAwait(false);
             return true;
         }
 
@@ -2125,7 +2169,7 @@
             WriteLog("Sending: " + nameof(Options.SendLocation));
             var frame = EnvironmentProtocol.FrameSubnegotiation(
               (int)Options.SendLocation, Encoding.ASCII.GetBytes(location));
-            return byteStream.WriteAsync(frame, 0, frame.Length, internalCancellation.Token);
+            return WriteWireAsync(frame, 0, frame.Length, internalCancellation.Token);
         }
 
         /// <summary>
@@ -2146,7 +2190,7 @@
             var mode = restartOnAny ? LineflowProtocol.RestartAny : LineflowProtocol.RestartXon;
             WriteLog("Sending: " + nameof(Options.RemoteFlowControl) + " mode " + mode);
             var frame = EnvironmentProtocol.FrameSubnegotiation((int)Options.RemoteFlowControl, [mode]);
-            await byteStream.WriteAsync(frame, 0, frame.Length, internalCancellation.Token).ConfigureAwait(false);
+            await WriteWireAsync(frame, 0, frame.Length, internalCancellation.Token).ConfigureAwait(false);
             return true;
         }
 
@@ -2180,7 +2224,7 @@
             WriteLog("Sending: " + nameof(Options.CharacterSet) + " REQUEST.");
             var frame = EnvironmentProtocol.FrameSubnegotiation(
               (int)Options.CharacterSet, CharsetProtocol.BuildRequest(CharsetOffers));
-            await byteStream.WriteAsync(frame, 0, frame.Length, internalCancellation.Token).ConfigureAwait(false);
+            await WriteWireAsync(frame, 0, frame.Length, internalCancellation.Token).ConfigureAwait(false);
             CharsetRequestPending = true;
             return true;
         }
@@ -2209,7 +2253,7 @@
             }
 
             var frame = EnvironmentProtocol.FrameSubnegotiation(number, payload);
-            await byteStream.WriteAsync(frame, 0, frame.Length, internalCancellation.Token).ConfigureAwait(false);
+            await WriteWireAsync(frame, 0, frame.Length, internalCancellation.Token).ConfigureAwait(false);
             return true;
         }
 
@@ -2309,9 +2353,11 @@
         }
 
         /// <summary>
-        /// Handle a FORWARDMASK exchange (RFC 1184 §2.3). A well-formed DO with a
-        /// mask is stored silently; malformed empty-DO and payload-DONT shapes are
-        /// ignored without reply. No WONT is emitted for the well-formed case.
+        /// Handle a FORWARDMASK exchange (RFC 1184 §2.3). A well-formed DO with
+        /// a 1–32 byte mask is stored silently and marks the local sub-state;
+        /// WILL/WONT mark the remote sub-state; DONT clears the local one. An
+        /// empty DO and a DONT with payload bytes are warned on and ignored.
+        /// No reply is emitted in any case.
         /// </summary>
         /// <param name="payload">The FORWARDMASK payload ([verb, FORWARDMASK, mask…]).</param>
         private Task ReplyForwardMaskAsync(List<byte> payload)
@@ -2319,6 +2365,23 @@
             if (payload.Count < 2 || payload[1] != LinemodeProtocol.ForwardMask)
             {
                 WriteLog("Ignoring malformed LINEMODE FORWARDMASK.");
+                return Task.CompletedTask;
+            }
+
+            if (payload[0] == (byte)Commands.Will || payload[0] == (byte)Commands.Wont)
+            {
+                Linemode.ApplyForwardMaskAnswer(payload[0] == (byte)Commands.Will);
+                return Task.CompletedTask;
+            }
+
+            if (payload[0] == (byte)Commands.Dont)
+            {
+                if (payload.Count > 2)
+                {
+                    WriteLog("Ignoring LINEMODE FORWARDMASK DONT with payload bytes.");
+                }
+
+                Linemode.ApplyForwardMaskRefusal();
                 return Task.CompletedTask;
             }
 
@@ -2330,6 +2393,13 @@
             if (payload.Count < 3)
             {
                 WriteLog("Ignoring empty LINEMODE FORWARDMASK DO.");
+                return Task.CompletedTask;
+            }
+
+            byte[] mask = payload.Skip(2).ToArray();
+            if (!Linemode.ApplyForwardMaskOffer(mask))
+            {
+                WriteLog($"Ignoring LINEMODE FORWARDMASK with invalid length: {mask.Length}.");
                 return Task.CompletedTask;
             }
 
@@ -2500,15 +2570,30 @@
             {
                 if (inputVerb == (int)Commands.Do)
                 {
-                    await byteStream.WriteAsync([(byte)Commands.InterpretAsCommand, (byte)Commands.Will, (byte)inputOption], 0, 3, internalCancellation.Token).ConfigureAwait(false);
+                    await WriteWireAsync([(byte)Commands.InterpretAsCommand, (byte)Commands.Will, (byte)inputOption], 0, 3, internalCancellation.Token).ConfigureAwait(false);
                     return;
                 }
 
-                if (inputVerb == (int)Commands.Will)
+                // A timing-mark reply only completes a ping we sent: an
+                // outstanding DO TM is cleared and the agreement persisted,
+                // with no reply bytes either way. Anything else is ignored.
+                if (Negotiation.GetStates((int)Options.TimingMark).Him == NegotiationState.SideState.WantYes)
                 {
-                    WriteLog("Ignoring unsolicited WILL TIMING-MARK.");
-                    return;
+                    if (inputVerb == (int)Commands.Will)
+                    {
+                        Negotiation.ReceivedWill((int)Options.TimingMark, agree: true);
+                        return;
+                    }
+
+                    if (inputVerb == (int)Commands.Wont)
+                    {
+                        Negotiation.ReceivedWont((int)Options.TimingMark);
+                        return;
+                    }
                 }
+
+                WriteLog($"Ignoring {(Commands)inputVerb} TIMING-MARK without outstanding DO.");
+                return;
             }
 
             if (inputOption == (int)Options.Logout && inputVerb == (int)Commands.Do)
@@ -2544,20 +2629,11 @@
         (byte)reply,
         (byte)inputOption,
             };
-            await byteStream.WriteAsync(outBuffer, 0, outBuffer.Length, internalCancellation.Token).ConfigureAwait(false);
+            await WriteWireAsync(outBuffer, 0, outBuffer.Length, internalCancellation.Token).ConfigureAwait(false);
 
             if (inputOption == (int)Options.WindowSize && reply is Commands.Will or Commands.Do)
             {  // NAWS needs to be sent immediately because the server doesn't request subnegotiation.
                 await SendWindowSize().ConfigureAwait(false);
-            }
-
-            if (inputOption == (int)Options.Logout && inputVerb == (int)Commands.Do)
-            {
-                // RFC 727: a DO LOGOUT asks us to end the session. The RFC 1143
-                // refusal above still goes out (LOGOUT is never agreed); the
-                // hook tells the caller to close. Fired on every DO, including
-                // repeats the machine answers silently.
-                LogoutRequested?.Invoke();
             }
 
             if (inputOption == (int)Options.SendLocation && reply is Commands.Will && SendLocation is not null)

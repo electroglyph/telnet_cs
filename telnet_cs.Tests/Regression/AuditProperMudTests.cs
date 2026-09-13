@@ -109,6 +109,50 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task NonEmptyMccpSb_MccpDisabled_StaysPlaintext()
+        {
+            // The padding-carrying SB shares the empty form's gates: with
+            // compression not opted in, WILL 86 is declined and the SB arms
+            // nothing, so the following bytes stay plain data.
+            using var stream = new ScriptedStream();
+            stream.Enqueue([255, 251, 86, 255, 250, 86, 0, 255, 240]);
+            stream.Enqueue(ZlibCompress("HI").Select(b => (int)b).ToArray());
+            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().NotBe("HI");
+            byte[] writes = stream.ByteWrites.SelectMany(w => w).ToArray();
+            ContainsFrame(writes, new byte[] { 255, 254, 86 }).Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task NonEmptyMccpSb_TlsActive_StaysPlaintext()
+        {
+            // Never inflate over TLS (CRIME/BREACH): the padded SB is
+            // ignored like the empty form, and the bytes stay plain data.
+            var options = new TelnetServerOptions { EnableMccp = true };
+            using var stream = new ScriptedStream();
+            stream.Enqueue([255, 251, 86, 255, 250, 86, 0, 255, 240]);
+            stream.Enqueue(ZlibCompress("HI").Select(b => (int)b).ToArray());
+            using var session = new ServerSession(stream, options, CancellationToken.None);
+            session.IsTls = true;
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().NotBe("HI");
+            byte[] writes = stream.ByteWrites.SelectMany(w => w).ToArray();
+            ContainsFrame(writes, new byte[] { 255, 254, 86 }).Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task NonEmptyMccpSb_WithoutAgreement_StaysPlaintext()
+        {
+            // No prior WILL/DO: the padded SB arms nothing even with
+            // compression opted in, so the following bytes stay plain data.
+            var options = new TelnetServerOptions { EnableMccp = true };
+            using var stream = new ScriptedStream();
+            stream.Enqueue([255, 250, 86, 0, 255, 240]);
+            stream.Enqueue(ZlibCompress("HI").Select(b => (int)b).ToArray());
+            using var session = new ServerSession(stream, options, CancellationToken.None);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().NotBe("HI");
+        }
+
+        [Fact]
         public void MsdpDecode_StopsKeyOnlyAtVarVal()
         {
             // Source of truth: only VAR (1) and VAL (2) terminate an MSDP key.
