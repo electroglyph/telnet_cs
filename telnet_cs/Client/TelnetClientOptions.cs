@@ -40,7 +40,7 @@
 
         /// <summary>
         /// Value reported in RFC 1096 X-DISPLAY-LOCATION IS answers. Null (the
-        /// default) answers no SEND. Follows the Unix DISPLAY convention
+        /// default) answers SEND with an empty display string. Follows the Unix DISPLAY convention
         /// (<c>host:display.screen</c>); qualify bare local values yourself.
         /// </summary>
         public string? XDisplayLocation { get; set; }

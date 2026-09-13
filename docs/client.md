@@ -53,7 +53,7 @@ start reading:
 | `TextEncoding` | Non-null switches both directions off legacy Latin-1 and advertises `LANG=en_US.<WebName>` |
 | `AllowRemoteEcho` | `true` accepts the server's `DO ECHO` (default refuses) |
 | `EnableMccp` | Agree MCCP2/3 framing (you do the zlib yourself); always refused over TLS |
-| `EnableMudOptions` / `EnableComPort` | Agree MUD options / RFC 2217 framing (default on) |
+| `EnableMudOptions` / `EnableComPort` | Agree MUD options (default off) / RFC 2217 framing (default on) |
 | `Log`, `IsWriteConsole`, `EnableBell` | Diagnostics, console echo, BEL handling |
 
 Global process-wide defaults (`Client.TerminalType`, `Client.TerminalSpeed`,
@@ -108,8 +108,8 @@ await client.RefreshWindowSizeAsync();
 ```
 
 `GoAheadReceived` fires on the read path for unsuppressed `GA`
-(RFC 858 turn-taking). `SendGaAsync` sends `IAC GA` unless SGA is agreed
-either way (then it sends nothing and returns `false`).
+(RFC 858 turn-taking). `SendGaAsync` sends `IAC GA` unless our own `WILL`
+Suppress-GA holds (local side only; then it sends nothing and returns `false`).
 `SendTimingMarkAsync` does an RFC 860 round-trip. `Dispose()` (or
 `await using`) is the only close.
 

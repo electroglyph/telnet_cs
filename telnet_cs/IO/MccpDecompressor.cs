@@ -28,9 +28,9 @@ using System.IO.Compression;
 /// A stall with a footer mismatch — or a truncated block that needs more
 /// bits — simply waits for more input, so split deliveries never read as
 /// stream end. A live inflate failure marks
-/// <see cref="Failed"/> (the caller answers DONT and resumes plaintext,
-/// matching the reference corrupt path); fed bytes are never handed to the
-/// reader.
+/// <see cref="Failed"/> (the caller refuses and resumes plaintext — WONT for
+/// MCCP3, DONT for MCCP2 — matching the reference corrupt path); fed bytes
+/// are never handed to the reader.
 /// </summary>
 internal sealed class MccpDecompressor : IDisposable
 {

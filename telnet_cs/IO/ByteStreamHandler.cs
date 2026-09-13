@@ -365,7 +365,8 @@
         /// <summary>
         /// Gets or sets the X display location reported in RFC 1096
         /// X-DISPLAY-LOCATION IS answers. The client feeds its effective
-        /// setting before each read. Null answers no SEND (logged, silent).
+        /// setting before each read. Null answers SEND with an empty display
+        /// string (RFC 1096 answers SEND even when unconfigured).
         /// </summary>
         internal string? XDisplayLocation { get; set; }
 
@@ -471,8 +472,9 @@
 
         /// <summary>
         /// Gets the character set agreed via CHARSET ACCEPTED, or null when
-        /// none was negotiated yet (the wire-effective fallback is US-ASCII:
-        /// without an agreement the binary gate drops bare 8-bit bytes).
+        /// none was negotiated yet (without an agreement TextEncoding stays
+        /// null and received bytes pass through as (char)byte via the legacy
+        /// accumulation; no bytes are dropped).
         /// An ACCEPTED name switches <see cref="TextEncoding"/> to the agreed
         /// encoding and latches <see cref="ForceBinaryDecoding"/>.
         /// </summary>
@@ -1937,7 +1939,7 @@
         /// Arms the session-owned MCCP decompressor, replacing a spent one
         /// (ended or failed) so a fresh SB always starts a fresh stream.
         /// </summary>
-        /// <param name="inputOption">The MCCP option that armed (for the corrupt-path DONT).</param>
+        /// <param name="inputOption">The MCCP option that armed (for the corrupt-path refusal: WONT for MCCP3, DONT for MCCP2).</param>
         private void ArmMccpStream(int inputOption)
         {
             if (MccpStream is null || !MccpStream.IsActive)
@@ -2094,7 +2096,8 @@
         /// records <see cref="NegotiatedCharset"/>, latches
         /// <see cref="ForceBinaryDecoding"/>, switches <see cref="TextEncoding"/>,
         /// and fires <see cref="CharsetAccepted"/>; REJECTED leaves the charset
-        /// null (the wire-effective fallback is US-ASCII via the binary gate)
+        /// null (TextEncoding stays unset, so bytes keep passing through as
+        /// (char)byte; no bytes are dropped)
         /// and fires <see cref="CharsetRejected"/>. An inbound
         /// <c>TTABLE-IS</c> is answered <c>TTABLE-REJECTED</c> (table transfer
         /// declined); <c>TTABLE-REJECTED</c> only clears the outstanding

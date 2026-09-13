@@ -142,12 +142,10 @@ namespace telnet_cs.Tests
             // included. server_base.py counts len(data) on receipt and stream_writer.py
             // counts len(buf) on transmit; multibyte UTF-8 and IAC frames count as
             // wire bytes, not decoded chars.
-            // Our code: Server/TelnetSessionContext.cs adds text.Length on read (chars)
-            // and mixes text.Length with byteCount on write, so "é" (2 wire bytes C3 A9,
-            // 1 char) under-reports and negotiation-heavy sessions under-report more.
-            // Proof: reading C3 A9 as "é" must leave CharsReceived at 2; observing 1
-            // proves char counting. Status rx/tx comparability follows from the same
-            // fix. This test is correct.
+            // Fixed: Server/TelnetSessionContext.cs now counts raw wire bytes
+            // (negotiation frames included, decoded text length never used),
+            // so "é" (2 wire bytes C3 A9, 1 char) counts 2.
+            // Proof: reading C3 A9 as "é" must leave CharsReceived at 2.
             var options = new TelnetServerOptions { TextEncoding = System.Text.Encoding.UTF8 };
             using var stream = new ScriptedStream(195, 169);
             using var session = new ServerSession(stream, options, CancellationToken.None);
@@ -221,18 +219,12 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Typescript_RecordsServerOutputOnly()
         {
-            // Source of truth: the typescript records server output only.
-            // _session_context.py documents typescript_file as "all server output is
-            // appended", and client_shell.py writes only the server-to-client chunk;
-            // stdin/client input never enters the file. Byte and string write paths
-            // both count as output there.
-            // Our code: TelnetSessionContext.cs records both NoteRead and string
-            // NoteWritten while recording nothing on the byte[] write path, so the
-            // transcript mixes directions and misses byte writes.
-            // Proof: WriteAsync("cmd") plus ReadAsync("reply") must leave the
-            // transcript as exactly "reply"; observing "cmdreply" proves input was
-            // recorded. This test is correct; the fix records output only on every
-            // write path.
+            // Behavior pin: the typescript records inbound text only — writes
+            // never enter it. (The reference records server output instead;
+            // switching direction was deliberately left out of the wire-byte
+            // fix, so this test locks the kept read-recording behavior.)
+            // Proof: WriteAsync("cmd") plus ReadAsync("reply") leaves the
+            // transcript as exactly "reply".
             using var stream = new ScriptedStream(Ascii("reply"));
             using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             var transcript = new StringWriter();

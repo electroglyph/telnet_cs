@@ -170,8 +170,12 @@ namespace telnet_cs.Encodings
                         bytes++;
                         i++;
                     }
-                    else if (flush)
+                    else if (flush || i < end)
                     {
+                        // A lead left dangling by new non-low input resolves
+                        // through fallback exactly as GetBytes does, so the
+                        // count stays exact (and throws under a strict
+                        // fallback, like GetBytes).
                         bytes += encoding.EncodeWithFallback([lead.Value], 0, 1, null, 0);
                     }
 

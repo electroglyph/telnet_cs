@@ -261,6 +261,55 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public void Atarist_IncrementalEncoder_GetByteCount_IncludesDangledLead()
+        {
+            // A lead left dangling by new non-low input resolves through
+            // fallback in GetBytes, so GetByteCount must count it too.
+            var encoding = new AtaristEncoding
+            {
+                EncoderFallback = EncoderFallback.ReplacementFallback,
+            };
+            var encoder = encoding.GetEncoder();
+            var first = new byte[16];
+            encoder.GetBytes(['\uD83D'], 0, 1, first, 0, false).Should().Be(0);
+            encoder.GetByteCount(['A'], 0, 1, false).Should().Be(2);
+            var second = new byte[16];
+            encoder.GetBytes(['A'], 0, 1, second, 0, false).Should().Be(2);
+            second[0].Should().Be((byte)'?');
+            second[1].Should().Be((byte)'A');
+        }
+
+        [Fact]
+        public void Big5Bbs_IncrementalEncoder_GetByteCount_IncludesDangledLead()
+        {
+            var encoding = new Big5BbsEncoding
+            {
+                EncoderFallback = EncoderFallback.ReplacementFallback,
+            };
+            var encoder = encoding.GetEncoder();
+            var first = new byte[16];
+            encoder.GetBytes(['\uD83D'], 0, 1, first, 0, false).Should().Be(0);
+            encoder.GetByteCount(['A'], 0, 1, false).Should().Be(2);
+            var second = new byte[16];
+            encoder.GetBytes(['A'], 0, 1, second, 0, false).Should().Be(2);
+            second[0].Should().Be((byte)'?');
+            second[1].Should().Be(0x41);
+        }
+
+        [Fact]
+        public void Petscii_IncrementalEncoder_GetByteCount_ThrowsOnDangledLead()
+        {
+            // Under a strict fallback GetBytes throws on a dangling lead, so
+            // GetByteCount must throw too instead of silently undercounting.
+            var encoding = new PetsciiEncoding();
+            var encoder = encoding.GetEncoder();
+            var first = new byte[16];
+            encoder.GetBytes(['\uD83D'], 0, 1, first, 0, false).Should().Be(0);
+            Action count = () => encoder.GetByteCount(['A'], 0, 1, false);
+            count.Should().Throw<EncoderFallbackException>();
+        }
+
+        [Fact]
         public void ForceBinary_PolicyMatchesReferenceSet()
         {
             TelnetEncodings.RequiresBinaryMode("atascii").Should().BeTrue();
