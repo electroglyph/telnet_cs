@@ -330,11 +330,8 @@ ASALocalRun/
 .mfractor/
 /nuget.exe
 
-# Local reorg plan (working notes, not committed).
-/organize.md
-
-# Local correctness audit (working notes, not committed).
-/audit.md
-/test.md
-/test_audit.md
-/partial.md
+*.md
+!README.md
+!readme.md
+!csharp.md
+!AGENTS.md
