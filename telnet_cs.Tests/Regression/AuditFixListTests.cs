@@ -274,15 +274,22 @@ namespace telnet_cs.Tests
             // the SLC table on the first server-side MODE (executed: the full
             // 16-row default table); without it the peer never learns our
             // special characters. Cs-shaped expectation: the configured-rows
-            // export (PublishSpecialCharactersAsync semantics), here the one
-            // row set above.
+            // export (PublishSpecialCharactersAsync semantics), here the BSD
+            // defaults with the one row set above overridden.
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             session.SetLinemodeEntry(3, 2, 5);
             await AgreeLinemodeAsync(session, stream);
             stream.Enqueue(255, 250, 34, 1, 5, 255, 240);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
-            var slc = new byte[] { 255, 250, 34, 3, 3, 2, 5, 255, 240 };
+            var slc = new byte[]
+            {
+              255, 250, 34, 3,
+              1, 3, 0, 2, 3, 0, 3, 2, 5, 4, 34, 15, 5, 2, 20, 6, 3, 0,
+              7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
+              13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
+              255, 240,
+            };
             stream.ByteWrites.Should().Contain(w => w.SequenceEqual(slc));
         }
 

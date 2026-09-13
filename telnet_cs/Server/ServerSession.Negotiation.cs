@@ -37,6 +37,15 @@
         /// after accepting outside a <see cref="TelnetServer"/>.
         /// A fully toggled-off preset sends nothing.
         /// </summary>
+        /// <remarks>
+        /// Intentional differences from the reference server opening: this
+        /// preset also offers TSPEED/OldEnv/LINEMODE upfront (toggles), sends
+        /// a single TTYPE SEND (the reference cycles), carries no
+        /// <c>line_mode</c> flag, and offers WILL MCCP2/3 when
+        /// <c>EnableMccp</c> is set without TLS. Lifecycle is pull-based with
+        /// no session registry or queue, and <c>Stop()</c> leaves accepted
+        /// sessions running — all pinned by tests, all by design.
+        /// </remarks>
         /// <param name="cancellationToken">A token to cancel the send.</param>
         /// <returns>An awaitable Task.</returns>
         public async Task SendOpeningPresetAsync(CancellationToken cancellationToken = default)
@@ -94,6 +103,15 @@
             if (Settings.RequestSendLocation)
             {
                 await RequestEnableAsync(Options.SendLocation, cancellationToken).ConfigureAwait(false);
+            }
+
+            // MCCP2/MCCP3: opt-in via EnableMccp, disabled over TLS
+            // (compress-then-encrypt is vulnerable to CRIME/BREACH attacks) —
+            // mirroring the reference begin_negotiation offer.
+            if (Settings.EnableMccp && !IsTls)
+            {
+                await OfferEnableAsync(Options.Mccp2, cancellationToken).ConfigureAwait(false);
+                await OfferEnableAsync(Options.Mccp3, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -555,6 +573,9 @@
             Context.NoteWritten(buffer.Length);
         }
 
+        // The readuntil/readline replacement (see PendingText): poll plain
+        // reads until the predicate holds or the timeout lapses, then return
+        // whatever arrived (partial on timeout — no raise).
         private async Task<string> TerminatedReadAsync(Func<string, bool> isTerminated, TimeSpan timeout, int millisecondSpin, CancellationToken cancellationToken)
         {
             var endTimeout = DateTime.UtcNow.Add(timeout);

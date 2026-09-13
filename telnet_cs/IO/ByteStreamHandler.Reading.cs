@@ -147,7 +147,20 @@
             ApplySyncTermFont(CollectionsMarshal.AsSpan(rawBytes));
             if (TextEncoding != null)
             {
-                return TextEncoding.GetString(rawBytes.ToArray());
+                // Persistent incremental decoder (reference stream_reader
+                // parity): a multibyte sequence split across reads buffers
+                // its lead instead of decoding art immediately. The decoder
+                // is replaced whenever the encoding changes.
+                if (textDecoder is null || !ReferenceEquals(textDecoderEncoding, TextEncoding))
+                {
+                    textDecoder = TextEncoding.GetDecoder();
+                    textDecoderEncoding = TextEncoding;
+                }
+
+                byte[] bytes = rawBytes.ToArray();
+                char[] chars = new char[TextEncoding.GetMaxCharCount(bytes.Length)];
+                int count = textDecoder.GetChars(bytes, 0, bytes.Length, chars, 0, flush: false);
+                return new string(chars, 0, count);
             }
 
             return sb.ToString();
@@ -157,11 +170,15 @@
         /// Scans inbound bytes for a SyncTERM font-selection sequence and
         /// adopts its encoding for subsequent reads. An explicitly configured
         /// <see cref="ByteStreamHandler.TextEncoding"/> always wins; the
-        /// sequence itself stays in the data stream untouched.
+        /// sequence itself stays in the data stream untouched. A detected
+        /// switch always latches binary decoding (reference parity:
+        /// <c>client_base.py</c> sets <c>force_binary</c> even when an explicit
+        /// encoding ignores the switch), so the new 8-bit font is not gated
+        /// through 7-bit stripping.
         /// </summary>
         private void ApplySyncTermFont(ReadOnlySpan<byte> raw)
         {
-            if (TextEncoding is not null || raw.IsEmpty)
+            if (raw.IsEmpty)
             {
                 return;
             }
@@ -174,6 +191,12 @@
 
             var encoding = SyncTermFont.ResolveEncoding(name);
             if (encoding is null)
+            {
+                return;
+            }
+
+            ForceBinaryDecoding = true;
+            if (TextEncoding is not null)
             {
                 return;
             }

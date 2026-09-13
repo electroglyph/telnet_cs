@@ -11,15 +11,32 @@
         /// <summary>
         /// Sends an ENVIRON INFO update when the configured environment values
         /// changed since the last read and the peer agreed to receive them
-        /// (we are the WILL-sender, RFC 1408 §4.4). Always re-baselines, so a
-        /// change is reported once.
+        /// (we are the WILL-sender, RFC 1408 §4.4 / RFC 1572 §4). Always re-baselines, so a
+        /// change is reported once. The update rides the negotiated option:
+        /// NEW_ENVIRON when agreed (what reference peers DO), else OLD_ENVIRON.
         /// </summary>
         private async Task MaybeSendEnvironmentInfoAsync()
         {
             var snapshot = SnapshotEnvironment();
             var changed = _environmentSnapshot is not null && _environmentSnapshot != snapshot;
             _environmentSnapshot = snapshot;
-            if (!changed || !Negotiation.IsEnabledByUs((int)Options.OldEnvironment))
+            // Prefer NEW_ENVIRON (RFC 1572): reference servers only DO NEW, so
+            // an OLD-only gate drops updates on NEW-only sessions.
+            Options option;
+            if (Negotiation.IsEnabledByUs((int)Options.NewEnvironment))
+            {
+                option = Options.NewEnvironment;
+            }
+            else if (Negotiation.IsEnabledByUs((int)Options.OldEnvironment))
+            {
+                option = Options.OldEnvironment;
+            }
+            else
+            {
+                return;
+            }
+
+            if (!changed)
             {
                 return;
             }
@@ -35,7 +52,7 @@
               lang,
               columns,
               lines);
-            var frame = EnvironmentProtocol.FrameSubnegotiation((int)Options.OldEnvironment, info);
+            var frame = EnvironmentProtocol.FrameSubnegotiation((int)option, info);
             if (ByteStream.Connected && !InternalCancellation.Token.IsCancellationRequested)
             {
                 await SendRateLimit.WaitAsync(InternalCancellation.Token).ConfigureAwait(false);

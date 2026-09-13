@@ -59,8 +59,12 @@
         [Fact]
         public async Task DoLinemode_IsAgreed()
         {
+            // DO LINEMODE is agreed with WILL plus the automatic SLC import
+            // request (func 0, DEFAULT) per RFC 1184 §2.4.
             var (_, stream) = await ReadWithStreamAsync(255, 253, 34);
-            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 251, 34 });
+            stream.ByteWrites.Should().HaveCount(2);
+            stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 34 });
+            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 3, 0, 3, 0, 255, 240 });
         }
 
         [Fact]
@@ -70,9 +74,10 @@
             // WILL, then the mask is echoed verbatim plus ACK.
             var (output, stream) = await ReadWithStreamAsync(255, 253, 34, 255, 250, 34, 1, 3, 255, 240);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().HaveCount(2);
+            stream.ByteWrites.Should().HaveCount(3);
             stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 34 });
-            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 1, 7, 255, 240 });
+            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 3, 0, 3, 0, 255, 240 });
+            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 34, 1, 7, 255, 240 });
         }
 
         [Fact]
@@ -86,12 +91,13 @@
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should()
-              .Equal(new byte[] { 255, 251, 34 });
+            stream.ByteWrites.Should().HaveCount(2);
+            stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 34 });
+            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 3, 0, 3, 0, 255, 240 });
             stream.Enqueue(3, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
-            stream.ByteWrites.Should().HaveCount(2);
-            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 1, 7, 255, 240 });
+            stream.ByteWrites.Should().HaveCount(3);
+            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 34, 1, 7, 255, 240 });
         }
 
         [Fact]
@@ -109,9 +115,10 @@
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 stream.Enqueue(255, 250, 34, 1, 3, 255, 240);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
-                stream.ByteWrites.Should().HaveCount(2);
+                stream.ByteWrites.Should().HaveCount(3);
                 stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 34 });
-                stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 1, 7, 255, 240 });
+                stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 3, 0, 3, 0, 255, 240 });
+                stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 34, 1, 7, 255, 240 });
             }
         }
 
@@ -121,9 +128,10 @@
             // EDIT | TRAPSIG | SOFT_TAB | LIT_ECHO: the mask is echoed verbatim
             // plus ACK with no subsetting, even for bits without local handling.
             var (_, stream) = await ReadWithStreamAsync(255, 253, 34, 255, 250, 34, 1, 27, 255, 240);
-            stream.ByteWrites.Should().HaveCount(2);
+            stream.ByteWrites.Should().HaveCount(3);
             stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 34 });
-            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 1, 31, 255, 240 });
+            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 3, 0, 3, 0, 255, 240 });
+            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 34, 1, 31, 255, 240 });
         }
 
         [Fact]
@@ -140,9 +148,10 @@
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.Enqueue(255, 250, 34, 1, 7, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
-            stream.ByteWrites.Should().HaveCount(2);
+            stream.ByteWrites.Should().HaveCount(3);
             stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 34 });
-            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 1, 7, 255, 240 });
+            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 3, 0, 3, 0, 255, 240 });
+            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 34, 1, 7, 255, 240 });
         }
 
         [Fact]
@@ -311,10 +320,11 @@
         public async Task SlcAckedChange_AsServer_IgnoresWithoutStoring()
         {
             // RFC 1184 §5.5 rule 2, server column: a same-level ACKed change
-            // with a different value is ignored — no reply and no state
+            // with a different value is ignored — no SLC reply and no state
             // change. Same script as SlcAckedChange_SwitchesSilently, but the
             // handler runs the server rules, so the third read finds the row
-            // still at 9 and stays silent (one reply total, not two).
+            // still at 9 and stays silent (one SLC reply total, not two).
+            // Every server-side SLC block still earns the forwardmask request.
             using var stream = new ScriptedStream();
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
@@ -326,8 +336,17 @@
             sut.Linemode.GetEntry(3).Should().Be(new SlcEntry(2, 9, 0));
             stream.Enqueue(255, 250, 34, 3, 3, 2, 9, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should()
-              .Equal(new byte[] { 255, 250, 34, 3, 3, 130, 9, 255, 240 });
+            var forwardmask = new byte[]
+            {
+              255, 250, 34, 253, 2,
+              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+              255, 240,
+            };
+            stream.ByteWrites.Should().HaveCount(4);
+            stream.ByteWrites[0].Should().Equal(new byte[] { 255, 250, 34, 3, 3, 130, 9, 255, 240 });
+            stream.ByteWrites[1].Should().Equal(forwardmask);
+            stream.ByteWrites[2].Should().Equal(forwardmask);
+            stream.ByteWrites[3].Should().Equal(forwardmask);
         }
 
         [Fact]
@@ -406,14 +425,14 @@
         }
 
         [Fact]
-        public async Task SlcDefault_UnsupportedFunction_RefusedAsNoSupport()
+        public async Task SlcDefault_IdenticalToBsdDefault_IsSilent()
         {
-            // SYNCH starts at DEFAULT level (unsupported): DEFAULT restores to
-            // NOSUPPORT with the default value instead of storing DEFAULT.
+            // RFC 1184 §5.5 rule 1 (telnetlib3 _slc_process): identical
+            // settings are ignored. SYNCH (1,DEFAULT,0) already matches the
+            // BSD default row, so no reply goes out (executed on the reference).
             var (output, stream) = await ReadWithStreamAsync(255, 250, 34, 3, 1, 3, 0, 255, 240);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should()
-              .Equal(new byte[] { 255, 250, 34, 3, 1, 0, 0, 255, 240 });
+            stream.ByteWrites.Should().BeEmpty();
         }
 
         [Fact]
@@ -426,9 +445,12 @@
                 stream.Enqueue(255, 253, 34);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 await client.ImportRemoteSpecialCharactersAsync();
-                stream.ByteWrites.Should().HaveCount(2);
+                // DO already triggered the automatic import; the manual call
+                // re-requests (both ride the same frame shape).
+                stream.ByteWrites.Should().HaveCount(3);
                 stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 34 });
                 stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 3, 0, 3, 0, 255, 240 });
+                stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 34, 3, 0, 3, 0, 255, 240 });
             }
         }
 
@@ -447,6 +469,9 @@
         [Fact]
         public async Task ExportSpecialCharacters_WithEntries_SendsTable()
         {
+            // The export carries the BSD default rows with explicit overrides
+            // applied (here IP -> ^I and EC -> ^H), matching the reference
+            // full-tabset publish.
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
@@ -456,8 +481,15 @@
                 client.SetLinemodeEntry(3, 2, 9);
                 client.SetLinemodeEntry(10, 2, 8);
                 await client.ExportSpecialCharactersAsync();
-                stream.ByteWrites.Should().HaveCount(2);
-                stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 3, 3, 2, 9, 10, 2, 8, 255, 240 });
+                stream.ByteWrites.Should().HaveCount(3);
+                stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 34 });
+                stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 3, 0, 3, 0, 255, 240 });
+                stream.ByteWrites[2].Should().Equal(
+                  255, 250, 34, 3,
+                  1, 3, 0, 2, 3, 0, 3, 2, 9, 4, 34, 15, 5, 2, 20, 6, 3, 0,
+                  7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 8, 11, 2, 21, 12, 2, 23,
+                  13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
+                  255, 240);
             }
         }
 
@@ -482,9 +514,10 @@
                   9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
                   13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
                 };
-                stream.ByteWrites.Should().HaveCount(2);
+                stream.ByteWrites.Should().HaveCount(3);
                 stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 34 });
-                stream.ByteWrites[1].Should().Equal(
+                stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 3, 0, 3, 0, 255, 240 });
+                stream.ByteWrites[2].Should().Equal(
                   new[] { new byte[] { 255, 250, 34, 3 }, triplets, new byte[] { 255, 240 } }
                     .SelectMany(static p => p).ToArray());
             }
@@ -506,11 +539,12 @@
                 stream.Enqueue(255, 250, 34, 3, 2, 34, 7, 255, 240);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 await client.SendCommand(Commands.Break);
-                stream.ByteWrites.Should().HaveCount(4);
+                stream.ByteWrites.Should().HaveCount(5);
                 stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 34 });
-                stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 3, 2, 162, 7, 255, 240 });
-                stream.ByteWrites[2].Should().Equal(new byte[] { 255, 243 });
-                stream.ByteWrites[3].Should().Equal(new byte[] { 255, 253, 6 });
+                stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 3, 0, 3, 0, 255, 240 });
+                stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 34, 3, 2, 162, 7, 255, 240 });
+                stream.ByteWrites[3].Should().Equal(new byte[] { 255, 243 });
+                stream.ByteWrites[4].Should().Equal(new byte[] { 255, 253, 6 });
             }
         }
 
@@ -528,8 +562,8 @@
                 var logged = new List<string>();
                 client.Settings.Log = logged.Add;
                 await client.SendCommand(Commands.InterruptProcess);
-                stream.ByteWrites.Should().HaveCount(2);
-                stream.ByteWrites[1].Should().Equal(new byte[] { 255, 244 });
+                stream.ByteWrites.Should().HaveCount(3);
+                stream.ByteWrites[2].Should().Equal(new byte[] { 255, 244 });
                 logged.Should().ContainSingle().Which.Should().Contain("Synch");
             }
         }

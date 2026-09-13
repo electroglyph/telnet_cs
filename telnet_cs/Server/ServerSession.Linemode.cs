@@ -80,10 +80,10 @@
         }
 
         /// <summary>
-        /// Publishes the configured special characters to the peer (RFC 1184
-        /// §5.5). Sends nothing unless LINEMODE is agreed, and nothing at all
-        /// when no SLC row is configured (an all-NOSUPPORT export would wrongly
-        /// tell the peer to disable everything).
+        /// Publishes the special characters to the peer (RFC 1184 §5.5):
+        /// the explicitly configured rows, or the BSD reference defaults when
+        /// nothing was configured. Sends nothing unless LINEMODE is agreed
+        /// (the peer answered our DO).
         /// </summary>
         /// <param name="cancellationToken">A token to cancel the send.</param>
         /// <returns>An awaitable Task.</returns>

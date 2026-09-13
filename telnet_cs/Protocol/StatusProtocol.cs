@@ -16,12 +16,19 @@
 
 
         /// <summary>
+        /// Builds the STATUS SEND probe frame (<c>IAC SB STATUS SEND IAC SE</c>).
+        /// </summary>
+        internal static byte[] FrameStatusSend() =>
+          EnvironmentProtocol.FrameSubnegotiation((int)Options.Status, [Send]);
+
+        /// <summary>
         /// Builds the STATUS IS item list from the negotiation state, RFC 859
         /// style: one verb plus option byte per non-default side (our side as
         /// WILL/WONT, the peer side as DO/DONT). Sides at their default
         /// (<c>No</c>) are omitted, so one reply describes every option.
         /// Outstanding states render by intent: <c>WantYes</c> as WILL/DO,
-        /// <c>WantNo</c> as WONT/DONT.
+        /// <c>WantNo</c> as WONT/DONT. STATUS itself is never listed (the
+        /// reference skips it in both halves).
         /// </summary>
         /// <param name="negotiation">The persistent negotiation state.</param>
         internal static byte[] BuildIsPayload(NegotiationState negotiation)
@@ -30,6 +37,10 @@
             var items = new List<byte>();
             for (var option = 0; option <= LastReportableOption; option++)
             {
+                if (option == (int)Options.Status)
+                {
+                    continue;
+                }
                 var (us, him) = negotiation.GetStates(option);
                 if (us != NegotiationState.SideState.No)
                 {

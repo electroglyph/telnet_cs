@@ -65,7 +65,10 @@ namespace telnet_cs.Tests
             // a bare SE into the SB buffer — so send IAC SE for interop while
             // still accepting both forms inbound.
             var (_, writes) = await ReadScriptedAsync(255, 253, 5, 255, 250, 5, 1, 255, 240);
-            writes.Should().Equal(255, 251, 5, 255, 250, 5, 0, 251, 5, 255, 240);
+            writes.Should().Equal(
+              255, 251, 5,
+              255, 250, 5, 0, 255, 240,
+              255, 250, 5, 0, 255, 240);
         }
 
         [Fact]

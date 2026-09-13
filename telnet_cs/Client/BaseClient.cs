@@ -48,6 +48,11 @@
         /// plain read so pipelined data is never lost. Terminated reads cut
         /// their result at the first terminator and stash the remainder here;
         /// plain reads drain it before touching the wire.
+        /// This plus <c>TerminatedReadAsync</c> polling is the replacement for
+        /// the reference <c>readuntil</c>/<c>readline</c>/<c>eager</c> family:
+        /// an unterminated wait returns the partial text instead of raising
+        /// (no <c>IncompleteReadError</c>/<c>LimitOverrunError</c> equivalents),
+        /// at the cost of one rolling-window poll per millisecond-spin step.
         /// </summary>
         protected string PendingText { get; set; } = string.Empty;
 

@@ -33,8 +33,8 @@ namespace telnet_cs.Client
 
         /// <summary>
         /// Gets the default SLC value table matching the reference BSD defaults:
-        /// EOF, EC, EL, IP, ABORT, SUSP, EW and AYT. Used when the server sent no
-        /// SLC triplets.
+        /// EOF, EC, EL, IP, ABORT, SUSP, EW, AYT plus AO, RP, LNEXT, XON and
+        /// XOFF. Used when the server sent no SLC triplets.
         /// </summary>
         public static IReadOnlyDictionary<int, int> DefaultSlc { get; } = new Dictionary<int, int>
         {
@@ -46,6 +46,11 @@ namespace telnet_cs.Client
             [LinemodeProtocol.SlcSuspend] = 0x1A,
             [SlcEraseWord] = 0x17,
             [LinemodeProtocol.SlcAyt] = 0x14,
+            [LinemodeProtocol.SlcAbortOutput] = 0x0F,
+            [LinemodeProtocol.SlcReprint] = 0x12,
+            [LinemodeProtocol.SlcLiteralNext] = 0x16,
+            [LinemodeProtocol.SlcXon] = 0x11,
+            [LinemodeProtocol.SlcXoff] = 0x13,
         }.ToFrozenDictionary();
 
         private readonly Dictionary<int, int> slcValues;

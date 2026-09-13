@@ -415,6 +415,10 @@
             }
         }
 
+        // The readuntil/readline replacement (see PendingText): poll plain
+        // reads until the predicate holds or the timeout lapses, then return
+        // whatever arrived (partial on timeout — no raise). CR NUL
+        // normalizes to CR here, matching the reference readline layer.
         private async Task<string> TerminatedReadAsync(Func<string, bool> isTerminated, TimeSpan timeout, int millisecondSpin, CancellationToken cancellationToken)
         {
             var endTimeout = DateTime.UtcNow.Add(timeout);

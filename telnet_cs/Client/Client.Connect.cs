@@ -14,6 +14,21 @@
     /// <see cref="Client"/>.IsWriteConsole can be used to configure whether to write output to the console; often useful for debugging purposes.
     /// Per-instance settings (including TLS) flow through <c>Settings</c>, configured via the <c>ConnectAsync</c> overload that takes <c>TelnetClientOptions</c>.
     /// </summary>
+    /// <remarks>
+    /// Automation scope (intentional differences from a full interactive
+    /// stack): a client is single-use — connect, script the exchange, dispose;
+    /// there is no reconnect, no interactive shell, and no blocking
+    /// "wait until connected" beyond the constructor timeout (the constructor
+    /// throws when the stream is not connected in time). Size changes have no
+    /// SIGWINCH equivalent: poll <see cref="RefreshWindowSizeAsync"/> after
+    /// updating <c>Settings.WindowWidth</c>/<c>WindowHeight</c> (or resizing
+    /// the console); unchanged sizes send nothing.
+    /// Two deliberate extensions differ from the reference here: an inbound
+    /// <c>IAC IP</c> aborts a pending read (returning whatever arrived so
+    /// far), and a TCP-urgent Synch enters a discard scan that drops data
+    /// until in-band <c>IAC DM</c> — the reference delivers that data. Both
+    /// are pinned by tests and kept by design; there is no opt-out.
+    /// </remarks>
     public partial class Client
     {
         /// <summary>

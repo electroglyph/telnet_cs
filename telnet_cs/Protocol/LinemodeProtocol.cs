@@ -98,6 +98,29 @@
         /// <summary>SLC function: EL (11).</summary>
         internal const byte SlcEraseLine = 11;
 
+        /// <summary>SLC function: RP (reprint, 13).</summary>
+        internal const byte SlcReprint = 13;
+
+        /// <summary>SLC function: LNEXT (literal-next, 14).</summary>
+        internal const byte SlcLiteralNext = 14;
+
+        /// <summary>SLC function: XON (15).</summary>
+        internal const byte SlcXon = 15;
+
+        /// <summary>SLC function: XOFF (16).</summary>
+        internal const byte SlcXoff = 16;
+
+        /// <summary>
+        /// Builds the <c>DO FORWARDMASK</c> mask bytes the server sends after
+        /// every SLC block (RFC 1184 §2.3): 32 zero bytes under BINARY, else
+        /// 16. The reference generates its mask by snooping the SLC table for
+        /// trigger values, but passes an empty callback map, so no row ever
+        /// matches and the wire mask is unconditionally zeros (executed);
+        /// this reproduces those exact bytes without the dead search.
+        /// </summary>
+        /// <param name="binaryMode">Whether BINARY is agreed (32-byte form).</param>
+        internal static byte[] BuildForwardMask(bool binaryMode) => new byte[binaryMode ? 32 : 16];
+
         /// <summary>SLC function: FORW1 (17).</summary>
         internal const byte SlcForward1 = 17;
 

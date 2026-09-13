@@ -185,7 +185,12 @@ namespace telnet_cs.Tests
                     inbound.AddRange(chunk.Take(n));
                 }
 
-                inbound.Should().Equal(255, 251, 34, 255, 243);
+                // DO LINEMODE earns WILL plus the automatic SLC import; the
+                // BRK itself follows in-band.
+                inbound.Should().Equal(
+                  255, 251, 34,
+                  255, 250, 34, 3, 0, 3, 0, 255, 240,
+                  255, 243);
             }
         }
 

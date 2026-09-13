@@ -40,11 +40,23 @@
         private int? pendingVerb;
 
         /// <summary>
-        /// RFC 854 NVT printer rule: CR NUL collapses to CR. Set after a CR;
-        /// the next byte decides (NUL is swallowed, anything else is requeued).
-        /// Persists across reads so a split CR and NUL still collapse.
+        /// A CR was just delivered with the following byte not yet examined.
+        /// Raw <c>ReadAsync</c> preserves a following NUL as data (matching the
+        /// reference <c>read()</c>); only the terminated/line layer collapses
+        /// CR NUL to CR (matching the reference <c>readline()</c>). Persists
+        /// across reads so a split CR and NUL still pair up.
         /// </summary>
         private bool sawCrAwaitingNul;
+
+        /// <summary>
+        /// Persistent incremental decoder for <see cref="TextEncoding"/>,
+        /// replaced whenever the encoding changes. State survives across
+        /// reads so split multibyte sequences buffer their lead.
+        /// </summary>
+        private System.Text.Decoder? textDecoder;
+
+        /// <summary>The encoding <see cref="textDecoder"/> was created for.</summary>
+        private System.Text.Encoding? textDecoderEncoding;
 
         /// <summary>
         /// Subnegotiation continuation stashed when the wire stalls mid-frame:
@@ -60,8 +72,10 @@
         private bool sbResumeOverCap;
 
         /// <summary>
-        /// A bare STATUS SE was consumed just before the stall; its lookahead
-        /// byte arrives with the continuation.
+        /// Retained for <see cref="SbResumeState"/> shape compatibility; never
+        /// set. A bare SE byte is ordinary payload data (uniform IAC handling
+        /// like the reference: only IAC SE terminates), so there is no
+        /// STATUS-specific lookahead to resume.
         /// </summary>
         private bool sbResumeSePending;
 
@@ -106,7 +120,8 @@
         /// <summary>
         /// Gets whether the handler is discarding data in an RFC 854 Synch
         /// scan: set by the urgent-data trigger (or <see cref="EnterSynchDiscard"/>
-        /// in tests) and cleared by in-band <c>IAC DM</c>.
+        /// in tests) and cleared by in-band <c>IAC DM</c>. Extension: the
+        /// reference delivers the discarded bytes; this scan drops them.
         /// </summary>
         internal bool InSynchDiscard { get; private set; }
 
@@ -445,9 +460,11 @@
         /// <summary>
         /// Gets or sets the selector answering an inbound CHARSET REQUEST: it
         /// receives the peer's offers and returns the selected name, or null
-        /// to REJECT. Defaults to null, which intersects the offers with
-        /// <see cref="CharsetOffers"/> and takes the first resolvable entry
-        /// (preferring an explicitly configured <see cref="TextEncoding"/>).
+        /// to REJECT. Defaults to null, which applies the reference selection
+        /// policy: with no local encoding preference (or a weak Latin-1
+        /// default) the first viable peer offer is accepted; with an explicit
+        /// preference an exact match inside <see cref="CharsetOffers"/> wins,
+        /// else the request is rejected so the local encoding is kept.
         /// This is the offer-vs-send split: <see cref="CharsetOffers"/> builds
         /// our outbound REQUEST, this answers inbound ones.
         /// </summary>
@@ -958,8 +975,10 @@
         /// <summary>
         /// Ends MCCP agreement after corrupt data: queued output is already
         /// dropped by the decompressor (the reader is fed nothing), the
-        /// stream reference is released, and a DONT goes out at the next
-        /// async flush point (the reference answers DONT on error).
+        /// stream reference is released, and a refusal goes out at the next
+        /// async flush point. The refusal is this stack's extension (the
+        /// reference only clears state and logs): WONT for MCCP3 (withdrawing
+        /// our offer), DONT otherwise (refusing theirs).
         /// </summary>
         private void ShutdownMccpCorrupt()
         {
@@ -981,9 +1000,9 @@
         /// <returns>True if response is pending.</returns>
         private async Task<bool> RetrieveAndParseResponse(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes)
         {
-            // A corrupt MCCP stream arms its DONT from the sync byte path;
-            // flush it at the async points around this pass (the reference
-            // answers DONT on error).
+            // A corrupt MCCP stream arms its refusal from the sync byte path;
+            // flush it at the async points around this pass (extension: the
+            // reference only clears state and logs on corrupt data).
             await FlushMccpShutdownAsync().ConfigureAwait(false);
 
             // RFC 854 Synch trigger: a pending urgent byte enters discard mode.
@@ -1074,7 +1093,9 @@
                         // CR keeps its RFC 854 handling in the next case.
                         AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, (char)input);
                         break;
-                    case 13: // Carriage Return: RFC 854 CR NUL -> CR; CR LF stays CR LF.
+                    case 13: // Carriage Return: CR is delivered now; a following
+                        // NUL is preserved as data by the raw path (the line
+                        // layer collapses CR NUL to CR). CR LF stays CR LF.
                         AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "\r", 13);
                         sawCrAwaitingNul = true;
                         break;
@@ -1282,7 +1303,6 @@
             int inputOption;
             List<byte> payload;
             bool overCap;
-            bool sePending;
             bool iacPending;
             if (sbResumeOption.HasValue)
             {
@@ -1291,7 +1311,6 @@
                 inputOption = sbResumeOption.Value;
                 payload = sbResumePayload!;
                 overCap = sbResumeOverCap;
-                sePending = sbResumeSePending;
                 iacPending = sbResumeIacPending;
                 sbResumeOption = null;
                 sbResumePayload = null;
@@ -1329,45 +1348,20 @@
                 inputOption = option;
                 payload = [];
                 overCap = false;
-                sePending = false;
                 iacPending = false;
             }
 
-            await ScanAndDispatchSbAsync(inputOption, payload, overCap, sePending, iacPending).ConfigureAwait(false);
+            await ScanAndDispatchSbAsync(inputOption, payload, overCap, iacPending).ConfigureAwait(false);
         }
 
-        private async Task ScanAndDispatchSbAsync(int inputOption, List<byte> payload, bool overCap, bool sePending, bool iacPending)
+        private async Task ScanAndDispatchSbAsync(int inputOption, List<byte> payload, bool overCap, bool iacPending)
         {
             // Scan to IAC SE. The payload is capped: over-long input keeps being
             // consumed (so the stream resynchronises) but is then ignored.
-            // STATUS (RFC 859) uses inner framing — a bare SE byte terminates
-            // and SE SE escapes a literal SE — so the scan is option-aware.
+            // Framing is uniform for every option (reference parity): only
+            // IAC SE terminates; a bare SE byte is ordinary payload data.
             // A stall mid-scan stashes the frame; the next read resumes it.
-            var statusFraming = inputOption == (int)Options.Status;
             bool scanDone = false;
-            if (sePending)
-            {
-                // A bare STATUS SE was consumed just before the stall; its
-                // lookahead byte arrives now.
-                var lookahead = TryReadByte();
-                if (lookahead == -1)
-                {
-                    StashSbResume(inputOption, payload, overCap, seAwait: true, iacAwait: false);
-                    return;
-                }
-
-                if (lookahead == SeByte)
-                {
-                    AddPayloadByte((byte)SeByte);
-                }
-                else
-                {
-                    // Bare SE terminates STATUS; the following byte belongs to
-                    // the subsequent stream, so stash it for the next read.
-                    pushbackByte = lookahead;
-                    scanDone = true;
-                }
-            }
 
             if (!scanDone && iacPending)
             {
@@ -1426,29 +1420,6 @@
                     {
                         StashSbResume(inputOption, payload, overCap, seAwait: false, iacAwait: false);
                         return;
-                    }
-
-                    if (statusFraming && b == SeByte)
-                    {
-                        var following = TryReadByte();
-                        if (following == -1)
-                        {
-                            StashSbResume(inputOption, payload, overCap, seAwait: true, iacAwait: false);
-                            return;
-                        }
-
-                        if (following == SeByte)
-                        {
-                            AddPayloadByte((byte)SeByte);
-                            continue;
-                        }
-
-                        // Bare SE terminates STATUS; the following byte belongs to
-                        // the subsequent stream, so stash it for the next read.
-                        // (The scan path always consumes a pending pushback before
-                        // reaching SB, so the stash is free here.)
-                        pushbackByte = following;
-                        break;
                     }
 
                     if (b == IacByte)
@@ -2039,12 +2010,19 @@
             }
 
             var offers = CharsetProtocol.ParseRequest(payload);
+            // Reference selection policy (send_charset Cases 2-3): with no
+            // local encoding preference — or a weak Latin-1 default — the
+            // first viable peer offer is accepted, not just offers we would
+            // send ourselves. An explicit preference keeps the
+            // CharsetOffers intersection with exact-match priority.
             var selected = CharsetSelector is not null
               ? CharsetSelector(offers)
               : CharsetProtocol.SelectSupported(
-                  CharsetOffers.Count > 0
-                    ? CharsetOffers.Where(offered => offers.Contains(offered, StringComparer.OrdinalIgnoreCase)).ToList()
-                    : offers,
+                  TextEncoding is null || CharsetProtocol.IsWeakDefault(TextEncoding.WebName)
+                    ? offers
+                    : CharsetOffers.Count > 0
+                      ? CharsetOffers.Where(offered => offers.Contains(offered, StringComparer.OrdinalIgnoreCase)).ToList()
+                      : offers,
                   TextEncoding?.WebName);
             if (selected is null)
             {
@@ -2328,31 +2306,44 @@
 
         /// <summary>
         /// Confirm a MODE mask (RFC 1184 §2.2): client rules by default, server
-        /// rules when <see cref="ApplyLinemodeAsServer"/> is set.
+        /// rules when <see cref="ApplyLinemodeAsServer"/> is set. A server also
+        /// publishes its SLC table on the first MODE (reference: SLC goes out
+        /// on the first ACKed MODE via <c>_slc_sent</c>).
         /// </summary>
         /// <param name="payload">The MODE payload ([MODE, mask]).</param>
-        private Task ReplyModeAsync(List<byte> payload)
+        private async Task ReplyModeAsync(List<byte> payload)
         {
             if (payload.Count != 2)
             {
                 WriteLog("Ignoring malformed LINEMODE MODE (want [MODE, mask]).");
-                return Task.CompletedTask;
+                return;
             }
 
             if (!Negotiation.IsEnabledByUs((int)Options.LineMode) && !Negotiation.IsEnabledByPeer((int)Options.LineMode))
             {
                 WriteLog("Ignoring LINEMODE MODE without LINEMODE agreement.");
-                return Task.CompletedTask;
+                return;
+            }
+
+            if (ApplyLinemodeAsServer && Linemode.MarkSlcPublished())
+            {
+                byte[]? triplets = Linemode.ExportTriplets();
+                if (triplets is not null)
+                {
+                    WriteLog("Sending: " + nameof(Options.LineMode) + " SLC table.");
+                    await SendNegotiation((int)Options.LineMode,
+                      [LinemodeProtocol.SetLocalCharacters, .. triplets]).ConfigureAwait(false);
+                }
             }
 
             byte? reply = ApplyLinemodeAsServer ? Linemode.ApplyModeAsServer(payload[1]) : Linemode.ApplyMode(payload[1]);
             if (reply is null)
             {
-                return Task.CompletedTask;
+                return;
             }
 
             WriteLog("Sending: " + nameof(Options.LineMode) + " MODE " + reply.Value);
-            return SendNegotiation((int)Options.LineMode, [LinemodeProtocol.Mode, reply.Value]);
+            await SendNegotiation((int)Options.LineMode, [LinemodeProtocol.Mode, reply.Value]).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -2416,10 +2407,12 @@
         /// triplet tail is not a multiple of 3 throws (telnetlib3
         /// <c>_handle_sb_linemode_slc</c> raises <c>ValueError</c>); the whole
         /// buffer is rejected, including any valid triplets before the bad tail.
+        /// A server additionally requests a forwardmask after every SLC block
+        /// (reference <c>request_forwardmask</c>).
         /// </summary>
         /// <param name="payload">The SLC payload ([SLC, func, mod, value, …]).</param>
         /// <exception cref="InvalidDataException">The triplet tail is misaligned.</exception>
-        private Task ReplySlcAsync(List<byte> payload)
+        private async Task ReplySlcAsync(List<byte> payload)
         {
             if ((payload.Count - 1) % 3 != 0)
             {
@@ -2441,13 +2434,19 @@
                 }
             }
 
-            if (replies is null)
+            if (replies is not null)
             {
-                return Task.CompletedTask;
+                WriteLog("Sending: " + nameof(Options.LineMode) + " SLC reply.");
+                await SendNegotiation((int)Options.LineMode, [LinemodeProtocol.SetLocalCharacters, .. replies]).ConfigureAwait(false);
             }
 
-            WriteLog("Sending: " + nameof(Options.LineMode) + " SLC reply.");
-            return SendNegotiation((int)Options.LineMode, [LinemodeProtocol.SetLocalCharacters, .. replies]);
+            if (ApplyLinemodeAsServer)
+            {
+                byte[] mask = LinemodeProtocol.BuildForwardMask(Negotiation.IsEnabledByUs((int)Options.TransmitBinary));
+                WriteLog("Sending: " + nameof(Options.LineMode) + " DO FORWARDMASK.");
+                await SendNegotiation((int)Options.LineMode,
+                  [(byte)Commands.Do, LinemodeProtocol.ForwardMask, .. mask]).ConfigureAwait(false);
+            }
         }
 
         /// <summary>
@@ -2509,7 +2508,7 @@
                         return true;
                     }
 
-                    await ScanAndDispatchSbAsync(sbOption, [], false, false, false).ConfigureAwait(false);
+                    await ScanAndDispatchSbAsync(sbOption, [], false, false).ConfigureAwait(false);
                     return true;
                 }
 
@@ -2535,7 +2534,7 @@
 
                 if (stashedVerb == (int)Commands.Subnegotiation)
                 {
-                    await ScanAndDispatchSbAsync(stashedOption, [], false, false, false).ConfigureAwait(false);
+                    await ScanAndDispatchSbAsync(stashedOption, [], false, false).ConfigureAwait(false);
                     return true;
                 }
 
@@ -2649,6 +2648,34 @@
             if (inputOption == (int)Options.RemoteFlowControl && reply is Commands.Do && SendLineflowAsServer)
             {
                 await SendLineflowModeAsync(SendLineflowRestartAny).ConfigureAwait(false);
+            }
+
+            if (inputOption == (int)Options.Status && inputVerb == (int)Commands.Will && reply is Commands.Do)
+            {
+                // RFC 859 initiation (reference handle_will): a peer
+                // announcing WILL STATUS is immediately put to the test with
+                // a SEND probe. Only on the state-changing agreement (a
+                // repeat WILL earns no reply above, and no re-probe here).
+                var probe = StatusProtocol.FrameStatusSend();
+                await WriteWireAsync(probe, 0, probe.Length, internalCancellation.Token).ConfigureAwait(false);
+            }
+
+            if (inputOption == (int)Options.Status && inputVerb == (int)Commands.Do && reply is Commands.Will)
+            {
+                // RFC 859 initiation (reference handle_do): volunteer our
+                // snapshot the moment we agree to send it, without waiting
+                // for a SEND first.
+                await ReplyStatusAsync().ConfigureAwait(false);
+            }
+
+            if (inputOption == (int)Options.LineMode && inputVerb == (int)Commands.Do
+                && reply is Commands.Will && !ApplyLinemodeAsServer)
+            {
+                // RFC 1184 §2.4 (reference handle_do): the client initiates
+                // the SLC exchange immediately after WILL LINEMODE by
+                // requesting the peer's table (func 0, DEFAULT).
+                await SendNegotiation((int)Options.LineMode,
+                  [LinemodeProtocol.SetLocalCharacters, 0, LinemodeProtocol.LevelDefault, 0]).ConfigureAwait(false);
             }
         }
 

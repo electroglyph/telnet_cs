@@ -87,7 +87,10 @@
         }
 
         /// <summary>
-        /// Add null check to cancel commands. Fail gracefully.
+        /// Cancels the in-flight read pipeline (an inbound <c>IAC IP</c>
+        /// aborts a pending read this way, returning whatever arrived so far).
+        /// Extension: the reference has no IP-aborts-read behavior. Add null
+        /// check to cancel commands. Fail gracefully.
         /// </summary>
         protected void CancelPendingReads()
         {

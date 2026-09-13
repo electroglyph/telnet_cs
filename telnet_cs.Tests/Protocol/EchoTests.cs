@@ -270,8 +270,9 @@
             stream.Enqueue(255, 250, 5, 1, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             // STATUS IS is IAC SE terminated (RFC 859 §5 text says bare SE,
-            // but its example and every strict parser use IAC SE).
-            stream.ByteWrites.Should().Contain(b => b.SequenceEqual(new byte[] { 255, 250, 5, 0, 253, 1, 251, 5, 255, 240 }));
+            // but its example and every strict parser use IAC SE). STATUS
+            // itself is never listed (reference skips it).
+            stream.ByteWrites.Should().Contain(b => b.SequenceEqual(new byte[] { 255, 250, 5, 0, 253, 1, 255, 240 }));
         }
     }
 }

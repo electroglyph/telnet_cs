@@ -27,6 +27,43 @@
         private readonly SlcEntry[] table = new SlcEntry[LinemodeProtocol.MaxFunction + 1];
 
         /// <summary>
+        /// The BSD default SLC rows (telnetlib3's <c>default_slc_tab</c> via
+        /// <c>generate_slctab</c>): 16 live functions as (function, level,
+        /// value, flush flags). Both the working table and the configured
+        /// defaults start here, so a fresh session already negotiates the
+        /// reference values; <see cref="SetEntry"/> overrides per row.
+        /// </summary>
+        private static readonly (byte Function, byte Level, byte Value, byte Flags)[] BsdDefaults =
+        [
+            (1, 3, 0, 0),
+            (2, 3, 0, 0),
+            (3, 2, 3, 96),
+            (4, 2, 15, 32),
+            (5, 2, 20, 0),
+            (6, 3, 0, 0),
+            (7, 2, 28, 96),
+            (8, 2, 4, 0),
+            (9, 2, 26, 64),
+            (10, 2, 127, 0),
+            (11, 2, 21, 0),
+            (12, 2, 23, 0),
+            (13, 2, 18, 0),
+            (14, 2, 22, 0),
+            (15, 2, 17, 0),
+            (16, 2, 19, 0),
+        ];
+
+        internal LinemodeState()
+        {
+            foreach (var (function, level, value, flags) in BsdDefaults)
+            {
+                var entry = new SlcEntry(level, value, flags);
+                defaults[function] = entry;
+                table[function] = entry;
+            }
+        }
+
+        /// <summary>
         /// The configured defaults (telnetlib3's <c>default_slc_tab</c>): written
         /// by <see cref="SetEntry"/> alongside the working <see cref="table"/>,
         /// never by negotiation. A peer <c>DEFAULT</c> level restores the row
@@ -37,6 +74,7 @@
         private byte[]? forwardMask;
         private bool forwardMaskOffered;
         private bool forwardMaskAccepted;
+        private bool slcPublished;
 
         /// <summary>Gets the agreed MODE mask, without the MODE_ACK bit.</summary>
         internal byte Mode
@@ -331,6 +369,26 @@
                 // Agreement: switch and reply with the same modifiers plus ACK
                 // (RFC 1184 section 5.5 rule 3 and section 5.10 example).
                 return ((byte)(level | flags | LinemodeProtocol.FlagAck), value);
+            }
+        }
+
+        /// <summary>
+        /// Marks the SLC table as published (the server sends it on the first
+        /// MODE). Returns true on the first call only, so follow-up MODEs do
+        /// not republish (telnetlib3 <c>_slc_sent</c>).
+        /// </summary>
+        /// <returns>Whether this call is the first (publish now).</returns>
+        internal bool MarkSlcPublished()
+        {
+            lock (sync)
+            {
+                if (slcPublished)
+                {
+                    return false;
+                }
+
+                slcPublished = true;
+                return true;
             }
         }
 

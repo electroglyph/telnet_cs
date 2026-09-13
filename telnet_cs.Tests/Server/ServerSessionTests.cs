@@ -1175,6 +1175,26 @@ namespace telnet_cs.Tests
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
         }
 
+        // Reference SLC publish: the 16 BSD default rows framed as
+        // IAC SB LINEMODE SLC ... IAC SE (sent on the first MODE).
+        private static byte[] BsdSlcPublishFrame() =>
+        [
+          255, 250, 34, 3,
+          1, 3, 0, 2, 3, 0, 3, 98, 3, 4, 34, 15, 5, 2, 20, 6, 3, 0,
+          7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
+          13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
+          255, 240,
+        ];
+
+        // Reference forwardmask request: DO FORWARDMASK plus 16 zero bytes
+        // (32 under BINARY), sent after every server-side SLC block.
+        private static byte[] ForwardMaskFrame() =>
+        [
+          255, 250, 34, 253, 2,
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          255, 240,
+        ];
+
         [Fact]
         public async Task LmodeAgreement_CompletesWithoutFurtherReply()
         {
@@ -1195,8 +1215,9 @@ namespace telnet_cs.Tests
             stream.Enqueue([255, 251, 34, 255, 250, 34, 1, 1, 255, 240]);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(
-              255, 253, 34,
-              255, 250, 34, 1, 5, 255, 240);
+              [255, 253, 34,
+               .. BsdSlcPublishFrame(),
+               255, 250, 34, 1, 5, 255, 240]);
         }
 
         [Fact]
@@ -1205,13 +1226,15 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             // MODE [EDIT] is echoed verbatim plus ACK; a later MODE [0] is a
-            // new mask and is echoed verbatim plus ACK as well.
+            // new mask and is echoed verbatim plus ACK as well. The SLC table
+            // goes out once, on the first MODE.
             stream.Enqueue([255, 251, 34, 255, 250, 34, 1, 1, 255, 240, 255, 250, 34, 1, 0, 255, 240]);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(
-              255, 253, 34,
-              255, 250, 34, 1, 5, 255, 240,
-              255, 250, 34, 1, 4, 255, 240);
+              [255, 253, 34,
+               .. BsdSlcPublishFrame(),
+               255, 250, 34, 1, 5, 255, 240,
+               255, 250, 34, 1, 4, 255, 240]);
         }
 
         [Fact]
@@ -1220,11 +1243,12 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             // MODE+ACK [EDIT] differs from stored 0: server rule adopts it with
-            // no reply (the client rule would ignore it and answer the next
-            // MODE, which must not happen).
+            // no MODE reply (the client rule would ignore it and answer the next
+            // MODE, which must not happen) — but the first MODE still publishes
+            // the SLC table.
             stream.Enqueue([255, 251, 34, 255, 250, 34, 1, 5, 255, 240, 255, 250, 34, 1, 1, 255, 240]);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
-            OutboundBytes(stream).Should().Equal(255, 253, 34);
+            OutboundBytes(stream).Should().Equal([255, 253, 34, .. BsdSlcPublishFrame()]);
         }
 
         [Fact]
@@ -1343,7 +1367,11 @@ namespace telnet_cs.Tests
             await session.PublishSpecialCharactersAsync();
             OutboundBytes(stream).Should().Equal(
               255, 253, 34,
-              255, 250, 34, 3, 3, 2, 5, 255, 240);
+              255, 250, 34, 3,
+              1, 3, 0, 2, 3, 0, 3, 2, 5, 4, 34, 15, 5, 2, 20, 6, 3, 0,
+              7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
+              13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
+              255, 240);
         }
 
         [Fact]
@@ -1427,12 +1455,14 @@ namespace telnet_cs.Tests
         {
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
-            // Peer publishes IP=^E at VALUE level: agreed (stored) and ACKed.
+            // Peer publishes IP=^E at VALUE level: agreed (stored) and ACKed,
+            // then the server requests a forwardmask.
             stream.Enqueue([255, 251, 34, 255, 250, 34, 3, 3, 2, 5, 255, 240]);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(
-              255, 253, 34,
-              255, 250, 34, 3, 3, 130, 5, 255, 240);
+              [255, 253, 34,
+               255, 250, 34, 3, 3, 130, 5, 255, 240,
+               .. ForwardMaskFrame()]);
         }
 
         [Fact]
@@ -1440,46 +1470,62 @@ namespace telnet_cs.Tests
         {
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
-            // MODE [EDIT] is echoed verbatim plus ACK; the peer's MODE+ACK
-            // echoing a different mask is adopted silently with no reply.
+            // MODE [EDIT] is echoed verbatim plus ACK and publishes the SLC
+            // table once; the peer's MODE+ACK echoing a different mask is
+            // adopted silently with no reply.
             stream.Enqueue([255, 251, 34, 255, 250, 34, 1, 1, 255, 240, 255, 250, 34, 1, 7, 255, 240]);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(
-              255, 253, 34,
-              255, 250, 34, 1, 5, 255, 240);
+              [255, 253, 34,
+               .. BsdSlcPublishFrame(),
+               255, 250, 34, 1, 5, 255, 240]);
         }
 
         [Fact]
-        public async Task InboundImportRequest_EmptyTable_SendsDefaultTable()
+        public async Task InboundImportRequest_DefaultTable_SendsFullTable()
         {
-            // RFC 1184 §2.4: (0,DEFAULT,0) is answered with the full table, every
-            // NOSUPPORT row as [func,DEFAULT,0] — never silence.
+            // RFC 1184 §2.4: (0,DEFAULT,0) resets to the defaults and answers
+            // with the full table — the 16 BSD rows, every NOSUPPORT row as
+            // [func,DEFAULT,0] so the peer may use its own values.
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             stream.Enqueue([255, 251, 34, 255, 250, 34, 3, 0, 3, 0, 255, 240]);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
-            var table = Enumerable.Range(1, 30).SelectMany(static f => new byte[] { (byte)f, 3, 0 });
-            OutboundBytes(stream).Should().Equal([255, 253, 34, 255, 250, 34, 3, .. table, 255, 240]);
+            var bsd = new byte[]
+            {
+              1, 3, 0, 2, 3, 0, 3, 98, 3, 4, 34, 15, 5, 2, 20, 6, 3, 0,
+              7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
+              13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
+            };
+            var gaps = Enumerable.Range(17, 14).SelectMany(static f => new byte[] { (byte)f, 3, 0 });
+            OutboundBytes(stream).Should().Equal([255, 253, 34, 255, 250, 34, 3, .. bsd, .. gaps, 255, 240]);
         }
 
         [Fact]
         public async Task InboundImportRequest_ConfiguredTable_RendersDefaultsForGaps()
         {
+            // Explicit rows override the BSD defaults; out-of-table functions
+            // still render as [func,DEFAULT,0].
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             session.SetLinemodeEntry(3, 2, 5);
             stream.Enqueue([255, 251, 34, 255, 250, 34, 3, 0, 3, 0, 255, 240]);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
-            var table = Enumerable.Range(1, 30).SelectMany(
-              static f => f == 3 ? new byte[] { 3, 2, 5 } : new byte[] { (byte)f, 3, 0 });
-            OutboundBytes(stream).Should().Equal([255, 253, 34, 255, 250, 34, 3, .. table, 255, 240]);
+            var bsd = new byte[]
+            {
+              1, 3, 0, 2, 3, 0, 3, 2, 5, 4, 34, 15, 5, 2, 20, 6, 3, 0,
+              7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
+              13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
+            };
+            var gaps = Enumerable.Range(17, 14).SelectMany(static f => new byte[] { (byte)f, 3, 0 });
+            OutboundBytes(stream).Should().Equal([255, 253, 34, 255, 250, 34, 3, .. bsd, .. gaps, 255, 240]);
         }
 
         [Fact]
         public async Task InboundSendCurrentRequest_ReturnsConfiguredTable()
         {
-            // (0,VALUE,0) asks for current settings: normal export (NOSUPPORT
-            // rows omitted), not the DEFAULT rendering.
+            // (0,VALUE,0) asks for current settings: BSD default rows with the
+            // explicit override applied (NOSUPPORT rows omitted).
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             session.SetLinemodeEntry(3, 2, 5);
@@ -1487,17 +1533,28 @@ namespace telnet_cs.Tests
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(
               255, 253, 34,
-              255, 250, 34, 3, 3, 2, 5, 255, 240);
+              255, 250, 34, 3,
+              1, 3, 0, 2, 3, 0, 3, 2, 5, 4, 34, 15, 5, 2, 20, 6, 3, 0,
+              7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
+              13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
+              255, 240);
         }
 
         [Fact]
-        public async Task InboundSendCurrentRequest_EmptyTable_IsSilent()
+        public async Task InboundSendCurrentRequest_DefaultTable_ReturnsBsdRows()
         {
+            // (0,VALUE,0) on a fresh session exports the BSD default rows.
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             stream.Enqueue([255, 251, 34, 255, 250, 34, 3, 0, 2, 0, 255, 240]);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
-            OutboundBytes(stream).Should().Equal(255, 253, 34);
+            OutboundBytes(stream).Should().Equal(
+              255, 253, 34,
+              255, 250, 34, 3,
+              1, 3, 0, 2, 3, 0, 3, 98, 3, 4, 34, 15, 5, 2, 20, 6, 3, 0,
+              7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
+              13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
+              255, 240);
         }
 
         [Fact]
@@ -1528,13 +1585,19 @@ namespace telnet_cs.Tests
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             stream.Enqueue([255, 250, 34, 3, 0, 2, 0, 255, 240]);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
-            var table = Enumerable.Range(1, 30).SelectMany(
-              static f => f == 3 ? new byte[] { 3, 2, 3 } : new byte[] { (byte)f, 3, 0 });
+            var bsd = new byte[]
+            {
+              1, 3, 0, 2, 3, 0, 3, 2, 3, 4, 34, 15, 5, 2, 20, 6, 3, 0,
+              7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
+              13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
+            };
+            var gaps = Enumerable.Range(17, 14).SelectMany(static f => new byte[] { (byte)f, 3, 0 });
             OutboundBytes(stream).Should().Equal(
               [255, 253, 34,
                255, 250, 34, 3, 3, 130, 5, 255, 240,
-               255, 250, 34, 3, .. table, 255, 240,
-               255, 250, 34, 3, 3, 2, 3, 255, 240]);
+               .. ForwardMaskFrame(),
+               255, 250, 34, 3, .. bsd, .. gaps, 255, 240,
+               255, 250, 34, 3, .. bsd, 255, 240]);
         }
 
         [Fact]
@@ -1548,7 +1611,10 @@ namespace telnet_cs.Tests
             // WILL ECHO is deferred until TTYPE reveals the client, so it is
             // absent here. The peer then asks us to report STATUS (DO STATUS →
             // agreed WILL-sender, the RFC 859 §5 role gate), so the snapshot
-            // reports the two WILLs plus the five DOs, IAC SE terminated.
+            // reports the two WILLs plus the five DOs — never STATUS itself
+            // (reference _send_status skips it in both halves) — IAC SE terminated.
+            // The DO volunteers one IS immediately and the SEND answers a
+            // second, matching the reference (executed: WILL, IS on DO, IS on SEND).
             stream.Enqueue([255, 253, 5, 255, 250, 5, 1, 255, 240]);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             byte[] outbound = OutboundBytes(stream);
@@ -1561,11 +1627,14 @@ namespace telnet_cs.Tests
               255, 253, 36,
               255, 253, 34);
             outbound.Skip(21).Take(3).Should().Equal(255, 251, 5);
-            outbound.Skip(24).Should().Equal(
+            byte[] snapshot =
+            [
               255, 250, 5, 0,
-              251, 0, 251, 3, 251, 5,
+              251, 0, 251, 3,
               253, 24, 253, 31, 253, 32, 253, 34, 253, 36,
-              255, 240);
+              255, 240,
+            ];
+            outbound.Skip(24).Should().Equal([.. snapshot, .. snapshot]);
         }
 
         [Fact]
@@ -1588,13 +1657,15 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task StatusIs_SbBlock_RecordsDataBytes()
         {
-            // RFC 859 §5 inner framing: SB <opt> <data> with a bare-SE
-            // terminator records the block bytes; the byte after it belongs
-            // to the subsequent stream.
+            // RFC 859 §5: IS with an SB <opt> <data> SE block records the
+            // block bytes; a trailing byte after the block ends the parse
+            // (the reference logs and stops) and never leaks to text. The
+            // outer frame still ends at IAC SE (executed on the reference:
+            // no reply, nothing in-band).
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
-            stream.Enqueue([255, 250, 5, 0, 250, 31, 0, 80, 0, 24, 240, 65]);
-            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("A");
+            stream.Enqueue([255, 250, 5, 0, 250, 31, 0, 80, 0, 24, 240, 65, 255, 240]);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
             var item = session.PeerStatusReport.Should().ContainSingle().Which;
             item.Verb.Should().Be(Commands.Subnegotiation);

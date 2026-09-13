@@ -32,18 +32,21 @@
         {
             // RFC 859 motivation: a status query must not trigger renegotiation —
             // answering SEND emits exactly the IS snapshot, no new WILL/DO/WONT/DONT.
+            // (WILL STATUS itself earns the initiation SEND probe, not a renegotiation.)
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { },
                 255, 253, 5,
                 255, 251, 5,
                 255, 250, 5, 1, 255, 240);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().HaveCount(3);
+            stream.ByteWrites.Should().HaveCount(5);
             stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 5 });
-            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 253, 5 });
-            stream.ByteWrites[2].Should().HaveCountGreaterThan(4);
-            stream.ByteWrites[2][0].Should().Be((byte)255);
-            stream.ByteWrites[2][1].Should().Be((byte)250);
-            stream.ByteWrites[2][^1].Should().Be((byte)240);
+            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 5, 0, 255, 240 });
+            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 253, 5 });
+            stream.ByteWrites[3].Should().Equal(new byte[] { 255, 250, 5, 1, 255, 240 });
+            stream.ByteWrites[4].Should().HaveCountGreaterThan(4);
+            stream.ByteWrites[4][0].Should().Be((byte)255);
+            stream.ByteWrites[4][1].Should().Be((byte)250);
+            stream.ByteWrites[4][^1].Should().Be((byte)240);
         }
 
         [Fact]
@@ -73,10 +76,11 @@
         {
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 253, 5, 255, 253, 3, 255, 250, 5, 1, 255, 240);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().HaveCount(3);
+            stream.ByteWrites.Should().HaveCount(4);
             stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 5 });
-            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 251, 3 });
-            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 3, 251, 5, 255, 240 });
+            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 5, 0, 255, 240 });
+            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 251, 3 });
+            stream.ByteWrites[3].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 3, 255, 240 });
         }
 
         [Fact]
@@ -84,23 +88,25 @@
         {
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 253, 5, 255, 251, 3, 255, 250, 5, 1, 255, 240);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().HaveCount(3);
+            stream.ByteWrites.Should().HaveCount(4);
             stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 5 });
-            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 253, 3 });
-            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 253, 3, 251, 5, 255, 240 });
+            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 5, 0, 255, 240 });
+            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 253, 3 });
+            stream.ByteWrites[3].Should().Equal(new byte[] { 255, 250, 5, 0, 253, 3, 255, 240 });
         }
 
         [Fact]
         public async Task StatusSend_RefusedOption_Omitted()
         {
-            // TELOPT 92 stays refused; this harness agrees nothing else, so
-            // only the WILL STATUS self-entry joins the IS.
+            // TELOPT 92 stays refused; the snapshots carry no self STATUS
+            // entry (the reference skips it), so both IS frames are empty.
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 253, 5, 255, 251, 92, 255, 250, 5, 1, 255, 240);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().HaveCount(3);
+            stream.ByteWrites.Should().HaveCount(4);
             stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 5 });
-            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 254, 92 });
-            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 5, 255, 240 });
+            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 5, 0, 255, 240 });
+            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 254, 92 });
+            stream.ByteWrites[3].Should().Equal(new byte[] { 255, 250, 5, 0, 255, 240 });
         }
 
         [Fact]
@@ -108,11 +114,12 @@
         {
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 253, 5, 255, 253, 3, 255, 254, 3, 255, 250, 5, 1, 255, 240);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().HaveCount(4);
+            stream.ByteWrites.Should().HaveCount(5);
             stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 5 });
-            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 251, 3 });
-            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 252, 3 });
-            stream.ByteWrites[3].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 5, 255, 240 });
+            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 5, 0, 255, 240 });
+            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 251, 3 });
+            stream.ByteWrites[3].Should().Equal(new byte[] { 255, 252, 3 });
+            stream.ByteWrites[4].Should().Equal(new byte[] { 255, 250, 5, 0, 255, 240 });
         }
 
         [Fact]
@@ -120,11 +127,12 @@
         {
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 253, 5, 255, 253, 3, 255, 251, 3, 255, 250, 5, 1, 255, 240);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().HaveCount(4);
+            stream.ByteWrites.Should().HaveCount(5);
             stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 5 });
-            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 251, 3 });
-            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 253, 3 });
-            stream.ByteWrites[3].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 3, 253, 3, 251, 5, 255, 240 });
+            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 5, 0, 255, 240 });
+            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 251, 3 });
+            stream.ByteWrites[3].Should().Equal(new byte[] { 255, 253, 3 });
+            stream.ByteWrites[4].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 3, 253, 3, 255, 240 });
         }
 
         [Fact]
@@ -291,9 +299,10 @@
                 await client.SendTimingMarkAsync();
                 stream.Enqueue(255, 253, 5, 255, 250, 5, 1, 255, 240);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
-                stream.ByteWrites.Should().HaveCount(3);
+                stream.ByteWrites.Should().HaveCount(4);
                 stream.ByteWrites[1].Should().Equal(new byte[] { 255, 251, 5 });
-                stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 5, 253, 6, 255, 240 });
+                stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 253, 6, 255, 240 });
+                stream.ByteWrites[3].Should().Equal(new byte[] { 255, 250, 5, 0, 253, 6, 255, 240 });
             }
         }
 
@@ -310,9 +319,10 @@
                   [(Commands.Will, Options.TimingMark)]);
                 stream.Enqueue(255, 253, 5, 255, 250, 5, 1, 255, 240);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
-                stream.ByteWrites.Should().HaveCount(2);
+                stream.ByteWrites.Should().HaveCount(3);
                 stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 5 });
-                stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 5, 255, 240 });
+                stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 5, 0, 255, 240 });
+                stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 255, 240 });
             }
         }
 
@@ -329,10 +339,11 @@
                 await client.RequestEnableAsync((Options)240);
                 stream.Enqueue(255, 253, 5, 255, 250, 5, 1, 255, 240);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
-                stream.ByteWrites.Should().HaveCount(3);
+                stream.ByteWrites.Should().HaveCount(4);
                 stream.ByteWrites[0].Should().Equal(new byte[] { 255, 253, 240 });
                 stream.ByteWrites[1].Should().Equal(new byte[] { 255, 251, 5 });
-                stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 251, 5, 253, 240, 255, 240 });
+                stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 0, 253, 240, 255, 240 });
+                stream.ByteWrites[3].Should().Equal(new byte[] { 255, 250, 5, 0, 253, 240, 255, 240 });
             }
         }
 
