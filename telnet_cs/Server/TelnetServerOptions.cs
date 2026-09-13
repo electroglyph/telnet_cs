@@ -50,8 +50,10 @@
 
         /// <summary>
         /// Gets or sets whether sessions request terminal-speed reports
-        /// (<c>DO TerminalSpeed</c>, RFC 1079) in the opening preset. Defaults
-        /// to <c>true</c>.
+        /// (<c>DO TerminalSpeed</c>, RFC 1079). Defaults to <c>true</c> but is
+        /// never sent unsolicited (the reference advanced preset has no
+        /// TSPEED): request explicitly via
+        /// <c>ServerSession.RequestTerminalSpeedAsync</c>.
         /// </summary>
         public bool RequestTerminalSpeed { get; set; } = true;
 
@@ -64,8 +66,10 @@
 
         /// <summary>
         /// Gets or sets whether sessions request environment reports
-        /// (<c>DO OldEnvironment</c>, RFC 1408) in the opening preset. Defaults
-        /// to <c>true</c>.
+        /// (<c>DO OldEnvironment</c>, RFC 1408). Defaults to <c>true</c> but is
+        /// never sent unsolicited (the reference advanced preset has no
+        /// OLD_ENVIRON): request explicitly via
+        /// <c>ServerSession.RequestEnvironmentAsync</c>.
         /// </summary>
         public bool RequestEnvironment { get; set; } = true;
 
@@ -79,10 +83,12 @@
 
         /// <summary>
         /// Gets or sets whether sessions request linemode negotiation
-        /// (<c>DO LineMode</c>, RFC 1184) in the opening preset. Defaults to
-        /// <c>true</c>.
+        /// (<c>DO LineMode</c>, RFC 1184). Defaults to <c>false</c> (char mode,
+        /// like the reference <c>line_mode=False</c>); never sent unsolicited
+        /// in any case — LINEMODE lives only in the dedicated LinemodeServer
+        /// path there. Request explicitly if a linemode session is wanted.
         /// </summary>
-        public bool RequestLinemode { get; set; } = true;
+        public bool RequestLinemode { get; set; }
 
         /// <summary>
         /// Gets or sets whether sessions request new-form environment reports
@@ -92,32 +98,35 @@
         public bool RequestNewEnvironment { get; set; }
 
         /// <summary>
-        /// Gets or sets whether sessions request character-set negotiation
-        /// (<c>DO CharacterSet</c>, RFC 2066) in the opening preset. Defaults
-        /// to <c>false</c> so default opening-preset bytes are unchanged.
-        /// </summary>
-        public bool RequestCharacterSet { get; set; }
-
-        /// <summary>
         /// Gets or sets whether sessions request the peer location
-        /// (<c>DO SendLocation</c>, RFC 779) in the opening preset. Defaults
-        /// to <c>false</c> so default opening-preset bytes are unchanged.
+        /// (<c>DO SendLocation</c>, RFC 779). Defaults to <c>false</c>; never
+        /// sent unsolicited — request explicitly via
+        /// <c>ServerSession.RequestSendLocationAsync</c>.
         /// </summary>
         public bool RequestSendLocation { get; set; }
 
         /// <summary>
-        /// Gets or sets the character sets offered in CHARSET REQUESTs
-        /// (RFC 2066), in preference order. Defaults to UTF-8.
+        /// Gets or sets whether sessions request character-set negotiation
+        /// (<c>DO CharacterSet</c>, RFC 2066) in the advanced preset (once
+        /// negotiation advances, like the reference which sends it whenever a
+        /// default encoding is configured). Defaults to <c>true</c>.
         /// </summary>
-        public IList<string> CharsetOffers { get; set; } = ["UTF-8"];
+        public bool RequestCharacterSet { get; set; } = true;
+
+        /// <summary>
+        /// Gets or sets the character sets offered in CHARSET REQUESTs
+        /// (RFC 2066), in preference order. Defaults to the reference
+        /// executable offer list (US-ASCII last).
+        /// </summary>
+        public IList<string> CharsetOffers { get; set; } = ["UTF-8", "UTF-16", "LATIN1", "CP1252", "ISO-8859-15", "CP437", "SHIFT_JIS", "CP932", "BIG5", "CP950", "GBK", "GB2312", "CP936", "EUC-KR", "CP949", "US-ASCII"];
 
         /// <summary>
         /// Gets or sets whether sessions may agree MCCP2/MCCP3 compression
         /// (options 86/87) and inflate the inbound stream. Defaults to
-        /// <c>false</c> (the reference refuses unless opted in); stays refused
-        /// over TLS in any case.
+        /// <c>true</c> (the reference passively accepts unless opted out);
+        /// stays refused over TLS in any case.
         /// </summary>
-        public bool EnableMccp { get; set; }
+        public bool EnableMccp { get; set; } = true;
 
         /// <summary>
         /// Gets or sets the prompt sent before reading the login name in

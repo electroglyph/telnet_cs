@@ -78,11 +78,14 @@ namespace telnet_cs.Server
 
         /// <summary>
         /// Accumulates read slices until a <c>\n</c>-terminated line
-        /// completes. Returns null on disconnect or cancellation (an empty
-        /// slice with a live peer simply waits again).
+        /// completes. Backspace (<c>\b</c>) and delete (<c>\x7f</c>) erase the
+        /// previous character with a <c>"\b \b"</c> echo (the reference
+        /// <c>_LineEditor</c>). Returns null on disconnect or cancellation (an
+        /// empty slice with a live peer simply waits again).
         /// </summary>
         private static async Task<string?> ReadLineAsync(ServerSession session, System.Text.StringBuilder pending, CancellationToken cancellationToken)
         {
+            var line = new System.Text.StringBuilder();
             while (!cancellationToken.IsCancellationRequested && session.IsConnected)
             {
                 string chunk;
@@ -97,11 +100,36 @@ namespace telnet_cs.Server
 
                 pending.Append(chunk);
                 string accumulated = pending.ToString();
-                int newline = accumulated.IndexOf('\n');
-                if (newline >= 0)
+                pending.Clear();
+                for (int i = 0; i < accumulated.Length; i++)
                 {
-                    pending.Remove(0, newline + 1);
-                    return accumulated.Substring(0, newline).TrimEnd('\r');
+                    char c = accumulated[i];
+                    if (c is '\b' or '\x7f')
+                    {
+                        if (line.Length > 0)
+                        {
+                            line.Length--;
+                            try
+                            {
+                                await session.WriteAsync("\b \b", cancellationToken).ConfigureAwait(false);
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                return null;
+                            }
+                        }
+
+                        continue;
+                    }
+
+                    if (c == '\n')
+                    {
+                        // Stash anything past the newline for the next line.
+                        pending.Append(accumulated.Substring(i + 1));
+                        return line.ToString().TrimEnd('\r');
+                    }
+
+                    line.Append(c);
                 }
             }
 
@@ -118,6 +146,7 @@ namespace telnet_cs.Server
                 "negotiation" => NegotiationAsync(session, cancellationToken),
                 "stats" => StatsAsync(session, cancellationToken),
                 "environ" => EnvironAsync(session, cancellationToken),
+                "slc" => SlcAsync(session, cancellationToken),
                 _ => UnknownAsync(session, cancellationToken),
             };
         }
@@ -131,7 +160,7 @@ namespace telnet_cs.Server
         private static async Task<bool> HelpAsync(ServerSession session, CancellationToken cancellationToken)
         {
             await session.WriteAsync(
-              $"quit/help/version/negotiation/stats/environ{LineFeed.Rfc854}", cancellationToken).ConfigureAwait(false);
+              $"quit/help/version/negotiation/stats/environ/slc{LineFeed.Rfc854}", cancellationToken).ConfigureAwait(false);
             return true;
         }
 
@@ -193,6 +222,24 @@ namespace telnet_cs.Server
               ? "(empty)"
               : string.Join(LineFeed.Rfc854, entries.Select(kv => $"{kv.Key}={kv.Value}"));
             await session.WriteAsync(body + LineFeed.Rfc854, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+
+        private static async Task<bool> SlcAsync(ServerSession session, CancellationToken cancellationToken)
+        {
+            // The reference "slc" command writes the special-line-characters
+            // table (get_slcdata): one row per function with its level,
+            // value and modifier flags.
+            var rows = new List<string>(LinemodeProtocol.MaxFunction);
+            for (byte function = 1; function <= LinemodeProtocol.MaxFunction; function++)
+            {
+                var entry = session.GetLinemodeEntry(function);
+                rows.Add($"func={function} level={entry.Level} value={entry.Value} flags={entry.Flags}");
+            }
+
+            await session.WriteAsync(
+              "Special Line Characters:" + LineFeed.Rfc854 + string.Join(LineFeed.Rfc854, rows) + LineFeed.Rfc854,
+              cancellationToken).ConfigureAwait(false);
             return true;
         }
 

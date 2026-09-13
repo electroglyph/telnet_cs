@@ -32,8 +32,10 @@ namespace telnet_cs.Server
         /// <param name="timeout">The new idle timeout.</param>
         public void SetTimeout(TimeSpan timeout)
         {
+            // Arming a timeout never marks peer activity (the reference
+            // set_timeout only reschedules on_timeout): otherwise extending
+            // the deadline would itself look like the peer talking.
             Timeout = timeout;
-            Context.NoteActivity();
             RestartIdleTimer();
         }
 
@@ -113,6 +115,7 @@ namespace telnet_cs.Server
         {
             if (disposing)
             {
+                ShutdownPump();
                 StopIdleTimer();
             }
 

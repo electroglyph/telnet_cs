@@ -2,6 +2,8 @@
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
+    using System.Text;
     using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
@@ -13,6 +15,13 @@
 
     public partial class Client : BaseClient, IClient
     {
+        /// <summary>
+        /// Strict US-ASCII (reference NVT encoding): throws
+        /// <see cref="EncoderFallbackException"/> on any high byte.
+        /// </summary>
+        private static readonly Encoding StrictAscii =
+            Encoding.GetEncoding("us-ascii", EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
+
         /// <inheritdoc/>
         public Task WriteLineAsync(string command)
         {
@@ -29,30 +38,23 @@
         }
 
         /// <inheritdoc/>
-        public async Task WriteAsync(string command, CancellationToken cancellationToken = default)
+        public Task WriteAsync(string command, CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(command);
-            if (Settings.TextEncoding != null)
+            // Reference write path (client.py encoding(outgoing=True)):
+            // US-ASCII strict unless BINARY was negotiated for our transmit
+            // direction — then the configured charset (UTF-8 by default) may
+            // encode. A high byte without BINARY throws
+            // EncoderFallbackException (the C# analog of UnicodeEncodeError).
+            // ASCII content rides the legacy string write (Latin-1 on the
+            // wire, identical for ASCII); BINARY content is pre-encoded.
+            if (Negotiation.IsEnabledByUs((int)Options.TransmitBinary))
             {
-                // Custom encoding: pre-encode here so the exact bytes hit the stream.
-                // Already IAC-escaped by the converter, so send raw.
-                await WriteRawAsync(ByteStringConverter.ConvertStringToByteArray(command, Settings.TextEncoding), cancellationToken).ConfigureAwait(false);
-                return;
+                return WriteRawAsync(ByteStringConverter.ConvertStringToByteArray(command, Settings.TextEncoding ?? Encoding.UTF8), cancellationToken);
             }
 
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
-            if (ByteStream.Connected && !linked.Token.IsCancellationRequested)
-            {
-                await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
-                try
-                {
-                    await ByteStream.WriteAsync(command, linked.Token).ConfigureAwait(false);
-                }
-                finally
-                {
-                    SendRateLimit.Release();
-                }
-            }
+            StrictAscii.GetByteCount(command);
+            return WriteStringAsync(command, cancellationToken);
         }
 
         /// <inheritdoc/>
@@ -74,6 +76,23 @@
                 try
                 {
                     await ByteStream.WriteAsync(data, 0, data.Length, linked.Token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    SendRateLimit.Release();
+                }
+            }
+        }
+
+        private async Task WriteStringAsync(string value, CancellationToken cancellationToken)
+        {
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
+            if (ByteStream.Connected && !linked.Token.IsCancellationRequested)
+            {
+                await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
+                try
+                {
+                    await ByteStream.WriteAsync(value, linked.Token).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -164,6 +183,81 @@
 
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
             return await stream.ReceiveUrgentAsync(linked.Token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc/>
+        public async Task<bool> SendEorAsync(CancellationToken cancellationToken = default)
+        {
+            // Reference send_eor (stream_writer.py): gated on our EOR
+            // enablement (the peer sent DO EOR) — without it return false
+            // and emit nothing; otherwise send IAC EOR and return true.
+            // (SendCommand rejects EOR by design; this is the only path.)
+            if (!Negotiation.IsEnabledByUs((int)Options.EndOfRecord))
+            {
+                return false;
+            }
+
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
+            if (!ByteStream.Connected || linked.Token.IsCancellationRequested)
+            {
+                return false;
+            }
+
+            await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
+            try
+            {
+                await ByteStream.WriteAsync([(byte)Commands.InterpretAsCommand, (byte)Commands.EndOfRecord], 0, 2, linked.Token).ConfigureAwait(false);
+            }
+            finally
+            {
+                SendRateLimit.Release();
+            }
+
+            return true;
+        }
+
+        /// <inheritdoc/>
+        public async Task<string> ReadExactlyAsync(int count, TimeSpan timeout, CancellationToken cancellationToken = default)
+        {
+            // Reference readexactly: accumulate plain reads until exactly
+            // count characters arrive. EOF first throws (the C# analog of
+            // IncompleteReadError carries the partial in its message); a
+            // missed deadline throws TimeoutException. Surplus past count is
+            // stashed in PendingText for the next read.
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(count);
+            var deadline = DateTime.UtcNow.Add(timeout);
+            var sb = new StringBuilder();
+            while (sb.Length < count)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var remaining = deadline - DateTime.UtcNow;
+                if (remaining <= TimeSpan.Zero)
+                {
+                    throw new TimeoutException("ReadExactlyAsync timed out before enough data arrived.");
+                }
+
+                var chunk = await ReadAsync(remaining, cancellationToken).ConfigureAwait(false);
+                if (chunk.Length == 0)
+                {
+                    if (!ByteStream.Connected)
+                    {
+                        throw new EndOfStreamException(string.Format("End of stream after {0} of {1} characters.", sb.Length, count));
+                    }
+
+                    throw new TimeoutException("ReadExactlyAsync timed out before enough data arrived.");
+                }
+
+                sb.Append(chunk);
+            }
+
+            string result = sb.ToString();
+            if (result.Length > count)
+            {
+                PendingText = result.Substring(count) + PendingText;
+                result = result.Substring(0, count);
+            }
+
+            return result;
         }
 
         /// <inheritdoc/>
@@ -382,10 +476,11 @@
                     return pending;
                 }
 
-                // A per-read linked source: an IP command aborts this read without
-                // cancelling the client's own InternalCancellation (which must
-                // survive for subsequent reads). Safe to dispose: the handler no
-                // longer disposes (or cancels) anything it does not own.
+                // A per-read linked source: cancelling it aborts this read
+                // without cancelling the client's own InternalCancellation
+                // (which must survive for subsequent reads). Safe to dispose:
+                // the handler no longer disposes (or cancels) anything it
+                // does not own.
                 using (var linked = CancellationTokenSource.CreateLinkedTokenSource(InternalCancellation.Token, cancellationToken))
                 using (var handler = new ByteStreamHandler(ByteStream, linked, MillisecondReadDelay))
                 {
@@ -394,6 +489,12 @@
                     try
                     {
                         return await handler.ReadAsync(timeout).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // A cancelled wait means "no data", not an error
+                        // (the handler throws on a pre-cancelled read).
+                        return string.Empty;
                     }
                     catch (System.Net.Sockets.SocketException)
                     {
@@ -416,17 +517,31 @@
         }
 
         // The readuntil/readline replacement (see PendingText): poll plain
-        // reads until the predicate holds or the timeout lapses, then return
-        // whatever arrived (partial on timeout — no raise). CR NUL
-        // normalizes to CR here, matching the reference readline layer.
+        // reads until the predicate holds or the timeout lapses. Reference
+        // readuntil parity: never returns a partial — a missed deadline
+        // throws TimeoutException (not "") and a buffer past the 64 KiB
+        // reference limit throws (the C# analog of LimitOverrunError). CR
+        // NUL normalizes to CR here, matching the reference readline layer.
+        // Callers that relied on partial-on-timeout must catch
+        // TimeoutException and use PendingText-kept state instead.
         private async Task<string> TerminatedReadAsync(Func<string, bool> isTerminated, TimeSpan timeout, int millisecondSpin, CancellationToken cancellationToken)
         {
             var endTimeout = DateTime.UtcNow.Add(timeout);
             var s = string.Empty;
             while (!isTerminated(s) && endTimeout >= DateTime.UtcNow)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var read = await ReadAsync(TimeSpan.FromMilliseconds(millisecondSpin), cancellationToken).ConfigureAwait(false);
                 s += read;
+                if (!isTerminated(s) && s.Length > TerminatedReadLimit)
+                {
+                    throw new InvalidOperationException(string.Format("Terminated read exceeded the {0}-character limit without locating the terminator.", TerminatedReadLimit));
+                }
+            }
+
+            if (!isTerminated(s))
+            {
+                throw new TimeoutException("Terminated read timed out before locating the terminator.");
             }
 
             return s.Replace("\r\0", "\r", StringComparison.Ordinal);

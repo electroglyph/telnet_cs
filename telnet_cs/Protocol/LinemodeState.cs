@@ -55,6 +55,15 @@
 
         internal LinemodeState()
         {
+            // Functions without a BSD default start as NOSUPPORT with the
+            // disable value (reference SLC_nosupport=(NOSUPPORT, 0xFF)), so a
+            // peer proposal for one still counts as a valued row.
+            for (byte function = 1; function <= LinemodeProtocol.MaxFunction; function++)
+            {
+                defaults[function] = new SlcEntry(LinemodeProtocol.LevelNoSupport, 255, 0);
+                table[function] = new SlcEntry(LinemodeProtocol.LevelNoSupport, 255, 0);
+            }
+
             foreach (var (function, level, value, flags) in BsdDefaults)
             {
                 var entry = new SlcEntry(level, value, flags);
@@ -290,42 +299,53 @@
         }
 
         /// <summary>
-        /// Shared SLC-triplet engine; see <see cref="ApplySlc"/> for the rule
-        /// walk. The only role split is the same-level+ACK row: a client
-        /// switches silently, a server ignores.
+        /// Shared SLC-triplet engine (reference <c>_slc_process</c> /
+        /// <c>_slc_change</c>); both roles share every row — there is no
+        /// client/server split. Identical level+value triplets are ignored
+        /// (modifier bits play no part); any ACKed triplet is dropped without
+        /// storing or replying; a NOSUPPORT level stores the disable value
+        /// with ACK; otherwise a valued row adopts the peer mask+value with
+        /// ACK, and a valueless row refuses with its own row (degenerating to
+        /// NOSUPPORT on a CANTCHANGE/CANTCHANGE clash).
         /// </summary>
         private (byte Modifier, byte Value)? ApplySlcCore(byte function, byte modifier, byte value, bool asServer)
         {
             lock (sync)
             {
-                if (function == 0 || function > LinemodeProtocol.MaxFunction)
+                if (function == 0)
                 {
                     // Func 0 is an import request, never a table row: the session
                     // hook answers those, so anything reaching here is dropped
-                    // silently (never echo the request back). Higher codes are
-                    // undefined: refuse as DEFAULT 0 so the peer keeps its value.
-                    return function == 0
-                      ? null
-                      : (LinemodeProtocol.LevelDefault, 0);
+                    // silently (never echo the request back).
+                    return null;
+                }
+
+                if (function > LinemodeProtocol.MaxFunction)
+                {
+                    // Out of range: refuse as NOSUPPORT with the disable
+                    // value, so the peer turns the function off.
+                    return (LinemodeProtocol.LevelNoSupport, 255);
                 }
 
                 byte level = (byte)(modifier & LinemodeProtocol.LevelBits);
-                byte flags = (byte)(modifier & (LinemodeProtocol.FlagFlushIn | LinemodeProtocol.FlagFlushOut));
-                if (function == LinemodeProtocol.SlcForward2
-                  && table[LinemodeProtocol.SlcForward1].Level == LinemodeProtocol.LevelNoSupport)
-                {
-                    // RFC 1184 §5.5: FORW2 should only be used when FORW1 is already
-                    // in use. Refuse a lone FORW2 as NOSUPPORT (normal-exchange rule)
-                    // rather than accepting it. Stateless: the row is not stored, so a
-                    // repeat gets the same answer. Triplets apply sequentially, so an
-                    // in-payload FORW1 listed before FORW2 applies first.
-                    return (LinemodeProtocol.LevelNoSupport, 0);
-                }
-
+                byte upper = (byte)(modifier & ~LinemodeProtocol.LevelBits);
                 SlcEntry current = table[function];
-                if (level == current.Level && value == current.Value && flags == current.Flags)
+                if (level == current.Level && value == current.Value)
                 {
                     return null;
+                }
+
+                if ((modifier & LinemodeProtocol.FlagAck) != 0)
+                {
+                    return null;
+                }
+
+                if (level == LinemodeProtocol.LevelNoSupport)
+                {
+                    // The peer supports nothing here: store NOSUPPORT with the
+                    // disable value and ACK it (the peer value is not echoed).
+                    table[function] = new SlcEntry(LinemodeProtocol.LevelNoSupport, 255, LinemodeProtocol.FlagAck);
+                    return (LinemodeProtocol.FlagAck, 255);
                 }
 
                 if (level == LinemodeProtocol.LevelDefault)
@@ -343,32 +363,38 @@
                     return ((byte)(restored.Level | restored.Flags), restored.Value);
                 }
 
-                if (level == current.Level && (modifier & LinemodeProtocol.FlagAck) != 0)
+                if (current.Value != 0)
                 {
-                    // Same level, ACK set, different value (identical rows were
-                    // filtered above): a client switches silently to the peer's
-                    // value, but a server ignores the triplet — RFC 1184 §5.5
-                    // rule 2 gives the client the win in a simultaneous change,
-                    // so the server must stand still instead of adopting.
-                    if (!asServer)
-                    {
-                        table[function] = new SlcEntry(level, value, flags);
-                    }
-
-                    return null;
+                    // Valued row: accept the peer value, storing the full
+                    // modifier (level plus reserved bits) and replying it
+                    // with ACK set.
+                    table[function] = new SlcEntry(level, value, upper);
+                    return ((byte)(level | upper | LinemodeProtocol.FlagAck), value);
                 }
 
-                if (current.Level == LinemodeProtocol.LevelCantChange)
+                if (current.Level == LinemodeProtocol.LevelDefault)
                 {
-                    // Fixed row: refuse with our stored value and flush bits
-                    // (RFC 1184 section 5.5 rule 3 echoes the agreed modifiers).
-                    return ((byte)(LinemodeProtocol.LevelCantChange | current.Flags), current.Value);
+                    // Willing but valueless row: store and ACK whatever was sent.
+                    table[function] = new SlcEntry(level, value, upper);
+                    return ((byte)(level | upper | LinemodeProtocol.FlagAck), value);
                 }
 
-                table[function] = new SlcEntry(level, value, flags);
-                // Agreement: switch and reply with the same modifiers plus ACK
-                // (RFC 1184 section 5.5 rule 3 and section 5.10 example).
-                return ((byte)(level | flags | LinemodeProtocol.FlagAck), value);
+                if (level == LinemodeProtocol.LevelCantChange
+                    && current.Level == LinemodeProtocol.LevelCantChange)
+                {
+                    // Unchangeable on both ends: degenerate to NOSUPPORT.
+                    table[function] = new SlcEntry(LinemodeProtocol.LevelNoSupport, current.Value, 0);
+                    return (LinemodeProtocol.LevelNoSupport, current.Value);
+                }
+
+                // Fixed or valueless row: refuse with our stored level (the
+                // stored modifier bits clear), resetting a CANTCHANGE value
+                // from the configured defaults. No ACK is set.
+                byte refusedValue = current.Level == LinemodeProtocol.LevelCantChange
+                  ? defaults[function].Value
+                  : current.Value;
+                table[function] = new SlcEntry(current.Level, refusedValue, 0);
+                return (current.Level, refusedValue);
             }
         }
 
@@ -444,11 +470,10 @@
         /// <summary>
         /// Renders the configured (non-NOSUPPORT) rows as triplet tails for an
         /// SLC export, or null when nothing is configured (an all-NOSUPPORT
-        /// export would wrongly tell the server to disable everything). In
-        /// import mode (<paramref name="forImport"/>, the RFC 1184 §2.4 answer to
-        /// func 0 with DEFAULT), every NOSUPPORT row renders as
-        /// <c>[func, DEFAULT, 0]</c> instead of being omitted, so the peer may
-        /// use its own values — and the result is never null.
+        /// export would wrongly tell the server to disable everything).
+        /// NOSUPPORT rows are always omitted, including in import mode
+        /// (reference <c>_slc_send</c>: <c>if slctab.get(...).nosupport:
+        /// continue</c>), so the peer may use its own values there.
         /// </summary>
         /// <param name="forImport">Whether this answers an import request.</param>
         /// <returns>Flat func/modifier/value bytes, or null.</returns>
@@ -468,13 +493,6 @@
                         // (RFC 1184 section 5.5 rule 3).
                         triplets.Add((byte)(entry.Level | entry.Flags));
                         triplets.Add(entry.Value);
-                    }
-                    else if (forImport)
-                    {
-                        triplets ??= [];
-                        triplets.Add(function);
-                        triplets.Add(LinemodeProtocol.LevelDefault);
-                        triplets.Add(0);
                     }
                 }
 

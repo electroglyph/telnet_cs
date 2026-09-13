@@ -22,9 +22,9 @@ namespace telnet_cs.Server
         public DateTimeOffset ConnectedAtUtc { get; } = DateTimeOffset.UtcNow;
 
         /// <summary>
-        /// Gets the last text read (UTC). Only receive activity moves it, so a
-        /// transmit-only server still times out. Reads that returned no data do
-        /// not move it.
+        /// Gets the last peer activity (UTC). Any inbound wire moves it — even
+        /// IAC-only frames with no text (keepalives must not idle out) — while
+        /// pure transmits never do, so a transmit-only server still times out.
         /// </summary>
         public DateTimeOffset LastActivityUtc { get; private set; } = DateTimeOffset.UtcNow;
 
@@ -78,7 +78,9 @@ namespace telnet_cs.Server
         /// Adds raw wire-byte deltas observed below the text layer (IAC
         /// frames, MCCP-compressed bytes, bytes consumed by negotiation
         /// replies). The session calls this once per read with the
-        /// per-read handler's counters.
+        /// per-read handler's counters. Inbound bytes — even a lone IAC NOP
+        /// with no text — mark peer activity (the reference stamps
+        /// <c>_last_received</c> before parsing).
         /// </summary>
         internal void NoteWireTransfer(long bytesReceived, long bytesSent)
         {
@@ -86,6 +88,10 @@ namespace telnet_cs.Server
             ArgumentOutOfRangeException.ThrowIfNegative(bytesSent);
             CharsReceived += bytesReceived;
             CharsSent += bytesSent;
+            if (bytesReceived > 0)
+            {
+                LastActivityUtc = DateTimeOffset.UtcNow;
+            }
         }
 
         internal void NoteWritten(int byteCount)

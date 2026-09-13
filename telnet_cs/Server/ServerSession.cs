@@ -72,6 +72,10 @@
             Settings = options;
             Timeout = options.IdleTimeout;
             StartIdleTimer();
+            // Background inbound processing (reference data_received): the
+            // pump answers negotiation and buffers text even when the caller
+            // never reads (see ServerSession.Pump.cs).
+            _ = Task.Run(PumpInboundAsync);
         }
 
         /// <summary>
@@ -101,6 +105,9 @@
         /// <returns>Any text read from the session.</returns>
         public override async Task<string> ReadAsync(TimeSpan timeout, CancellationToken cancellationToken)
         {
+            // Explicit reads drive the wire themselves; the background pump
+            // stays dormant while they do (see PumpInboundAsync).
+            Interlocked.Exchange(ref lastExplicitReadTicks, DateTime.UtcNow.Ticks);
             // Serialise concurrent reads so interleaved calls cannot split input.
             // A cancelled wait means "no data", not an error.
             try
@@ -114,69 +121,111 @@
 
             try
             {
-                // Drain text a terminated read stashed past its terminator
-                // before touching the wire, so pipelined data is never lost.
-                string pending = PendingText;
-                PendingText = string.Empty;
+                // Drain text a terminated read stashed past its terminator —
+                // or the background pump buffered — before touching the wire,
+                // so pipelined data is never lost.
+                string pending = TakePendingText();
                 if (pending.Length != 0)
                 {
                     return pending;
                 }
 
-                // A per-read linked source: an IP command aborts this read without
-                // cancelling the session's own InternalCancellation (which must
-                // survive for subsequent reads). Safe to dispose: the handler no
-                // longer disposes (or cancels) anything it does not own.
-                using (var linked = CancellationTokenSource.CreateLinkedTokenSource(InternalCancellation.Token, cancellationToken))
-                using (var handler = new ByteStreamHandler(ByteStream, linked, MillisecondReadDelay))
+                string result = await ReadWireOnceAsync(timeout, cancellationToken).ConfigureAwait(false);
+                if (result.Length == 0)
                 {
-                    FeedSession(handler);
-                    try
+                    // Nothing on the wire: surface a wire error the pump
+                    // swallowed (if any) instead of reporting empty.
+                    lock (pumpLock)
                     {
-                        string result = await handler.ReadAsync(timeout).ConfigureAwait(false);
-                        if (!tlsHelloChecked && handler.FirstInboundByte != -1)
+                        if (pumpWireError is not null)
                         {
-                            // First-data-only TLS sniff (reference data_received):
-                            // a 0x16 lead byte on a plaintext listener is a TLS
-                            // ClientHello — warn and close instead of parsing it.
-                            tlsHelloChecked = true;
-                            if (Settings.ServerCertificate is null && handler.FirstInboundByte == 0x16)
-                            {
-                                WriteLog($"TLS ClientHello from {RemoteEndPoint ?? "unknown"} but server has no SSL context -- closing connection.");
-                                ByteStream.Close();
-                                return string.Empty;
-                            }
+                            var captured = pumpWireError;
+                            pumpWireError = null;
+                            captured.Throw();
                         }
-
-                        if (result.Length != 0)
-                        {
-                            Context.NoteRead(result);
-                        }
-
-                        // Deferred opening negotiation (WILL ECHO, DO
-                        // NEW_ENVIRON, encoding check) armed by this read.
-                        await FlushDeferredNegotiationAsync(linked.Token).ConfigureAwait(false);
-                        return result;
-                    }
-                    catch (System.Net.Sockets.SocketException)
-                    {
-                        // Dead peer, like every other read-path death: empty.
-                        return string.Empty;
-                    }
-                    finally
-                    {
-                        sbResumeState = handler.SbResumeState;
-                        framingState = handler.FramingState;
-                        // Raw wire bytes the handler pulled (negotiation
-                        // frames included) and wrote (replies, echo-back)
-                        // count here; decoded text never does.
-                        Context.NoteWireTransfer(handler.InboundWireBytes, handler.OutboundWireBytes);
                     }
                 }
+
+                return result;
             }
             finally
             {
                 ReadRateLimit.Release();
+            }
+        }
+
+        /// <summary>
+        /// One serialized wire pass: feeds a per-read handler from the
+        /// session state, reads, notes activity/counters, flushes deferred
+        /// negotiation, and round-trips the framing state. Shared by
+        /// <see cref="ReadAsync(TimeSpan, CancellationToken)"/> and the
+        /// background pump (which holds the same <c>ReadRateLimit</c>, so at
+        /// most one pass runs at a time).
+        /// </summary>
+        /// <param name="timeout">The rolling timeout for no further response.</param>
+        /// <param name="callerToken">The caller's cancellation token (linked
+        /// with the session's own).</param>
+        /// <returns>Any text read from the session.</returns>
+        private async Task<string> ReadWireOnceAsync(TimeSpan timeout, CancellationToken callerToken)
+        {
+            // A per-read linked source: caller cancel (or session teardown)
+            // aborts this pass without cancelling the session's own
+            // InternalCancellation (which must survive for subsequent reads).
+            // Safe to dispose: the handler no longer disposes (or cancels)
+            // anything it does not own.
+            using (var linked = CancellationTokenSource.CreateLinkedTokenSource(InternalCancellation.Token, callerToken))
+            using (var handler = new ByteStreamHandler(ByteStream, linked, MillisecondReadDelay))
+            {
+                FeedSession(handler);
+                try
+                {
+                    string result = await handler.ReadAsync(timeout).ConfigureAwait(false);
+                    if (!tlsHelloChecked && handler.FirstInboundByte != -1)
+                    {
+                        // First-data-only TLS sniff (reference data_received):
+                        // a 0x16 lead byte on a plaintext listener is a TLS
+                        // ClientHello — warn and close instead of parsing it.
+                        tlsHelloChecked = true;
+                        if (Settings.ServerCertificate is null && handler.FirstInboundByte == 0x16)
+                        {
+                            WriteLog($"TLS ClientHello from {RemoteEndPoint ?? "unknown"} but server has no SSL context -- closing connection.");
+                            ByteStream.Close();
+                            return string.Empty;
+                        }
+                    }
+
+                    if (result.Length != 0)
+                    {
+                        Context.NoteRead(result);
+                    }
+
+                    // Deferred opening negotiation (WILL ECHO, DO
+                    // NEW_ENVIRON, encoding check) armed by this read.
+                    await FlushDeferredNegotiationAsync(linked.Token).ConfigureAwait(false);
+                    return result;
+                }
+                catch (OperationCanceledException)
+                {
+                    // A cancelled wait means "no data", not an error
+                    // (the handler throws on a pre-cancelled read).
+                    return string.Empty;
+                }
+                catch (System.Net.Sockets.SocketException)
+                {
+                    // Dead peer, like every other read-path death: empty.
+                    return string.Empty;
+                }
+                finally
+                {
+                    sbResumeState = handler.SbResumeState;
+                    framingState = handler.FramingState;
+                    // Raw wire bytes the handler pulled (negotiation
+                    // frames included) and wrote (replies, echo-back)
+                    // count here; decoded text never does. Inbound bytes —
+                    // even IAC-only frames with no text — mark activity so
+                    // keepalives never idle out (see NoteWireTransfer).
+                    Context.NoteWireTransfer(handler.InboundWireBytes, handler.OutboundWireBytes);
+                }
             }
         }
 
@@ -408,8 +457,8 @@
             // dropping its first half (telnetlib3 _sb_buffer parity).
             handler.SbResumeState = sbResumeState;
             handler.FramingState = framingState;
-            // TerminalType/TerminalSpeed keep their "vt100"/"19200,19200"
-            // defaults: harmless responder values if a peer ever SENDs to us.
+            // TerminalType/TerminalSpeed keep their responder defaults:
+            // harmless values if a peer ever SENDs to us.
         }
     }
 }

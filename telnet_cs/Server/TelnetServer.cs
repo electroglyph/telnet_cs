@@ -19,6 +19,12 @@
         private readonly TelnetServerOptions options;
         private readonly object statusLock = new();
         private readonly List<SessionRecord> sessions = new();
+        private readonly System.Threading.Channels.Channel<ServerSession> newClients =
+            System.Threading.Channels.Channel.CreateBounded<ServerSession>(
+                new System.Threading.Channels.BoundedChannelOptions(1000)
+                {
+                    FullMode = System.Threading.Channels.BoundedChannelFullMode.DropOldest,
+                });
         private System.Threading.Timer? statusTimer;
         private int boundPort;
         private bool disposed;
@@ -105,9 +111,11 @@
         }
 
         /// <summary>
-        /// Stops listening. Accepted sessions are unaffected. Clears the bound
-        /// port back to 0 and stops the status timer; <see cref="Start"/>
-        /// re-arms both.
+        /// Stops listening and closes accepted sessions (the reference
+        /// <c>Server.close</c> closes the listener plus every protocol
+        /// transport). Clears the bound port back to 0 and stops the status
+        /// timer; <see cref="Start"/> re-arms both. Sessions stay
+        /// caller-owned: dispose them as usual.
         /// </summary>
         public void Stop()
         {
@@ -120,6 +128,52 @@
 
             boundPort = 0;
             listener.Stop();
+            CloseAcceptedSessions();
+        }
+
+        private void CloseAcceptedSessions()
+        {
+            List<ServerSession> live;
+            lock (statusLock)
+            {
+                live = new List<ServerSession>(sessions.Count);
+                for (int i = sessions.Count - 1; i >= 0; i--)
+                {
+                    if (sessions[i].Session.TryGetTarget(out var session))
+                    {
+                        live.Add(session);
+                    }
+                }
+
+                sessions.Clear();
+            }
+
+#pragma warning disable CA1031 // Do not catch general exception types
+            foreach (var session in live)
+            {
+                try
+                {
+                    session.CloseForServerStop();
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(ex.Message);
+                }
+            }
+#pragma warning restore CA1031 // Do not catch general exception types
+        }
+
+        /// <summary>
+        /// Waits for the next accepted client (the reference
+        /// <c>wait_for_client</c>): every <see cref="AcceptSessionAsync"/>
+        /// enqueues its session on a bounded (1000, oldest-dropped) queue
+        /// that this drains in accept order.
+        /// </summary>
+        /// <param name="cancellationToken">A token to cancel the wait.</param>
+        /// <returns>The next accepted session.</returns>
+        public Task<ServerSession> WaitForClientAsync(CancellationToken cancellationToken = default)
+        {
+            return newClients.Reader.ReadAsync(cancellationToken).AsTask();
         }
 
         /// <summary>
@@ -178,6 +232,7 @@
                 // completes; a fully toggled-off preset sends nothing.
                 await session.SendOpeningPresetAsync(cancellationToken).ConfigureAwait(false);
                 TrackSession(session, accepted.Client.RemoteEndPoint?.ToString() ?? "unknown", isTls);
+                newClients.Writer.TryWrite(session);
                 return session;
             }
             catch
@@ -269,7 +324,7 @@
         }
 
         /// <summary>
-        /// Stops listening.
+        /// Stops listening and closes accepted sessions.
         /// </summary>
         public void Dispose()
         {
@@ -285,6 +340,8 @@
 
                 boundPort = 0;
                 listener.Stop();
+                CloseAcceptedSessions();
+                newClients.Writer.TryComplete();
             }
         }
     }

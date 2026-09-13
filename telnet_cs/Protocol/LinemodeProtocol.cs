@@ -34,6 +34,13 @@
         internal const byte LiteralEcho = 16;
 
         /// <summary>
+        /// The server's initial MODE proposal (reference
+        /// <c>default_linemode</c>): remoting on with literal echo, i.e.
+        /// <c>REMOTE | LIT_ECHO = 0x10</c>.
+        /// </summary>
+        internal const byte DefaultServerMode = LiteralEcho;
+
+        /// <summary>
         /// MODE bits this library honors. Retained for compatibility; MODE replies
         /// echo the suggested mask verbatim plus ACK, matching the reference
         /// behavior, so all bits round-trip even when local processing does not

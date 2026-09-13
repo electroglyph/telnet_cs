@@ -64,16 +64,24 @@
         /// Reads asynchronously from the stream.
         /// </summary>
         /// <param name="timeout">The rolling timeout to wait for no further response from stream.</param>
-        /// <returns>Any text read from the stream. Cancellation returns whatever was received so far.</returns>
+        /// <returns>Any text read from the stream.</returns>
+        /// <exception cref="OperationCanceledException">The read was already cancelled before it started.</exception>
         public async Task<string> ReadAsync(TimeSpan timeout)
         {
             // Snapshot before the read: bytes arriving before a mid-read DO ECHO
             // agreement must not be echoed back.
             var echoBack = Negotiation.IsEnabledByUs((int)Options.Echo);
-            if (!byteStream.Connected || internalCancellation.Token.IsCancellationRequested)
+            if (!byteStream.Connected)
             {
                 return string.Empty;
             }
+
+            // A pre-cancelled read throws (reference _wait_for_data parity)
+            // instead of returning empty: callers that treat cancel as
+            // "no data" (Client/ServerSession.ReadAsync) catch this
+            // themselves. A cancel landing mid-read still returns the
+            // partial response via the catch below.
+            internalCancellation.Token.ThrowIfCancellationRequested();
 
             var sb = new StringBuilder();
             var rawBytes = new List<byte>();

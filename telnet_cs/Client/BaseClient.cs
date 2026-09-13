@@ -16,6 +16,15 @@
         protected const int DefaultTimeoutMs = 100;
 
         /// <summary>
+        /// The terminated-read buffer limit in characters (the reference
+        /// <c>_DEFAULT_LIMIT</c> of 65536): a terminated read whose buffer
+        /// passes this without locating its terminator throws instead of
+        /// growing without bound (the C# analog of
+        /// <c>LimitOverrunError</c>).
+        /// </summary>
+        protected const int TerminatedReadLimit = 65536;
+
+        /// <summary>
         /// The default read delay ms.
         /// </summary>
         public const int DefaultMillisecondReadDelay = 16;
@@ -50,9 +59,9 @@
         /// plain reads drain it before touching the wire.
         /// This plus <c>TerminatedReadAsync</c> polling is the replacement for
         /// the reference <c>readuntil</c>/<c>readline</c>/<c>eager</c> family:
-        /// an unterminated wait returns the partial text instead of raising
-        /// (no <c>IncompleteReadError</c>/<c>LimitOverrunError</c> equivalents),
-        /// at the cost of one rolling-window poll per millisecond-spin step.
+        /// an unterminated wait throws <c>TimeoutException</c> (never a
+        /// partial), at the cost of one rolling-window poll per
+        /// millisecond-spin step.
         /// </summary>
         protected string PendingText { get; set; } = string.Empty;
 

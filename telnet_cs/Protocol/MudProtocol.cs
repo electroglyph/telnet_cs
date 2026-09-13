@@ -117,7 +117,7 @@ namespace telnet_cs.Protocol
         /// <summary>
         /// Decodes a GMCP message into its package and parsed JSON body (null
         /// when absent or blank). Malformed JSON throws
-        /// <see cref="JsonException"/> (the ValueError equivalent).
+        /// <see cref="ArgumentException"/> (the ValueError equivalent).
         /// </summary>
         /// <param name="payload">The received payload bytes.</param>
         /// <param name="encoding">The primary text encoding, or null for UTF-8 with Latin-1 fallback.</param>
@@ -131,7 +131,19 @@ namespace telnet_cs.Protocol
 
             var package = DecodeBestEffort(payload[..space], encoding);
             var text = DecodeBestEffort(payload[(space + 1)..], encoding);
-            return string.IsNullOrWhiteSpace(text) ? (package, null) : (package, JsonNode.Parse(text));
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return (package, null);
+            }
+
+            try
+            {
+                return (package, JsonNode.Parse(text));
+            }
+            catch (JsonException ex)
+            {
+                throw new ArgumentException("Invalid JSON in GMCP payload: " + ex.Message, nameof(payload), ex);
+            }
         }
 
         /// <summary>
@@ -145,8 +157,9 @@ namespace telnet_cs.Protocol
 
         /// <summary>
         /// Encodes MSDP variables: dictionaries become <c>TABLE</c> values,
-        /// enumerables become <c>ARRAY</c> values, anything else becomes its
-        /// string form; names and strings are UTF-8.
+        /// enumerables become <c>ARRAY</c> values, null becomes the string
+        /// <c>None</c> (the reference stringifies values), anything else
+        /// becomes its string form; names and strings are UTF-8.
         /// </summary>
         /// <param name="values">The variable assignments.</param>
         public static byte[] MsdpEncode(IReadOnlyDictionary<string, object?> values)
@@ -169,6 +182,7 @@ namespace telnet_cs.Protocol
             switch (value)
             {
                 case null:
+                    outBytes.AddRange(Encoding.UTF8.GetBytes("None"));
                     break;
                 case string text:
                     outBytes.AddRange(Encoding.UTF8.GetBytes(text));

@@ -25,10 +25,13 @@
         /// Builds the STATUS IS item list from the negotiation state, RFC 859
         /// style: one verb plus option byte per non-default side (our side as
         /// WILL/WONT, the peer side as DO/DONT). Sides at their default
-        /// (<c>No</c>) are omitted, so one reply describes every option.
-        /// Outstanding states render by intent: <c>WantYes</c> as WILL/DO,
-        /// <c>WantNo</c> as WONT/DONT. STATUS itself is never listed (the
-        /// reference skips it in both halves).
+        /// (<c>No</c>) are omitted — except explicitly refused ones, which the
+        /// reference still reports (its option tables only contain touched
+        /// options, every entry rendering as WILL/WONT or DO/DONT): a side at
+        /// <c>No</c> with a remembered refusal renders WONT/DONT. Outstanding
+        /// states render by intent: <c>WantYes</c> as WILL/DO, <c>WantNo</c> as
+        /// WONT/DONT. STATUS itself is never listed (the reference skips it in
+        /// both halves).
         /// </summary>
         /// <param name="negotiation">The persistent negotiation state.</param>
         internal static byte[] BuildIsPayload(NegotiationState negotiation)
@@ -49,12 +52,22 @@
                       : (byte)Commands.Wont);
                     items.Add((byte)option);
                 }
+                else if (negotiation.WasRefusedByUs(option))
+                {
+                    items.Add((byte)Commands.Wont);
+                    items.Add((byte)option);
+                }
 
                 if (him != NegotiationState.SideState.No)
                 {
                     items.Add(him is NegotiationState.SideState.Yes or NegotiationState.SideState.WantYes
                       ? (byte)Commands.Do
                       : (byte)Commands.Dont);
+                    items.Add((byte)option);
+                }
+                else if (negotiation.WasRefusedByPeer(option))
+                {
+                    items.Add((byte)Commands.Dont);
                     items.Add((byte)option);
                 }
             }

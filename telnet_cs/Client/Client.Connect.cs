@@ -21,13 +21,13 @@
     /// "wait until connected" beyond the constructor timeout (the constructor
     /// throws when the stream is not connected in time). Size changes have no
     /// SIGWINCH equivalent: poll <see cref="RefreshWindowSizeAsync"/> after
-    /// updating <c>Settings.WindowWidth</c>/<c>WindowHeight</c> (or resizing
-    /// the console); unchanged sizes send nothing.
-    /// Two deliberate extensions differ from the reference here: an inbound
-    /// <c>IAC IP</c> aborts a pending read (returning whatever arrived so
-    /// far), and a TCP-urgent Synch enters a discard scan that drops data
-    /// until in-band <c>IAC DM</c> — the reference delivers that data. Both
-    /// are pinned by tests and kept by design; there is no opt-out.
+    /// updating <c>Settings.WindowWidth</c>/<c>WindowHeight</c> before
+    /// calling; unchanged sizes send nothing (a 0 dimension is sent as-is,
+    /// RFC 1073 "unspecified").
+    /// One deliberate extension differs from the reference here: a TCP-urgent
+    /// Synch enters a discard scan that drops data until in-band <c>IAC
+    /// DM</c> — the reference delivers that data. It is pinned by tests and
+    /// kept by design; there is no opt-out.
     /// </remarks>
     public partial class Client
     {
@@ -282,7 +282,7 @@
 
         internal static FlowLocal<string> TerminalTypeOverride => _terminalTypeFlow;
 
-        private static string _terminalTypeDefault = "vt100";
+        private static string _terminalTypeDefault = "unknown";
 
         private static readonly FlowLocal<string> _terminalTypeFlow = new();
 
@@ -297,7 +297,7 @@
 
         internal static FlowLocal<string> TerminalSpeedOverride => _terminalSpeedFlow;
 
-        private static string _terminalSpeedDefault = "19200,19200";
+        private static string _terminalSpeedDefault = "38400,38400";
 
         private static readonly FlowLocal<string> _terminalSpeedFlow = new();
 

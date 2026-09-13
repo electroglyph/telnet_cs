@@ -4,8 +4,9 @@ What this is: a C# telnet server/client library, async only.
 
 Fair warning: this is 100% GMO, non-organic clanker generated code.
 
-This should be considered experimental for now, I will continue to add
-test coverage, etc.
+I am not sure how correct this is yet, there be dragons here.
+
+Don't use this for anything important yet.
 
 My development process: telnet server/client made based on a core group
 of RFCs. Code reorganized and audited multiple times by AI for clarity

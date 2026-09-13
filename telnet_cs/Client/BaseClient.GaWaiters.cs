@@ -160,14 +160,21 @@ namespace telnet_cs.Client
         /// <param name="timeout">The maximum time to wait.</param>
         /// <param name="cancellationToken">Token to cancel the wait.</param>
         /// <returns><c>true</c> when the option enabled before the deadline, otherwise <c>false</c>.</returns>
-        public Task<bool> WaitForOptionEnabledAsync(Options telnetOption, bool local, TimeSpan timeout, CancellationToken cancellationToken = default)
+        public async Task<bool> WaitForOptionEnabledAsync(Options telnetOption, bool local, TimeSpan timeout, CancellationToken cancellationToken = default)
         {
-            return WaitForNegotiationAsync(
-              negotiation => local
-                ? negotiation.IsEnabledByUs((int)telnetOption)
-                : negotiation.IsEnabledByPeer((int)telnetOption),
-              timeout,
-              cancellationToken);
+            try
+            {
+                return await WaitForNegotiationAsync(
+                  negotiation => local
+                    ? negotiation.IsEnabledByUs((int)telnetOption)
+                    : negotiation.IsEnabledByPeer((int)telnetOption),
+                  timeout,
+                  cancellationToken).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                return false;
+            }
         }
     }
 }

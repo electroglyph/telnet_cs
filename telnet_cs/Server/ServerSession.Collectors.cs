@@ -8,8 +8,8 @@
     /// answers. The <see cref="ByteStreamHandler"/> routes inbound IS/INFO (and
     /// inbound NAWS) payloads to <see cref="OnSubnegotiationResponse"/>; each
     /// requester sends its SEND, then polls reads until its collector is
-    /// satisfied or the timeout elapses. Stray IS with no outstanding request
-    /// keeps the safe default (the handler answers WONT).
+    /// satisfied or the timeout elapses. TTYPE IS is stored even when
+    /// unsolicited (the reference records it with no pending check).
     /// </summary>
     public partial class ServerSession
     {
@@ -26,12 +26,25 @@
         private bool expectingCharset;
         private bool expectingLocation;
         private readonly List<string> terminalTypeChain = [];
+        // Answers before this index were consumed by an earlier collection;
+        // a new request only replays what arrived after it.
+        private int terminalTypesConsumedUpTo;
+        // A completed TTYPE cycle freezes unsolicited appends (answers past
+        // the end of a cycle are ignored, like a live request that already
+        // stopped polling). Request end releases it, so answers arriving in
+        // the gap between requests are still kept for the next collection.
+        private bool terminalTypesCycleComplete;
         // Deferred opening negotiation (mirroring the reference): WILL ECHO
         // and DO NEW_ENVIRON leave with the preset only as intent. The TTYPE
         // answers (or its refusal, or the collection timeout) arm them via
         // the pending flags; FlushDeferredNegotiationAsync sends them after a
         // read. echoNegotiated/environRequested latch so each fires once.
-        private bool presetAdvanced;
+        // advancedNegotiationSent latches the WILL SGA / WILL BINARY /
+        // DO NAWS / DO CHARSET advanced preset; ttypeProbeSent latches the
+        // SB TTYPE SEND probe on WILL TTYPE (an explicit collection covers
+        // its own probe and latches this too).
+        private bool advancedNegotiationSent;
+        private bool ttypeProbeSent;
         private bool echoNegotiated;
         private bool environRequested;
         private bool negotiateEchoPending;
@@ -55,7 +68,7 @@
         private MccpDecompressor? mccpStream;
         // Subnegotiation continuation stashed by the last read, fed into the
         // next per-read handler (telnetlib3 _sb_buffer parity).
-        private (int Option, byte[] Payload, bool OverCap, bool SePending, bool IacPending)? sbResumeState;
+        private (int Option, byte[] Payload, bool OverCap, bool SePending, bool IacPending, bool HeaderIacPending)? sbResumeState;
         private (bool PendingIac, int? PendingVerb, bool SawCr, int? Pushback) framingState;
         // MUD stores survive across per-read handlers: append collections are
         // injected into each handler, and the replaced MSSP mapping is
@@ -316,8 +329,8 @@
 
         /// <summary>
         /// Gets the X display reported by the peer via option 35 (RFC 1096), or
-        /// null when no solicited IS arrived. Populated by
-        /// <see cref="RequestXDisplayAsync"/>; unsolicited reports earn WONT.
+        /// null when none arrived yet. Stored even when unsolicited, like
+        /// every other server-role answer.
         /// </summary>
         public string? ClientXDisplay
         {
@@ -396,10 +409,32 @@
         }
 
         /// <summary>
+        /// Serializes a request start against any in-flight background pump
+        /// pass: its per-pass handler was fed before the pass ran, so answers
+        /// it is still decoding must land before this request snapshots.
+        /// </summary>
+        private async Task<SemaphoreReleaser> AcquireWireForRequestAsync(CancellationToken cancellationToken)
+        {
+            await ReadRateLimit.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return new SemaphoreReleaser(ReadRateLimit);
+        }
+
+        private readonly record struct SemaphoreReleaser(System.Threading.SemaphoreSlim Semaphore) : IDisposable
+        {
+            public void Dispose()
+            {
+                Semaphore.Release();
+            }
+        }
+
+        /// <summary>
         /// Asks the peer for its terminal-type list (RFC 1091: <c>SEND</c>,
-        /// then one <c>IS</c> per entry). The returned list ends at the first
-        /// repeat: a reply equal to the first entry (cycle looped) or to the
-        /// previous entry terminates the list, as does an <c>MTTS</c>
+        /// then one <c>IS</c> per entry): an initial <c>SEND</c>, then another
+        /// <c>SEND</c> after every non-terminal answer (the reference
+        /// <c>request_ttype</c> per answer). The returned list ends at the
+        /// first repeat: a reply equal to the first entry (cycle looped) or to
+        /// the previous entry terminates the list — both compared
+        /// case-sensitively, like the reference — as does an <c>MTTS</c>
         /// capability vector in the third slot; the terminating duplicate is
         /// excluded. Empty answers advance nothing (the next answer fills the
         /// same slot). The answer arriving past slot <see cref="TerminalTypeLoopMax"/>
@@ -412,14 +447,91 @@
         /// <param name="cancellationToken">A token to cancel the wait.</param>
         public async Task<IReadOnlyList<string>> RequestTerminalTypesAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
         {
-            lock (collectorLock)
+            List<string> snapshot;
+            int replayFrom;
+            bool preDone;
+            using (await AcquireWireForRequestAsync(cancellationToken).ConfigureAwait(false))
             {
-                terminalTypeChain.Clear();
-                expectingTerminalType = true;
+                lock (collectorLock)
+                {
+                    // Anything the background pump filed after the previous
+                    // collection is replayed below as solicited (re-asked), so
+                    // wire counts are deterministic no matter who consumed first.
+                    // preDone: the pump already finished a cycle (e.g. an empty
+                    // answer) — replay it without polling for more.
+                    snapshot = [.. terminalTypeChain];
+                    replayFrom = terminalTypesConsumedUpTo;
+                    preDone = !expectingTerminalType && snapshot.Count > replayFrom;
+                    terminalTypeChain.Clear();
+                    expectingTerminalType = true;
+                    // Our initial SEND covers the WILL-triggered probe too.
+                    ttypeProbeSent = true;
+                }
             }
 
             await SendSbAsync(Options.TerminalType, [], cancellationToken).ConfigureAwait(false);
-            await PollForResponseAsync(IsTerminalTypeDone, timeout, cancellationToken).ConfigureAwait(false);
+            bool replayedAny = false;
+            for (int i = replayFrom; i < snapshot.Count; i++)
+            {
+                if (IsTerminalTypeDone())
+                {
+                    break;
+                }
+
+                replayedAny = true;
+                bool grew;
+                lock (collectorLock)
+                {
+                    grew = AppendTerminalTypeAnswerLocked(snapshot[i]);
+                }
+
+                if (grew && !IsTerminalTypeDone())
+                {
+                    // A replayed non-terminal answer: ask for the next one.
+                    await SendSbAsync(Options.TerminalType, [], cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            if (preDone && replayedAny)
+            {
+                // The cycle already ended before this request started: the
+                // replay above re-asked it, nothing more to wait for.
+                lock (collectorLock)
+                {
+                    expectingTerminalType = false;
+                }
+            }
+
+            var end = DateTime.UtcNow.Add(timeout);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
+            while (!IsTerminalTypeDone() && DateTime.UtcNow < end && !linked.Token.IsCancellationRequested)
+            {
+                int before;
+                lock (collectorLock)
+                {
+                    before = terminalTypeChain.Count;
+                }
+
+                var text = await ReadAsync(TimeSpan.FromMilliseconds(MillisecondReadDelay), linked.Token).ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(text))
+                {
+                    PendingText += text;
+                }
+
+                bool done = IsTerminalTypeDone();
+                int after;
+                lock (collectorLock)
+                {
+                    after = terminalTypeChain.Count;
+                }
+
+                if (!done && after > before)
+                {
+                    // A fresh non-terminal answer: ask for the next one.
+                    await SendSbAsync(Options.TerminalType, [], cancellationToken).ConfigureAwait(false);
+                }
+            }
+
             bool timedOut;
             lock (collectorLock)
             {
@@ -454,13 +566,18 @@
             lock (collectorLock)
             {
                 expectingTerminalType = false;
+                // Watermark for the next request's replay; release the
+                // cycle-complete freeze so gap answers are kept.
+                terminalTypesConsumedUpTo = terminalTypeChain.Count;
+                terminalTypesCycleComplete = false;
                 var result = new List<string>(terminalTypeChain);
                 if (result.Count >= 2 &&
-                    (string.Equals(result[^1], result[^2], StringComparison.OrdinalIgnoreCase) ||
-                     string.Equals(result[^1], result[0], StringComparison.OrdinalIgnoreCase)))
+                    (string.Equals(result[^1], result[^2], StringComparison.Ordinal) ||
+                      string.Equals(result[^1], result[0], StringComparison.Ordinal)))
                 {
                     // Terminating duplicate excluded: consecutive repeat, or
-                    // the looped repeat of the first entry.
+                    // the looped repeat of the first entry (both
+                    // case-sensitive, like the reference).
                     result.RemoveAt(result.Count - 1);
                 }
 
@@ -469,27 +586,48 @@
         }
 
         /// <summary>
-        /// Sends whatever deferred opening negotiation is armed: WILL ECHO
-        /// (unless the peer looks like a MUD client), DO NEW_ENVIRON, its
-        /// default SB SEND once agreed, and the encoding check (DO BINARY /
-        /// CHARSET REQUEST). Runs after every read, so TTYPE answers and
-        /// refusals observed mid-read take effect on the same round.
+        /// Sends whatever deferred opening negotiation is armed: the TTYPE
+        /// SEND probe once the peer WILLs TTYPE, the advanced preset once
+        /// negotiation advances, WILL ECHO (unless the peer looks like a MUD
+        /// client), DO NEW_ENVIRON, its default SB SEND once agreed, and the
+        /// encoding check (DO BINARY / CHARSET REQUEST). Runs after every
+        /// read — and on every background-pump pass — so answers observed
+        /// without a caller read take effect all the same.
         /// </summary>
         /// <param name="cancellationToken">A token to cancel the send.</param>
         private async Task FlushDeferredNegotiationAsync(CancellationToken cancellationToken)
         {
+            bool sendTtypeProbe = false;
+            bool sendAdvanced = false;
             string? term;
             List<string> chain;
             bool wantEcho;
             bool wantEnviron;
             lock (collectorLock)
             {
-                if (presetAdvanced && Negotiation.WasRefusedByPeer((int)Options.TerminalType))
+                if (Negotiation.WasRefusedByPeer((int)Options.TerminalType))
                 {
                     // A raw client that WONTs TTYPE still releases the
                     // deferred negotiations (reference check_negotiation).
                     negotiateEchoPending = true;
                     negotiateEnvironPending = true;
+                }
+
+                if (!ttypeProbeSent && Settings.RequestTerminalType &&
+                    Negotiation.IsEnabledByPeer((int)Options.TerminalType))
+                {
+                    // The peer WILLed TTYPE: ask for the first report (the
+                    // reference request_ttype on WILL). An explicit
+                    // RequestTerminalTypesAsync in flight covers its own
+                    // probe, so it latches this off (see there).
+                    ttypeProbeSent = true;
+                    sendTtypeProbe = true;
+                }
+
+                if (!advancedNegotiationSent && ShouldBeginAdvancedNegotiation())
+                {
+                    advancedNegotiationSent = true;
+                    sendAdvanced = true;
                 }
 
                 wantEcho = negotiateEchoPending && !echoNegotiated;
@@ -510,6 +648,16 @@
                 term = chain.Count >= 3 && chain[2].StartsWith("MTTS ", StringComparison.OrdinalIgnoreCase)
                     ? chain[1]
                     : chain.Count > 0 ? chain[^1] : null;
+            }
+
+            if (sendTtypeProbe)
+            {
+                await SendSbAsync(Options.TerminalType, [], cancellationToken).ConfigureAwait(false);
+            }
+
+            if (sendAdvanced)
+            {
+                await BeginAdvancedNegotiationAsync(cancellationToken).ConfigureAwait(false);
             }
 
             if (wantEcho && Settings.OfferEcho &&
@@ -660,18 +808,37 @@
         /// <param name="cancellationToken">A token to cancel the wait.</param>
         public async Task<string?> RequestTerminalSpeedAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
         {
-            lock (collectorLock)
+            bool preStored;
+            using (await AcquireWireForRequestAsync(cancellationToken).ConfigureAwait(false))
             {
-                if (expectingTerminalSpeed)
+                lock (collectorLock)
                 {
-                    return null;
-                }
+                    if (expectingTerminalSpeed)
+                    {
+                        return null;
+                    }
 
-                clientTerminalSpeed = null;
-                expectingTerminalSpeed = true;
+                    // An answer the pump filed before this request started
+                    // satisfies it: still SEND (the peer answers again, filed
+                    // unsolicited), but return the known value without waiting.
+                    preStored = clientTerminalSpeed is not null;
+                    if (!preStored)
+                    {
+                        clientTerminalSpeed = null;
+                        expectingTerminalSpeed = true;
+                    }
+                }
             }
 
             await SendSbAsync(Options.TerminalSpeed, [], cancellationToken).ConfigureAwait(false);
+            if (preStored)
+            {
+                lock (collectorLock)
+                {
+                    return clientTerminalSpeed;
+                }
+            }
+
             await PollForResponseAsync(IsTerminalSpeedDone, timeout, cancellationToken).ConfigureAwait(false);
             lock (collectorLock)
             {
@@ -693,18 +860,36 @@
         /// <param name="cancellationToken">A token to cancel the wait.</param>
         public async Task<string?> RequestXDisplayAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
         {
-            lock (collectorLock)
+            bool preStored;
+            using (await AcquireWireForRequestAsync(cancellationToken).ConfigureAwait(false))
             {
-                if (expectingXDisplay)
+                lock (collectorLock)
                 {
-                    return null;
-                }
+                    if (expectingXDisplay)
+                    {
+                        return null;
+                    }
 
-                clientXDisplay = null;
-                expectingXDisplay = true;
+                    // See RequestTerminalSpeedAsync: a pre-stored answer is
+                    // returned after the SEND without waiting.
+                    preStored = clientXDisplay is not null;
+                    if (!preStored)
+                    {
+                        clientXDisplay = null;
+                        expectingXDisplay = true;
+                    }
+                }
             }
 
             await SendSbAsync(Options.XDisplay, [], cancellationToken).ConfigureAwait(false);
+            if (preStored)
+            {
+                lock (collectorLock)
+                {
+                    return clientXDisplay;
+                }
+            }
+
             await PollForResponseAsync(IsXDisplayDone, timeout, cancellationToken).ConfigureAwait(false);
             lock (collectorLock)
             {
@@ -718,6 +903,9 @@
         /// <c>IS</c>). Later spontaneous INFO updates also land in
         /// <see cref="ClientEnvironment"/>. Returns the variables known when
         /// the answer arrives or the timeout elapses.
+        /// Long type lists are split into size-limited SB frames (at most
+        /// <see cref="MaxEnvironBatchBytes"/> type bytes each) so peers with
+        /// small subnegotiation buffers are not overflowed.
         /// </summary>
         /// <param name="timeout">The maximum time to wait for the answer.</param>
         /// <param name="types">The requested type bytes (VAR/USERVAR); null or
@@ -726,13 +914,24 @@
         /// <param name="cancellationToken">A token to cancel the wait.</param>
         public async Task<IReadOnlyDictionary<string, string>> RequestEnvironmentAsync(TimeSpan timeout, byte[]? types = null, CancellationToken cancellationToken = default)
         {
-            lock (collectorLock)
+            bool preSatisfied;
+            using (await AcquireWireForRequestAsync(cancellationToken).ConfigureAwait(false))
             {
-                expectingEnvironment = true;
+                lock (collectorLock)
+                {
+                    // Answers the pump filed before this request started satisfy
+                    // it (like every other requester): SEND anyway, skip the wait.
+                    preSatisfied = clientEnvironment.Count > 0;
+                    expectingEnvironment = true;
+                }
             }
 
-            await SendSbAsync(Options.OldEnvironment, types ?? [], cancellationToken).ConfigureAwait(false);
-            await PollForResponseAsync(IsEnvironmentDone, timeout, cancellationToken).ConfigureAwait(false);
+            await SendEnvironmentBatchesAsync(Options.OldEnvironment, types ?? [], cancellationToken).ConfigureAwait(false);
+            if (!preSatisfied)
+            {
+                await PollForResponseAsync(IsEnvironmentDone, timeout, cancellationToken).ConfigureAwait(false);
+            }
+
             lock (collectorLock)
             {
                 expectingEnvironment = false;
@@ -745,6 +944,7 @@
         /// <c>SEND</c>, one <c>IS</c>). Later spontaneous INFO updates also
         /// land in <see cref="ClientNewEnvironment"/>. Returns the variables
         /// known when the answer arrives or the timeout elapses.
+        /// Long type lists are split like <see cref="RequestEnvironmentAsync"/>.
         /// </summary>
         /// <param name="timeout">The maximum time to wait for the answer.</param>
         /// <param name="types">The requested type bytes (VAR/USERVAR); null or
@@ -753,17 +953,49 @@
         /// <param name="cancellationToken">A token to cancel the wait.</param>
         public async Task<IReadOnlyDictionary<string, string>> RequestNewEnvironmentAsync(TimeSpan timeout, byte[]? types = null, CancellationToken cancellationToken = default)
         {
-            lock (collectorLock)
+            bool preSatisfied;
+            using (await AcquireWireForRequestAsync(cancellationToken).ConfigureAwait(false))
             {
-                expectingNewEnvironment = true;
+                lock (collectorLock)
+                {
+                    preSatisfied = clientNewEnvironment.Count > 0;
+                    expectingNewEnvironment = true;
+                }
             }
 
-            await SendSbAsync(Options.NewEnvironment, types ?? [], cancellationToken).ConfigureAwait(false);
-            await PollForResponseAsync(IsNewEnvironmentDone, timeout, cancellationToken).ConfigureAwait(false);
+            await SendEnvironmentBatchesAsync(Options.NewEnvironment, types ?? [], cancellationToken).ConfigureAwait(false);
+            if (!preSatisfied)
+            {
+                await PollForResponseAsync(IsNewEnvironmentDone, timeout, cancellationToken).ConfigureAwait(false);
+            }
+
             lock (collectorLock)
             {
                 expectingNewEnvironment = false;
                 return new Dictionary<string, string>(clientNewEnvironment, StringComparer.Ordinal);
+            }
+        }
+
+        /// <summary>
+        /// Maximum type bytes per ENVIRON SEND frame: with the option, SEND,
+        /// and IAC SB/SE framing the wire frame stays within the 240-byte SB
+        /// payload budget small-buffer peers (e.g. GNU inetutils telnet)
+        /// tolerate.
+        /// </summary>
+        private const int MaxEnvironBatchBytes = 238;
+
+        private async Task SendEnvironmentBatchesAsync(Options option, byte[] types, CancellationToken cancellationToken)
+        {
+            if (types.Length == 0)
+            {
+                await SendSbAsync(option, [], cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            for (var offset = 0; offset < types.Length; offset += MaxEnvironBatchBytes)
+            {
+                var length = Math.Min(MaxEnvironBatchBytes, types.Length - offset);
+                await SendSbAsync(option, types[offset..(offset + length)], cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -776,13 +1008,31 @@
         /// <param name="cancellationToken">A token to cancel the wait.</param>
         public async Task<string?> RequestCharsetAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
         {
-            lock (collectorLock)
+            bool preStored;
+            using (await AcquireWireForRequestAsync(cancellationToken).ConfigureAwait(false))
             {
-                clientCharset = null;
-                expectingCharset = true;
+                lock (collectorLock)
+                {
+                    // An ACCEPTED the pump latched before this request started
+                    // satisfies it (still REQUEST, the peer answers again).
+                    preStored = clientCharset is not null;
+                    if (!preStored)
+                    {
+                        clientCharset = null;
+                        expectingCharset = true;
+                    }
+                }
             }
 
             await SendFrameAsync((int)Options.CharacterSet, CharsetProtocol.BuildRequest(Settings.CharsetOffers), cancellationToken).ConfigureAwait(false);
+            if (preStored)
+            {
+                lock (collectorLock)
+                {
+                    return clientCharset;
+                }
+            }
+
             await PollForResponseAsync(IsCharsetDone, timeout, cancellationToken).ConfigureAwait(false);
             lock (collectorLock)
             {
@@ -800,13 +1050,31 @@
         /// <param name="cancellationToken">A token to cancel the wait.</param>
         public async Task<string?> RequestSendLocationAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
         {
-            lock (collectorLock)
+            bool preStored;
+            using (await AcquireWireForRequestAsync(cancellationToken).ConfigureAwait(false))
             {
-                clientLocation = null;
-                expectingLocation = true;
+                lock (collectorLock)
+                {
+                    // A volunteered location the pump filed before this request
+                    // started satisfies it (still DO, the peer volunteers again).
+                    preStored = clientLocation is not null;
+                    if (!preStored)
+                    {
+                        clientLocation = null;
+                        expectingLocation = true;
+                    }
+                }
             }
 
             await RequestEnableAsync(Options.SendLocation, cancellationToken).ConfigureAwait(false);
+            if (preStored)
+            {
+                lock (collectorLock)
+                {
+                    return clientLocation;
+                }
+            }
+
             await PollForResponseAsync(IsLocationDone, timeout, cancellationToken).ConfigureAwait(false);
             lock (collectorLock)
             {
@@ -1039,86 +1307,104 @@
 
         private bool TryConsumeTerminalType(List<byte> payload)
         {
+            var text = new byte[payload.Count - 1];
+            payload.CopyTo(1, text, 0, text.Length);
+            var answer = System.Text.Encoding.Latin1.GetString(text);
             lock (collectorLock)
             {
-                if (!expectingTerminalType)
-                {
-                    return false;
-                }
-
-                var text = new byte[payload.Count - 1];
-                payload.CopyTo(1, text, 0, text.Length);
-                var answer = System.Text.Encoding.Latin1.GetString(text);
-                // Every answer negotiates echo (deduped at flush time): ECHO
-                // waits until TTYPE reveals the client because MUD clients
-                // render WILL ECHO as password mode.
-                negotiateEchoPending = true;
-                if (answer.Length == 0)
-                {
-                    negotiateEnvironPending = true;
-                    expectingTerminalType = false;
-                    return true;
-                }
-
-                if (terminalTypeChain.Count == 0)
-                {
-                    terminalTypeChain.Add(answer);
-                    if (answer != "ANSI")
-                    {
-                        // Non-Microsoft first answer: enough context to ask for
-                        // the environment (exact "ANSI" match, like the
-                        // reference — Microsoft telnet crashes on NEW_ENVIRON).
-                        negotiateEnvironPending = true;
-                    }
-
-                    return true;
-                }
-
-                if (terminalTypeChain.Count > TerminalTypeLoopMax)
-                {
-                    // Past the cap: record the final answer once, then stop
-                    // soliciting and release the deferred environ request
-                    // (the reference stops at TTYPE_LOOPMAX and moves on to
-                    // the environment instead of waiting out the timeout).
-                    terminalTypeChain[^1] = answer;
-                    expectingTerminalType = false;
-                    negotiateEnvironPending = true;
-                    return true;
-                }
-
-                bool isSecond = terminalTypeChain.Count == 1;
-                terminalTypeChain.Add(answer);
-                if (isSecond && !environRequested)
-                {
-                    // Second answer: an ANSI first answer is resolved now, so
-                    // the deferred environ request goes out (unless already).
-                    negotiateEnvironPending = true;
-                }
-
-                if (string.Equals(answer, terminalTypeChain[0], StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(answer, terminalTypeChain[^2], StringComparison.OrdinalIgnoreCase) ||
-                    (terminalTypeChain.Count == 3 && answer.StartsWith("MTTS ", StringComparison.OrdinalIgnoreCase)))
-                {
-                    // Cycle looped (first entry repeated), entry repeated, or
-                    // MTTS capability vector in the third slot: done, and the
-                    // cycle end also releases the deferred environ request.
-                    expectingTerminalType = false;
-                    negotiateEnvironPending = true;
-                }
-
+                // No expecting gate: the reference stores TTYPE IS even when
+                // unsolicited (server check only, no pending check).
+                AppendTerminalTypeAnswerLocked(answer);
                 return true;
             }
+        }
+
+        /// <summary>
+        /// Folds one TTYPE answer into the chain (caller holds
+        /// <see cref="collectorLock"/>).
+        /// </summary>
+        /// <param name="answer">The decoded IS answer (possibly empty).</param>
+        /// <returns>Whether the chain grew (a resendable, non-terminal answer).</returns>
+        private bool AppendTerminalTypeAnswerLocked(string answer)
+        {
+            // Past a completed cycle, unsolicited answers are ignored; a live
+            // request (expecting) always appends.
+            if (!expectingTerminalType && terminalTypesCycleComplete)
+            {
+                return false;
+            }
+
+            int before = terminalTypeChain.Count;
+            // Every answer negotiates echo (deduped at flush time): ECHO
+            // waits until TTYPE reveals the client because MUD clients
+            // render WILL ECHO as password mode.
+            negotiateEchoPending = true;
+            if (answer.Length == 0)
+            {
+                negotiateEnvironPending = true;
+                expectingTerminalType = false;
+                terminalTypesCycleComplete = true;
+                return false;
+            }
+
+            if (terminalTypeChain.Count == 0)
+            {
+                terminalTypeChain.Add(answer);
+                if (answer != "ANSI")
+                {
+                    // Non-Microsoft first answer: enough context to ask for
+                    // the environment (exact "ANSI" match, like the
+                    // reference — Microsoft telnet crashes on NEW_ENVIRON).
+                    negotiateEnvironPending = true;
+                }
+
+                return terminalTypeChain.Count > before;
+            }
+
+            if (terminalTypeChain.Count > TerminalTypeLoopMax)
+            {
+                // Past the cap: record the final answer once, then stop
+                // soliciting and release the deferred environ request
+                // (the reference stops at TTYPE_LOOPMAX and moves on to
+                // the environment instead of waiting out the timeout).
+                terminalTypeChain[^1] = answer;
+                expectingTerminalType = false;
+                terminalTypesCycleComplete = true;
+                negotiateEnvironPending = true;
+                return false;
+            }
+
+            bool isSecond = terminalTypeChain.Count == 1;
+            terminalTypeChain.Add(answer);
+            if (isSecond && !environRequested)
+            {
+                // Second answer: an ANSI first answer is resolved now, so
+                // the deferred environ request goes out (unless already).
+                negotiateEnvironPending = true;
+            }
+
+            if (string.Equals(answer, terminalTypeChain[0], StringComparison.Ordinal) ||
+                string.Equals(answer, terminalTypeChain[^2], StringComparison.Ordinal) ||
+                (terminalTypeChain.Count == 3 && answer.StartsWith("MTTS ", StringComparison.OrdinalIgnoreCase)))
+            {
+                // Cycle looped (first entry repeated, case-sensitive),
+                // entry repeated (case-sensitive), or MTTS capability
+                // vector in the third slot: done, and the cycle end also
+                // releases the deferred environ request.
+                expectingTerminalType = false;
+                terminalTypesCycleComplete = true;
+                negotiateEnvironPending = true;
+            }
+
+            return terminalTypeChain.Count > before;
         }
 
         private bool TryConsumeTerminalSpeed(List<byte> payload)
         {
             lock (collectorLock)
             {
-                if (!expectingTerminalSpeed)
-                {
-                    return false;
-                }
-
+                // No expecting gate: the reference stores TSPEED answers
+                // even when unsolicited.
                 expectingTerminalSpeed = false;
                 var text = new byte[payload.Count - 1];
                 payload.CopyTo(1, text, 0, text.Length);
@@ -1131,11 +1417,8 @@
         {
             lock (collectorLock)
             {
-                if (!expectingXDisplay)
-                {
-                    return false;
-                }
-
+                // No expecting gate: the reference stores XDISPLOC answers
+                // even when unsolicited.
                 expectingXDisplay = false;
                 var text = new byte[payload.Count - 1];
                 payload.CopyTo(1, text, 0, text.Length);
@@ -1151,11 +1434,10 @@
             var isNew = inputOption == (int)Options.NewEnvironment;
             lock (collectorLock)
             {
-                if (!isInfo && (isNew ? !expectingNewEnvironment : !expectingEnvironment))
-                {
-                    return false;
-                }
-
+                // No expecting gate for IS: the reference folds environ
+                // answers into the store even when unsolicited (a background
+                // pump may file an answer before the explicit requester
+                // runs; the requesters below pick pre-stored answers up).
                 // Only the WILL-ENVIRON side may send INFO. An INFO from a
                 // peer that never agreed is left unconsumed so the handler
                 // answers WONT, exactly like a stray IS.
@@ -1209,18 +1491,13 @@
         }
 
         /// <summary>
-        /// Consumes an SNDLOC report (RFC 779, raw ASCII, no verbs) while a
-        /// location request is outstanding.
+        /// Consumes an SNDLOC report (RFC 779, raw ASCII, no verbs), stored
+        /// even when unsolicited (like every other server-role answer).
         /// </summary>
         private bool TryConsumeSendLocation(List<byte> payload)
         {
             lock (collectorLock)
             {
-                if (!expectingLocation)
-                {
-                    return false;
-                }
-
                 expectingLocation = false;
                 clientLocation = System.Text.Encoding.Latin1.GetString([.. payload]);
                 return true;

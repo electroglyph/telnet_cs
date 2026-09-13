@@ -25,8 +25,8 @@
                         continue;
                     }
 
-                    (kept ??= []).Add(
-                      entry.Length > TerminalTypeCycler.MaxLength ? entry[..TerminalTypeCycler.MaxLength] : entry);
+                    // Reference sends each type verbatim (no length cap).
+                    (kept ??= []).Add(entry);
                 }
 
                 if (kept is not null)
@@ -41,7 +41,7 @@
                 return [TerminalTypeCycler.Unknown];
             }
 
-            return [resolved.Length > TerminalTypeCycler.MaxLength ? resolved[..TerminalTypeCycler.MaxLength] : resolved];
+            return [resolved];
         }
 
         private string EffectiveTerminalSpeed => Settings.TerminalSpeed ?? TerminalSpeed;
@@ -111,7 +111,7 @@
         /// next per-read handler so a frame split across reads reassembles
         /// (telnetlib3 _sb_buffer parity).
         /// </summary>
-        private (int Option, byte[] Payload, bool OverCap, bool SePending, bool IacPending)? sbResumeState;
+        private (int Option, byte[] Payload, bool OverCap, bool SePending, bool IacPending, bool HeaderIacPending)? sbResumeState;
         private (bool PendingIac, int? PendingVerb, bool SawCr, int? Pushback) framingState;
     }
 }

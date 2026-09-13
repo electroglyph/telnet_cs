@@ -88,6 +88,10 @@ namespace telnet_cs.Protocol
         /// <summary>
         /// Parses a <c>REQUEST</c> payload (verb first) into the offered names,
         /// splitting on the embedded separator byte (conventionally space).
+        /// When the separator split yields no resolvable name but a
+        /// space split does (a sender that omitted the separator byte and sent
+        /// a bare space-joined list), the space split wins — the documented
+        /// separator-superset leniency; well-formed requests are unaffected.
         /// </summary>
         /// <param name="payload">The received payload, verb first.</param>
         public static IReadOnlyList<string> ParseRequest(IReadOnlyList<byte> payload)
@@ -100,7 +104,36 @@ namespace telnet_cs.Protocol
 
             var separator = (char)payload[1];
             var text = Encoding.ASCII.GetString([.. payload.Skip(2)]);
-            return text.Length == 0 ? [] : text.Split(separator);
+            var offers = SplitOffers(text, separator);
+            if (offers.Count > 0 &&
+                offers.All(static offer => CanonicalName(offer) is null))
+            {
+                // Separator-superset leniency: the sender may have omitted the
+                // separator byte and sent a bare space-joined list, in which
+                // case payload[1] is content, not a separator. Re-read from
+                // payload[1] and split on space; keep it only when something
+                // resolves (otherwise the strict parse stands).
+                var unseparated = Encoding.ASCII.GetString([.. payload.Skip(1)]);
+                var spaced = SplitOffers(unseparated, ' ');
+                if (spaced.Any(static offer => CanonicalName(offer) is not null))
+                {
+                    return spaced;
+                }
+            }
+
+            return offers;
+        }
+
+        private static IReadOnlyList<string> SplitOffers(string text, char separator)
+        {
+            if (text.Length == 0)
+            {
+                return [];
+            }
+
+            return text.Split(separator)
+                .Where(static piece => !string.IsNullOrWhiteSpace(piece))
+                .ToArray();
         }
 
         /// <summary>
@@ -181,8 +214,10 @@ namespace telnet_cs.Protocol
         /// <summary>
         /// Resolves a charset name to its canonical <see cref="Encoding.WebName"/>,
         /// trying progressively simpler variants (spaces to hyphens, leading
-        /// zeros stripped from numeric segments, hyphens removed), or null when
-        /// no variant resolves.
+        /// zeros stripped from numeric segments, hyphens removed, hyphens
+        /// removed from all but the first segment), or null when no variant
+        /// resolves. Well-known aliases .NET does not know (e.g.
+        /// <c>LATIN1</c>) map to their canonical spellings first.
         /// </summary>
         /// <param name="name">The charset name to resolve.</param>
         internal static string? CanonicalName(string? name)
@@ -193,15 +228,46 @@ namespace telnet_cs.Protocol
             }
 
             var @base = name.Trim().Replace(' ', '-');
-            foreach (var candidate in new[] { @base, StripLeadingZeros(@base), @base.Replace("-", string.Empty, StringComparison.Ordinal) })
+            var noLeadingZeros = StripLeadingZeros(@base);
+            var parts = noLeadingZeros.Split('-');
+            var partial = parts.Length > 2 ? parts[0] + "-" + string.Concat(parts[1..]) : noLeadingZeros;
+            foreach (var candidate in new[] { @base, noLeadingZeros, @base.Replace("-", string.Empty, StringComparison.Ordinal), partial })
             {
                 try
                 {
-                    return Encoding.GetEncoding(candidate).WebName;
+                    return Encoding.GetEncoding(AliasToCanonical(candidate) ?? candidate).WebName;
                 }
                 catch (ArgumentException)
                 {
                 }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Maps well-known charset aliases the runtime codec registry does not
+        /// recognise to canonical spellings it does, or null when the name
+        /// needs no mapping.
+        /// </summary>
+        /// <param name="name">The hyphenated charset name.</param>
+        private static string? AliasToCanonical(string name)
+        {
+            if (string.Equals(name, "LATIN1", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "LATIN-1", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "ISO8859-1", StringComparison.OrdinalIgnoreCase))
+            {
+                return "iso-8859-1";
+            }
+
+            if (string.Equals(name, "UTF8", StringComparison.OrdinalIgnoreCase))
+            {
+                return "utf-8";
+            }
+
+            if (string.Equals(name, "USASCII", StringComparison.OrdinalIgnoreCase))
+            {
+                return "us-ascii";
             }
 
             return null;

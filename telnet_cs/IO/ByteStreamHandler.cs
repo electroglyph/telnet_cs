@@ -87,21 +87,31 @@
         private bool sbResumeIacPending;
 
         /// <summary>
+        /// Bare <c>IAC SB IAC</c> split across reads with no option byte yet:
+        /// the post-IAC byte arrives with the continuation. SE then discards
+        /// the empty frame, anything else is pushed back (telnetlib3
+        /// <c>cmd=SB</c> + <c>iac=True</c> persisting across
+        /// <c>feed_byte</c> calls).
+        /// </summary>
+        private bool sbHeaderIacPending;
+
+        /// <summary>
         /// Gets or sets the stashed subnegotiation continuation for the
         /// session round-trip: fed in before each read, captured after.
         /// </summary>
-        internal (int Option, byte[] Payload, bool OverCap, bool SePending, bool IacPending)? SbResumeState
+        internal (int Option, byte[] Payload, bool OverCap, bool SePending, bool IacPending, bool HeaderIacPending)? SbResumeState
         {
-            get => sbResumeOption.HasValue
-              ? (sbResumeOption.Value, [.. sbResumePayload!], sbResumeOverCap, sbResumeSePending, sbResumeIacPending)
+            get => sbResumeOption.HasValue || sbHeaderIacPending
+              ? (sbResumeOption ?? -1, sbResumePayload is null ? [] : [.. sbResumePayload], sbResumeOverCap, sbResumeSePending, sbResumeIacPending, sbHeaderIacPending)
               : null;
             set
             {
-                sbResumeOption = value?.Option;
-                sbResumePayload = value is null ? null : [.. value.Value.Payload];
+                sbResumeOption = value is null || value.Value.Option < 0 ? null : value.Value.Option;
+                sbResumePayload = value is null || value.Value.Payload is null ? null : [.. value.Value.Payload];
                 sbResumeOverCap = value?.OverCap ?? false;
                 sbResumeSePending = value?.SePending ?? false;
                 sbResumeIacPending = value?.IacPending ?? false;
+                sbHeaderIacPending = value?.HeaderIacPending ?? false;
             }
         }
 
@@ -286,13 +296,13 @@
 
         /// <summary>
         /// Gets or sets the terminal width reported via NAWS. Zero (the default)
-        /// means auto-detect from the console, falling back to 80.
+        /// is sent as-is (RFC 1073 "unspecified").
         /// </summary>
         internal int WindowWidth { get; set; }
 
         /// <summary>
         /// Gets or sets the terminal height reported via NAWS. Zero (the default)
-        /// means auto-detect from the console, falling back to 24.
+        /// is sent as-is (RFC 1073 "unspecified").
         /// </summary>
         internal int WindowHeight { get; set; }
 
@@ -463,8 +473,8 @@
         /// to REJECT. Defaults to null, which applies the reference selection
         /// policy: with no local encoding preference (or a weak Latin-1
         /// default) the first viable peer offer is accepted; with an explicit
-        /// preference an exact match inside <see cref="CharsetOffers"/> wins,
-        /// else the request is rejected so the local encoding is kept.
+        /// preference an exact canonical match wins, else the request is
+        /// rejected so the local encoding is kept.
         /// This is the offer-vs-send split: <see cref="CharsetOffers"/> builds
         /// our outbound REQUEST, this answers inbound ones.
         /// </summary>
@@ -517,10 +527,10 @@
 
         /// <summary>
         /// Gets or sets whether MCCP2/MCCP3 compression (options 86/87) may be
-        /// agreed. Defaults to <c>false</c>: like the reference, compression
-        /// is refused unless opted in, and must stay off over TLS (CRIME/BREACH).
+        /// agreed. Defaults to <c>true</c>: like the reference, compression
+        /// is passively accepted unless opted out, and must stay off over TLS (CRIME/BREACH).
         /// </summary>
-        internal bool EnableMccp { get; set; }
+        internal bool EnableMccp { get; set; } = true;
 
         /// <summary>
         /// Gets or sets whether this direction runs over TLS. MCCP is refused
@@ -642,6 +652,19 @@
         /// the caller's.
         /// </summary>
         internal bool EnableComPort { get; set; } = true;
+
+        /// <summary>
+        /// Whether the GMCP <c>Core.Hello</c> handshake was already sent for
+        /// this connection (reference <c>_gmcp_hello_sent</c>): the hello goes
+        /// out once, on the first WILL GMCP agreement.
+        /// </summary>
+        private bool gmcpHelloSent;
+
+        /// <summary>
+        /// Whether the ZMP <c>zmp.ident</c> handshake was already sent for
+        /// this connection (reference <c>_zmp_ident_sent</c>).
+        /// </summary>
+        private bool zmpIdentSent;
 
         /// <summary>
         /// Gets or sets the hook invoked with MUD subnegotiation payloads as
@@ -1047,12 +1070,20 @@
                 return false;
             }
 
+            if (!pushbackByte.HasValue && sbHeaderIacPending && (MccpHasOutput || byteStream.Available > 0))
+            {
+                // A bare IAC SB IAC stalled on an earlier read resumes here:
+                // the newly arrived byte completes the empty-frame probe.
+                await PerformNegotiation(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
+                return true;
+            }
+
             if (!pushbackByte.HasValue && sbResumeOption.HasValue && (MccpHasOutput || byteStream.Available > 0))
             {
                 // A subnegotiation stalled on an earlier read resumes here:
                 // the newly arrived bytes continue its frame (telnetlib3
                 // _sb_buffer parity) instead of being parsed as fresh input.
-                await PerformNegotiation().ConfigureAwait(false);
+                await PerformNegotiation(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
                 return true;
             }
 
@@ -1172,8 +1203,10 @@
             switch (inputVerb)
             {
                 case (int)Commands.InterruptProcess:
+                    // Consumed and logged without reply, state change, or
+                    // read cancellation (reference handle_ip): the in-flight
+                    // read keeps delivering the bytes around it.
                     WriteLog("Interrupt Process (IP) received.");
-                    CancelPendingReads();
                     return;
                 case (int)Commands.AreYouThere:
                     // Consumed without reply: answering with printable bytes
@@ -1274,7 +1307,7 @@
                     await ReplyToCommand(inputVerb).ConfigureAwait(false);
                     return;
                 case (int)Commands.Subnegotiation:
-                    await PerformNegotiation().ConfigureAwait(false);
+                    await PerformNegotiation(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
                     return;
                 default:
                     // IAC followed by a byte with no defined TELNET command
@@ -1298,12 +1331,35 @@
         /// The terminal type, speed, and window size are taken from the settable
         /// properties on this handler (fed per read from the client's settings).
         /// </summary>
-        private async Task PerformNegotiation()
+        private async Task PerformNegotiation(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes)
         {
             int inputOption;
             List<byte> payload;
             bool overCap;
             bool iacPending;
+            if (sbHeaderIacPending)
+            {
+                // Resuming a bare IAC SB IAC stalled on an earlier read: the
+                // next byte completes the empty-frame probe (reference: cmd=SB
+                // with iac set persists across feed_byte calls).
+                sbHeaderIacPending = false;
+                var headerFollowing = TryReadByte();
+                if (headerFollowing == -1)
+                {
+                    sbHeaderIacPending = true;
+                    return;
+                }
+
+                if (headerFollowing == SeByte)
+                {
+                    WriteLog("Discarding empty subnegotiation without option byte.");
+                    return;
+                }
+
+                pushbackByte = headerFollowing;
+                return;
+            }
+
             if (sbResumeOption.HasValue)
             {
                 // Resuming a subnegotiation stalled mid-scan on an earlier
@@ -1337,11 +1393,16 @@
                         return;
                     }
 
-                    if (following != -1)
+                    if (following == -1)
                     {
-                        pushbackByte = following;
+                        // RFC 854 framing split: IAC SB IAC arrived with the
+                        // post-IAC byte still in flight. Stash the probe; the
+                        // continuation completes it above.
+                        sbHeaderIacPending = true;
+                        return;
                     }
 
+                    pushbackByte = following;
                     return;
                 }
 
@@ -1351,10 +1412,62 @@
                 iacPending = false;
             }
 
-            await ScanAndDispatchSbAsync(inputOption, payload, overCap, iacPending).ConfigureAwait(false);
+            await ScanAndDispatchSbAsync(inputOption, payload, overCap, iacPending, sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
         }
 
-        private async Task ScanAndDispatchSbAsync(int inputOption, List<byte> payload, bool overCap, bool iacPending)
+        /// <summary>
+        /// Dispatches a command interrupting an open SB frame: the outer
+        /// payload is dropped (reference: warns "interrupted by IAC", clears
+        /// its SB buffer) and the inner verb is handled exactly as if it
+        /// arrived outside the frame, so no payload or option bytes leak into
+        /// the data stream.
+        /// </summary>
+        private async Task DispatchInterruptedSbAsync(int following,
+            StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes)
+        {
+            if (following is (int)Commands.Do or (int)Commands.Dont or (int)Commands.Will or (int)Commands.Wont)
+            {
+                var innerOption = TryReadByte();
+                if (innerOption == -1)
+                {
+                    // RFC 854 framing split: the inner option byte arrives
+                    // with the continuation.
+                    pendingVerb = following;
+                    return;
+                }
+
+                while (innerOption == IacByte)
+                {
+                    // IAC toggle in option position: the paired IAC is framing,
+                    // the next byte is the real option.
+                    innerOption = TryReadByte();
+                    if (innerOption == -1)
+                    {
+                        pendingVerb = following;
+                        return;
+                    }
+                }
+
+                await ReplyToCommandWithOption(following, innerOption).ConfigureAwait(false);
+                return;
+            }
+
+            if (following == (int)Commands.Subnegotiation)
+            {
+                await PerformNegotiation(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
+                return;
+            }
+
+            // Anything else (a data byte or a non-negotiation command):
+            // framing is lost. The reference drops the outer frame and
+            // swallows the interrupting byte as a pseudo-command (never
+            // data, never dispatched), so consume it silently here too.
+            WriteLog($"Subnegotiation interrupted by IAC {following}; dropping the frame.");
+            return;
+        }
+
+        private async Task ScanAndDispatchSbAsync(int inputOption, List<byte> payload, bool overCap, bool iacPending,
+            StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes)
         {
             // Scan to IAC SE. The payload is capped: over-long input keeps being
             // consumed (so the stream resynchronises) but is then ignored.
@@ -1401,12 +1514,15 @@
                     // Any reply-vs-silence difference for the inner frame comes
                     // from the payload dispatch rules (SEND vs stray payload),
                     // not from this recovery path.
-                    await PerformNegotiation().ConfigureAwait(false);
+                    await PerformNegotiation(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
                     return;
                 }
                 else
                 {
-                    // IAC followed by anything else: framing is lost, give up.
+                    // The outer frame is interrupted by an inner command: drop
+                    // the buffered payload (reference: warns, clears its SB
+                    // buffer) and dispatch the inner command normally.
+                    await DispatchInterruptedSbAsync(followingSplit, sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
                     return;
                 }
             }
@@ -1450,11 +1566,13 @@
                             // fresh (see the detailed note there). Returning
                             // early here would leak the inner frame's tail
                             // into the data stream — never do that.
-                            await PerformNegotiation().ConfigureAwait(false);
+                            await PerformNegotiation(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
                             return;
                         }
 
-                        // IAC followed by anything else: framing is lost, give up.
+                        // The outer frame is interrupted by an inner command:
+                        // drop the buffered payload and dispatch it normally.
+                        await DispatchInterruptedSbAsync(following, sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
                         return;
                     }
 
@@ -1730,11 +1848,17 @@
             var (width, height) = NawsProtocol.GetEffectiveSize(WindowWidth, WindowHeight);
             var lang = TextEncoding is null ? "C" : "en_US." + TextEncoding.WebName.Replace("-", string.Empty, StringComparison.Ordinal);
             var colorTerm = System.Environment.GetEnvironmentVariable("COLORTERM") ?? string.Empty;
+            // Reference send_env parity: DISPLAY is never volunteered on the
+            // SB answer path ("intentionally not available (security)") —
+            // not even when EnvironmentDisplay is configured. The configured
+            // value still rides spontaneous INFO updates (see
+            // MaybeSendEnvironmentInfoAsync), which is the C# superset the
+            // INFO tests pin.
             var response = EnvironmentProtocol.BuildResponse(
               EnvironmentProtocol.Is,
               payload.Skip(1),
               EnvironmentUser,
-              EnvironmentDisplay,
+              null,
               EnvironmentUserVars,
               string.IsNullOrEmpty(TerminalType) ? null : TerminalType,
               lang,
@@ -2010,20 +2134,15 @@
             }
 
             var offers = CharsetProtocol.ParseRequest(payload);
-            // Reference selection policy (send_charset Cases 2-3): with no
-            // local encoding preference — or a weak Latin-1 default — the
-            // first viable peer offer is accepted, not just offers we would
-            // send ourselves. An explicit preference keeps the
-            // CharsetOffers intersection with exact-match priority.
+            // Reference selection policy (send_charset): every offered name
+            // is scanned and an exact canonical match for the local encoding
+            // preference wins before any narrowing — the offer list is never
+            // intersected with our own outbound CharsetOffers (those only
+            // shape REQUESTs we send). With no local preference, or a weak
+            // Latin-1 default, the first viable peer offer is accepted.
             var selected = CharsetSelector is not null
               ? CharsetSelector(offers)
-              : CharsetProtocol.SelectSupported(
-                  TextEncoding is null || CharsetProtocol.IsWeakDefault(TextEncoding.WebName)
-                    ? offers
-                    : CharsetOffers.Count > 0
-                      ? CharsetOffers.Where(offered => offers.Contains(offered, StringComparer.OrdinalIgnoreCase)).ToList()
-                      : offers,
-                  TextEncoding?.WebName);
+              : CharsetProtocol.SelectSupported(offers, TextEncoding?.WebName);
             if (selected is null)
             {
                 WriteLog("Rejecting CHARSET request: no supported offer.");
@@ -2325,8 +2444,13 @@
                 return;
             }
 
-            if (ApplyLinemodeAsServer && Linemode.MarkSlcPublished())
+            if (ApplyLinemodeAsServer
+                && (payload[1] & LinemodeProtocol.ModeAck) != 0
+                && Linemode.MarkSlcPublished())
             {
+                // The SLC table goes out only on the first ACKed MODE
+                // (reference: the ACK branch alone publishes via _slc_sent);
+                // a non-ACK MODE still earns its MODE+ACK reply below.
                 byte[]? triplets = Linemode.ExportTriplets();
                 if (triplets is not null)
                 {
@@ -2485,9 +2609,17 @@
                         return true;
                     }
 
-                    if (stashedOption == IacByte)
+                    while (stashedOption == IacByte)
                     {
-                        return true;
+                        // IAC toggle in option position (reference: the IAC
+                        // pair is framing, the byte after it is the real
+                        // option): consume the pair and re-read.
+                        stashedOption = TryReadByte();
+                        if (stashedOption == -1)
+                        {
+                            pendingVerb = verb;
+                            return true;
+                        }
                     }
 
                     await ReplyToCommandWithOption(verb, stashedOption).ConfigureAwait(false);
@@ -2505,10 +2637,24 @@
 
                     if (sbOption == IacByte)
                     {
+                        var sbFollowing = TryReadByte();
+                        if (sbFollowing == -1)
+                        {
+                            sbHeaderIacPending = true;
+                            return true;
+                        }
+
+                        if (sbFollowing == SeByte)
+                        {
+                            WriteLog("Discarding empty subnegotiation without option byte.");
+                            return true;
+                        }
+
+                        pushbackByte = sbFollowing;
                         return true;
                     }
 
-                    await ScanAndDispatchSbAsync(sbOption, [], false, false).ConfigureAwait(false);
+                    await ScanAndDispatchSbAsync(sbOption, [], false, false, sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
                     return true;
                 }
 
@@ -2527,14 +2673,40 @@
                     return false;
                 }
 
-                if (stashedOption == IacByte)
+                if (stashedVerb == (int)Commands.Subnegotiation && stashedOption == IacByte)
                 {
+                    var sbFollowing = TryReadByte();
+                    if (sbFollowing == -1)
+                    {
+                        sbHeaderIacPending = true;
+                        return true;
+                    }
+
+                    if (sbFollowing == SeByte)
+                    {
+                        WriteLog("Discarding empty subnegotiation without option byte.");
+                        return true;
+                    }
+
+                    pushbackByte = sbFollowing;
                     return true;
+                }
+
+                while (stashedVerb != (int)Commands.Subnegotiation && stashedOption == IacByte)
+                {
+                    // IAC toggle in option position: consume the pair, the
+                    // next byte is the real option.
+                    stashedOption = TryReadByte();
+                    if (stashedOption == -1)
+                    {
+                        pendingVerb = stashedVerb;
+                        return false;
+                    }
                 }
 
                 if (stashedVerb == (int)Commands.Subnegotiation)
                 {
-                    await ScanAndDispatchSbAsync(stashedOption, [], false, false).ConfigureAwait(false);
+                    await ScanAndDispatchSbAsync(stashedOption, [], false, false, sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
                     return true;
                 }
 
@@ -2555,11 +2727,18 @@
                 return;
             }
 
-            if (inputOption == IacByte)
+            while (inputOption == IacByte)
             {
-                // An IAC where the option byte belongs: not a real option,
-                // so there is nothing to reply to.
-                return;
+                // IAC toggle in option position (reference feed_byte: the IAC
+                // pair is framing and the command persists, so the byte after
+                // the pair is the real option — e.g. DO IAC IAC 0xFB answers
+                // the 0xFB option instead of going silent).
+                inputOption = TryReadByte();
+                if (inputOption == -1)
+                {
+                    pendingVerb = inputVerb;
+                    return;
+                }
             }
 
             await ReplyToCommandWithOption(inputVerb, inputOption).ConfigureAwait(false);
@@ -2598,8 +2777,25 @@
                 return;
             }
 
+            if (inputOption == (int)Options.Logout && inputVerb == (int)Commands.Will && !IsServerRole)
+            {
+                // A client never offers LOGOUT itself (reference: the client
+                // end raises instead of answering); swallow without reply.
+                WriteLog("Ignoring WILL LOGOUT on client role.");
+                return;
+            }
+
             if (inputOption == (int)Options.Logout && inputVerb == (int)Commands.Do)
             {
+                if (!IsServerRole)
+                {
+                    // Only the server end honors DO LOGOUT by closing
+                    // (reference: the client end raises instead); a client
+                    // consumes it without reply or close.
+                    WriteLog("Ignoring DO LOGOUT on client role.");
+                    return;
+                }
+
                 WriteLog("Peer requested LOGOUT; closing without negotiation bytes.");
                 LogoutRequested?.Invoke();
                 return;
@@ -2633,8 +2829,10 @@
             };
             await WriteWireAsync(outBuffer, 0, outBuffer.Length, internalCancellation.Token).ConfigureAwait(false);
 
-            if (inputOption == (int)Options.WindowSize && reply is Commands.Will or Commands.Do)
-            {  // NAWS needs to be sent immediately because the server doesn't request subnegotiation.
+            if (inputOption == (int)Options.WindowSize && inputVerb == (int)Commands.Do && reply is Commands.Will)
+            {  // NAWS is volunteered only when we agree to send it (reference
+               // handle_do): answering a peer WILL with DO merely arms the
+               // follow-up subnegotiation without sending our size yet.
                 await SendWindowSize().ConfigureAwait(false);
             }
 
@@ -2676,6 +2874,60 @@
                 // requesting the peer's table (func 0, DEFAULT).
                 await SendNegotiation((int)Options.LineMode,
                   [LinemodeProtocol.SetLocalCharacters, 0, LinemodeProtocol.LevelDefault, 0]).ConfigureAwait(false);
+            }
+
+            if (inputOption == (int)Options.LineMode && inputVerb == (int)Commands.Will
+                && reply is Commands.Do && IsServerRole)
+            {
+                // RFC 1184 (reference handle_will): the server answers WILL
+                // LINEMODE with DO plus its initial MODE proposal (edit mode
+                // off, trapsig off, remoting on: REMOTE|LIT_ECHO).
+                await SendNegotiation((int)Options.LineMode,
+                  [LinemodeProtocol.Mode, LinemodeProtocol.DefaultServerMode]).ConfigureAwait(false);
+            }
+
+            if (inputOption == (int)Options.COMPortControl && inputVerb == (int)Commands.Will
+                && reply is Commands.Do && !IsServerRole)
+            {
+                // RFC 2217 (reference request_comport_signature): the client
+                // asks for the server's signature right after agreeing
+                // (sub-command 0 = SIGNATURE, empty payload = request).
+                await SendNegotiation((int)Options.COMPortControl, [0]).ConfigureAwait(false);
+            }
+
+            if (inputOption == (int)Options.Mccp3 && inputVerb == (int)Commands.Will
+                && reply is Commands.Do && !IsServerRole)
+            {
+                // Reference handle_will: the client starts MCCP3 with an empty
+                // SB; everything after it is compressed by the peer.
+                await SendNegotiation((int)Options.Mccp3, []).ConfigureAwait(false);
+                Mccp3Active = true;
+            }
+
+            if (inputOption == (int)Options.Gmcp && inputVerb == (int)Commands.Will
+                && reply is Commands.Do && !IsServerRole && EnableMudOptions && !gmcpHelloSent)
+            {
+                // Reference on_will_gmcp/send_gmcp_hello: Core.Hello plus
+                // Core.Supports.Set go out once GMCP is agreed.
+                gmcpHelloSent = true;
+                await SendNegotiation((int)Options.Gmcp,
+                  MudProtocol.GmcpEncodeData("Core.Hello", new Dictionary<string, string>
+                  {
+                      ["client"] = "telnet-cs",
+                      ["version"] = "1.0",
+                  })).ConfigureAwait(false);
+                await SendNegotiation((int)Options.Gmcp,
+                  MudProtocol.GmcpEncodeData("Core.Supports.Set", Array.Empty<string>())).ConfigureAwait(false);
+            }
+
+            if (inputOption == (int)Options.Zmp && inputVerb == (int)Commands.Will
+                && reply is Commands.Do && !IsServerRole && EnableMudOptions && !zmpIdentSent)
+            {
+                // Reference on_will_zmp/send_zmp_ident: zmp.ident goes out
+                // once ZMP is agreed.
+                zmpIdentSent = true;
+                await SendNegotiation((int)Options.Zmp,
+                  MudProtocol.ZmpEncode("zmp.ident", "telnet-cs", "1.0")).ConfigureAwait(false);
             }
         }
 
@@ -2725,8 +2977,17 @@
                 {
                     if (inputOption == (int)Options.WindowSize ||
                         inputOption == (int)Options.LineMode ||
-                        inputOption == (int)Options.SendLocation)
+                        inputOption == (int)Options.SendLocation ||
+                        inputOption == (int)Options.TerminalType ||
+                        inputOption == (int)Options.TerminalSpeed ||
+                        inputOption == (int)Options.RemoteFlowControl ||
+                        inputOption == (int)Options.XDisplay ||
+                        inputOption == (int)Options.NewEnvironment)
                     {
+                        // One-directional server-side options (reference: the
+                        // client end DONTs every WILL except CHARSET): a
+                        // client never asks the peer to send TTYPE/TSPEED and
+                        // friends — the server requests them.
                         return false;
                     }
                 }
@@ -2779,10 +3040,9 @@
 
         /// <summary>
         /// Reports the terminal size per RFC 1073 as Width(16-bit) Height(16-bit),
-        /// network byte order. Explicit <see cref="WindowWidth"/>/
-        /// <see cref="WindowHeight"/> win (0 means auto); otherwise the console
-        /// size is used, falling back to 80x24 when unavailable. Each dimension
-        /// is clamped to the 0-65535 wire range.
+        /// network byte order. Each <see cref="WindowWidth"/>/
+        /// <see cref="WindowHeight"/> dimension is clamped to the 0-65535 wire
+        /// range and sent as-is (a 0 dimension is RFC 1073 "unspecified").
         /// </summary>
         private Task SendWindowSize()
         {

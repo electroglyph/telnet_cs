@@ -24,40 +24,42 @@
         protected override NegotiationState SessionNegotiation => Negotiation;
 
         /// <summary>
-        /// Sends the server opening preset: <c>DO TerminalType</c> first, then
-        /// WILL for each offered option and DO for each requested one (see
-        /// <see cref="TelnetServerOptions"/>), each tracked by
-        /// <see cref="Negotiation"/> so repeats stay silent per RFC 1143.
-        /// <c>WILL ECHO</c> and <c>DO NewEnvironment</c> are deferred, not
-        /// sent here: ECHO waits until TTYPE reveals the client (MUD clients
-        /// render it as password mode), and NEW_ENVIRON waits past a
-        /// potential Microsoft-telnet <c>ANSI</c> first answer (which crashes
-        /// on it) — both mirroring the reference deferred negotiation. Called
-        /// by <see cref="TelnetServer.AcceptSessionAsync"/>; call it yourself
+        /// Sends the server opening preset: <c>DO TerminalType</c> only (the
+        /// reference <c>begin_negotiation</c>). Everything else — <c>WILL
+        /// SGA</c> (unless linemode is requested), <c>WILL BINARY</c>, <c>DO
+        /// NAWS</c>, <c>DO CHARSET</c> — follows in the advanced preset once
+        /// negotiation advances (see <see cref="BeginAdvancedNegotiationAsync"/>),
+        /// and <c>WILL ECHO</c> / <c>DO NewEnvironment</c> stay deferred past
+        /// TTYPE (see <see cref="FlushDeferredNegotiationAsync"/>). Called by
+        /// <see cref="TelnetServer.AcceptSessionAsync"/>; call it yourself
         /// after accepting outside a <see cref="TelnetServer"/>.
-        /// A fully toggled-off preset sends nothing.
+        /// A preset with <c>RequestTerminalType</c> off sends nothing.
         /// </summary>
-        /// <remarks>
-        /// Intentional differences from the reference server opening: this
-        /// preset also offers TSPEED/OldEnv/LINEMODE upfront (toggles), sends
-        /// a single TTYPE SEND (the reference cycles), carries no
-        /// <c>line_mode</c> flag, and offers WILL MCCP2/3 when
-        /// <c>EnableMccp</c> is set without TLS. Lifecycle is pull-based with
-        /// no session registry or queue, and <c>Stop()</c> leaves accepted
-        /// sessions running — all pinned by tests, all by design.
-        /// </remarks>
         /// <param name="cancellationToken">A token to cancel the send.</param>
         /// <returns>An awaitable Task.</returns>
         public async Task SendOpeningPresetAsync(CancellationToken cancellationToken = default)
         {
-            presetAdvanced = true;
             if (Settings.RequestTerminalType)
             {
                 await RequestEnableAsync(Options.TerminalType, cancellationToken).ConfigureAwait(false);
             }
+        }
 
-            // WILL ECHO is deferred — see NegotiateEchoAsync.
-
+        /// <summary>
+        /// Sends the server advanced preset once negotiation advances (the
+        /// reference <c>begin_advanced_negotiation</c>, gated by
+        /// <c>negotiation_should_advance</c>): <c>WILL SGA</c>, <c>WILL
+        /// BINARY</c>, <c>DO NAWS</c> and <c>DO CHARSET</c> per the matching
+        /// settings flags, plus <c>DO LINEMODE</c> only when explicitly
+        /// requested (the reference LINEMODE offer lives in its dedicated
+        /// LinemodeServer path; the default char-mode server never sends it).
+        /// Fires at most once per session; the RFC 1143 machine dedupes
+        /// against anything already sent or agreed.
+        /// </summary>
+        /// <param name="cancellationToken">A token to cancel the send.</param>
+        /// <returns>An awaitable Task.</returns>
+        private async Task BeginAdvancedNegotiationAsync(CancellationToken cancellationToken)
+        {
             if (Settings.OfferSuppressGoAhead)
             {
                 await OfferEnableAsync(Options.SuppressGoAhead, cancellationToken).ConfigureAwait(false);
@@ -68,24 +70,14 @@
                 await OfferEnableAsync(Options.TransmitBinary, cancellationToken).ConfigureAwait(false);
             }
 
-            if (Settings.RequestTerminalSpeed)
-            {
-                await RequestEnableAsync(Options.TerminalSpeed, cancellationToken).ConfigureAwait(false);
-            }
-
             if (Settings.RequestWindowSize)
             {
                 await RequestEnableAsync(Options.WindowSize, cancellationToken).ConfigureAwait(false);
             }
 
-            if (Settings.RequestEnvironment)
+            if (Settings.RequestCharacterSet)
             {
-                await RequestEnableAsync(Options.OldEnvironment, cancellationToken).ConfigureAwait(false);
-            }
-
-            if (Settings.RequestXDisplay)
-            {
-                await RequestEnableAsync(Options.XDisplay, cancellationToken).ConfigureAwait(false);
+                await RequestEnableAsync(Options.CharacterSet, cancellationToken).ConfigureAwait(false);
             }
 
             if (Settings.RequestLinemode)
@@ -93,26 +85,36 @@
                 await RequestEnableAsync(Options.LineMode, cancellationToken).ConfigureAwait(false);
             }
 
-            // DO NewEnvironment is deferred — see NegotiateEnvironAsync.
+            // No WILL MCCP2/3 here on purpose: this stack inflates inbound
+            // MCCP but never compresses outbound, so offering compression
+            // would break the stream as soon as the peer accepts (the peer
+            // would send compressed bytes we inflate, while our own replies
+            // stay plaintext). EnableMccp stays the passive-accept gate
+            // (agree + inflate when the peer offers), never an offer.
+        }
 
-            if (Settings.RequestCharacterSet)
+        /// <summary>
+        /// Gets whether negotiation advanced far enough for the advanced
+        /// preset: any option enabled on either side, or TTYPE settled
+        /// negatively (a raw client that WONTs TTYPE still gets the rest).
+        /// </summary>
+        private bool ShouldBeginAdvancedNegotiation()
+        {
+            if (Negotiation.WasRefusedByPeer((int)Options.TerminalType))
             {
-                await RequestEnableAsync(Options.CharacterSet, cancellationToken).ConfigureAwait(false);
+                return true;
             }
 
-            if (Settings.RequestSendLocation)
+            for (int option = 0; option <= 255; option++)
             {
-                await RequestEnableAsync(Options.SendLocation, cancellationToken).ConfigureAwait(false);
+                var (us, him) = Negotiation.GetStates(option);
+                if (us == NegotiationState.SideState.Yes || him == NegotiationState.SideState.Yes)
+                {
+                    return true;
+                }
             }
 
-            // MCCP2/MCCP3: opt-in via EnableMccp, disabled over TLS
-            // (compress-then-encrypt is vulnerable to CRIME/BREACH attacks) —
-            // mirroring the reference begin_negotiation offer.
-            if (Settings.EnableMccp && !IsTls)
-            {
-                await OfferEnableAsync(Options.Mccp2, cancellationToken).ConfigureAwait(false);
-                await OfferEnableAsync(Options.Mccp3, cancellationToken).ConfigureAwait(false);
-            }
+            return false;
         }
 
         /// <summary>
@@ -446,10 +448,9 @@
         /// <c>WriteLineAsync</c> exchanges against these prompts.
         /// A credential line that never terminates (timeout) fails closed: the
         /// attempt is abandoned and authentication returns <c>false</c>.
-        /// The password line is never echoed: before the password prompt the
-        /// session offers <c>WILL ECHO</c> (claiming echo duty so conforming
-        /// clients hide local echo, as in the reference password tests) while
-        /// withholding its own echo-back for that line; echo behavior is
+        /// The password line is never echoed back: echo-back is withheld for
+        /// that line (negotiation state is untouched — no <c>WILL ECHO</c>
+        /// goes out, since MUD clients render it as password mode) and
         /// restored afterwards. The username line echoes normally.
         /// </summary>
         /// <param name="validate">Validates a (user, password) pair. Exceptions propagate immediately.</param>
@@ -471,25 +472,14 @@
 
                 await WriteAsync(Settings.LoginPasswordPrompt, cancellationToken).ConfigureAwait(false);
                 string? password;
-                if (Settings.OfferEcho)
-                {
-                    // Claim echo duty (conforming clients hide local echo on
-                    // WILL ECHO) but withhold our own echo-back for the secret
-                    // line; restored below so the post-login session echoes.
-                    await OfferEnableAsync(Options.Echo, cancellationToken).ConfigureAwait(false);
-                    echoBackSuppressed = true;
-                    try
-                    {
-                        password = await ReadCredentialLineAsync(timeout, cancellationToken).ConfigureAwait(false);
-                    }
-                    finally
-                    {
-                        echoBackSuppressed = false;
-                    }
-                }
-                else
+                echoBackSuppressed = true;
+                try
                 {
                     password = await ReadCredentialLineAsync(timeout, cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    echoBackSuppressed = false;
                 }
 
                 if (password is null)
@@ -508,8 +498,12 @@
 
         private async Task<string?> ReadCredentialLineAsync(TimeSpan timeout, CancellationToken cancellationToken)
         {
-            string line = await TerminatedReadAsync("\n", timeout, 1, cancellationToken).ConfigureAwait(false);
-            if (!line.Contains('\n', StringComparison.Ordinal))
+            string line;
+            try
+            {
+                line = await TerminatedReadAsync("\n", timeout, 1, cancellationToken).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
             {
                 // Timed out mid-line: the stream position is unrecoverable, so fail
                 // closed instead of validating a truncated secret.
@@ -574,16 +568,28 @@
         }
 
         // The readuntil/readline replacement (see PendingText): poll plain
-        // reads until the predicate holds or the timeout lapses, then return
-        // whatever arrived (partial on timeout — no raise).
+        // reads until the predicate holds or the timeout lapses. Reference
+        // readuntil parity: never returns a partial — a missed deadline
+        // throws TimeoutException (not "") and a buffer past the 64 KiB
+        // reference limit throws (the C# analog of LimitOverrunError).
         private async Task<string> TerminatedReadAsync(Func<string, bool> isTerminated, TimeSpan timeout, int millisecondSpin, CancellationToken cancellationToken)
         {
             var endTimeout = DateTime.UtcNow.Add(timeout);
             var s = string.Empty;
             while (!isTerminated(s) && endTimeout >= DateTime.UtcNow)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var read = await ReadAsync(TimeSpan.FromMilliseconds(millisecondSpin), cancellationToken).ConfigureAwait(false);
                 s += read;
+                if (!isTerminated(s) && s.Length > TerminatedReadLimit)
+                {
+                    throw new InvalidOperationException(string.Format("Terminated read exceeded the {0}-character limit without locating the terminator.", TerminatedReadLimit));
+                }
+            }
+
+            if (!isTerminated(s))
+            {
+                throw new TimeoutException("Terminated read timed out before locating the terminator.");
             }
 
             // CR NUL is the wire spelling of a lone CR (RFC 854): raw reads

@@ -141,7 +141,7 @@
             ValidateOption(option);
             lock (sync)
             {
-                var reply = ReceivedPositiveLocked(option, agree, him, himQueued, Commands.Do, Commands.Dont);
+                var reply = ReceivedPositiveLocked(option, agree, him, himQueued, refusedByPeer, Commands.Do, Commands.Dont);
                 if (him[option] != SideState.No)
                 {
                     refusedByPeer[option] = false;
@@ -186,7 +186,7 @@
             ValidateOption(option);
             lock (sync)
             {
-                var reply = ReceivedPositiveLocked(option, agree, us, usQueued, Commands.Will, Commands.Wont);
+                var reply = ReceivedPositiveLocked(option, agree, us, usQueued, refusedByUs, Commands.Will, Commands.Wont);
                 if (us[option] != SideState.No)
                 {
                     refusedByUs[option] = false;
@@ -255,13 +255,9 @@
             ValidateOption(option);
             lock (sync)
             {
-                var reply = InitiateDisableLocked(option, him, himQueued, Commands.Dont);
-                if (him[option] != SideState.No)
-                {
-                    refusedByPeer[option] = false;
-                }
-
-                return reply;
+                // Him-side (DONT): the reference iac() never gates DONT on an
+                // outstanding DO — it goes out immediately.
+                return InitiateDisableLocked(option, him, himQueued, Commands.Dont, gateOnOutstanding: false);
             }
         }
 
@@ -328,7 +324,7 @@
             ValidateOption(option);
             lock (sync)
             {
-                var reply = InitiateDisableLocked(option, us, usQueued, Commands.Wont);
+                var reply = InitiateDisableLocked(option, us, usQueued, Commands.Wont, gateOnOutstanding: true);
                 if (us[option] != SideState.No)
                 {
                     refusedByUs[option] = false;
@@ -341,10 +337,12 @@
         /// <summary>
         /// Shared RFC 1143 "upon receipt of WILL/DO" table over one side:
         /// <c>him</c> with DO/DONT verbs answers WILL, <c>us</c> with WILL/WONT
-        /// verbs answers DO.
+        /// verbs answers DO. A refusal is remembered: repeating the same
+        /// positive request still answers nothing (reference: the reply goes
+        /// out once; later repeats find the option already refused).
         /// </summary>
         private Commands? ReceivedPositiveLocked(
-          int option, bool agree, SideState[] side, bool[] queued, Commands agreeVerb, Commands refuseVerb)
+          int option, bool agree, SideState[] side, bool[] queued, bool[] refused, Commands agreeVerb, Commands refuseVerb)
         {
             switch (side[option])
             {
@@ -355,6 +353,12 @@
                         return agreeVerb;
                     }
 
+                    if (refused[option])
+                    {
+                        return null;
+                    }
+
+                    refused[option] = true;
                     return refuseVerb;
                 case SideState.Yes:
                     return null;
@@ -376,9 +380,12 @@
         }
 
         /// <summary>
-        /// Shared RFC 1143 "upon receipt of WONT/DONT" table over one side:
-        /// <c>him</c> with DO/DONT verbs answers WONT, <c>us</c> with WILL/WONT
-        /// verbs answers DONT.
+        /// Shared "upon receipt of WONT/DONT" table over one side:
+        /// <c>him</c> answers WONT, <c>us</c> answers DONT. Negative replies
+        /// are never answered on the wire (reference: no reply bytes for
+        /// DONT/WONT, avoiding refusal loops); only the state moves — except
+        /// a queued opposite request, which drains now that the line is free
+        /// (the drain is queued new stimulus going out, not a reply).
         /// </summary>
         private Commands? ReceivedNegativeLocked(
           int option, SideState[] side, bool[] queued, bool[] refused, Commands agreeVerb, Commands disagreeVerb)
@@ -389,8 +396,10 @@
                     return null;
                 case SideState.Yes:
                     side[option] = SideState.No;
-                    return disagreeVerb;
+                    return null;
                 case SideState.WantNo when queued[option]:
+                    // Disable completes with an opposite queued: drain it as
+                    // a fresh enable (outstanding, so not enabled yet).
                     side[option] = SideState.WantYes;
                     queued[option] = false;
                     return agreeVerb;
@@ -435,19 +444,37 @@
         }
 
         /// <summary>
-        /// Shared RFC 1143 disable table over one side: the mirror of
-        /// <see cref="InitiateEnableLocked"/>.
+        /// Shared disable table over one side: the mirror of
+        /// <see cref="InitiateEnableLocked"/>. Him-side disables (DONT) are
+        /// never gated on an outstanding enable (reference iac(): DONT goes
+        /// out immediately and the enable is dropped); us-side disables
+        /// (WONT) keep the legacy single-entry opposite queue (no reference
+        /// pin either way, and queue tests pin the gated shape).
         /// </summary>
-        private Commands? InitiateDisableLocked(int option, SideState[] side, bool[] queued, Commands disableVerb)
+        private Commands? InitiateDisableLocked(int option, SideState[] side, bool[] queued, Commands disableVerb, bool gateOnOutstanding)
         {
             switch (side[option])
             {
                 case SideState.Yes:
                     side[option] = SideState.WantNo;
                     return disableVerb;
-                case SideState.WantYes when !queued[option]:
+                case SideState.WantYes when gateOnOutstanding:
+                    // Queued (first) or kept (redundant) behind the
+                    // outstanding enable; the receipt path drains it.
                     queued[option] = true;
                     return null;
+                case SideState.WantYes:
+                    queued[option] = false;
+                    side[option] = SideState.No;
+                    if (gateOnOutstanding)
+                    {
+                        return null;
+                    }
+
+                    // Immediate disable out of an outstanding enable: the
+                    // disable is now the outstanding request.
+                    side[option] = SideState.WantNo;
+                    return disableVerb;
                 case SideState.WantNo when queued[option]:
                     queued[option] = false;
                     return null;

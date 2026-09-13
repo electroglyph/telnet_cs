@@ -67,17 +67,19 @@
 
         /// <summary>
         /// Gets or sets the encoding for outbound strings and inbound decoding.
-        /// Null keeps the legacy Latin-1 mapping.
+        /// Defaults to UTF-8 like the reference client.
         /// </summary>
-        public Encoding? TextEncoding { get; set; }
+        public Encoding? TextEncoding { get; set; } = Encoding.UTF8;
 
         /// <summary>
-        /// Gets or sets the terminal width reported via NAWS. Zero means auto-detect.
+        /// Gets or sets the terminal width reported via NAWS. Zero is sent
+        /// as-is (RFC 1073 "unspecified").
         /// </summary>
         public int WindowWidth { get; set; }
 
         /// <summary>
-        /// Gets or sets the terminal height reported via NAWS. Zero means auto-detect.
+        /// Gets or sets the terminal height reported via NAWS. Zero is sent
+        /// as-is (RFC 1073 "unspecified").
         /// </summary>
         public int WindowHeight { get; set; }
 
@@ -93,8 +95,10 @@
         public string? EnvironmentUser { get; set; }
 
         /// <summary>
-        /// Value reported for the well-known <c>DISPLAY</c> variable in RFC 1408 ENVIRON responses.
-        /// Null (the default) omits <c>DISPLAY</c> unless explicitly requested.
+        /// Value reported for the well-known <c>DISPLAY</c> variable in
+        /// spontaneous ENVIRON INFO updates. Null (the default) omits
+        /// <c>DISPLAY</c>. Never volunteered on the SB answer path (reference
+        /// security rule); INFO is the only carrier.
         /// </summary>
         public string? EnvironmentDisplay { get; set; }
 
@@ -115,20 +119,22 @@
 
         /// <summary>
         /// Character sets offered in CHARSET REQUEST answers (RFC 2066), in
-        /// preference order. Defaults to UTF-8. Empty answers REJECTED.
+        /// preference order. Defaults to UTF-8, LATIN1, US-ASCII like the
+        /// reference client. Empty answers REJECTED.
         /// Settable (not init-only) like the rest of this bag, and re-seated
         /// — never shared — by the <c>with</c>-clone in
         /// <c>Client.ApplyOptions</c>.
         /// </summary>
-        public IList<string> CharsetOffers { get; set; } = ["UTF-8"];
+        public IList<string> CharsetOffers { get; set; } = ["UTF-8", "LATIN1", "US-ASCII"];
 
         /// <summary>
-        /// Opts in to MCCP2/MCCP3 compression (options 86/87). False (the
-        /// default) refuses compression; keep it off over TLS (CRIME/BREACH).
+        /// Opts in to MCCP2/MCCP3 compression (options 86/87). True (the
+        /// default) passively accepts compression like the reference (only an
+        /// explicit False refuses); keep it off over TLS (CRIME/BREACH).
         /// Framing-level only: zlib decoding stays the caller's (see the
         /// MCCP start hooks).
         /// </summary>
-        public bool EnableMccp { get; set; }
+        public bool EnableMccp { get; set; } = true;
 
         /// <summary>
         /// Whether the MUD options (MSDP, MSSP, MSP, MXP, ZMP, Aardwolf,

@@ -12,9 +12,7 @@
     /// </summary>
     internal sealed class TerminalTypeCycler
     {
-        internal const int MaxLength = 40;
-
-        internal const string Unknown = "UNKNOWN";
+        internal const string Unknown = "unknown";
 
         private readonly IReadOnlyList<string> types;
 

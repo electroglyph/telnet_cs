@@ -42,6 +42,7 @@
             }
 
             var (term, lang, columns, lines) = SystemEnvironment();
+            var colorTerm = System.Environment.GetEnvironmentVariable("COLORTERM") ?? string.Empty;
             var info = EnvironmentProtocol.BuildResponse(
               EnvironmentProtocol.Info,
               [],
@@ -51,7 +52,8 @@
               term,
               lang,
               columns,
-              lines);
+              lines,
+              colorTerm);
             var frame = EnvironmentProtocol.FrameSubnegotiation((int)option, info);
             if (ByteStream.Connected && !InternalCancellation.Token.IsCancellationRequested)
             {
@@ -70,6 +72,7 @@
         private string SnapshotEnvironment()
         {
             var (term, lang, columns, lines) = SystemEnvironment();
+            var colorTerm = System.Environment.GetEnvironmentVariable("COLORTERM") ?? string.Empty;
             var parts = new List<string>
       {
         Settings.EnvironmentUser ?? string.Empty,
@@ -78,6 +81,7 @@
         lang ?? string.Empty,
         columns ?? string.Empty,
         lines ?? string.Empty,
+        colorTerm,
       };
             foreach (var pair in Settings.EnvironmentUserVars.OrderBy(static p => p.Key, StringComparer.Ordinal))
             {
@@ -93,13 +97,14 @@
         /// <c>LANG</c>, <c>COLUMNS</c>, <c>LINES</c>) from the client
         /// settings, mirroring the <see cref="telnet_cs.IO.ByteStreamHandler"/>
         /// reply path: effective terminal type, <c>C</c> without an explicit
-        /// encoding (else <c>en_US.&lt;encoding&gt;</c>), and the effective
+        /// encoding (else <c>en_US.&lt;encoding&gt;</c> with hyphens stripped,
+        /// the single spelling both paths share), and the effective
         /// window size.
         /// </summary>
         private (string? Term, string? Lang, string? Columns, string? Lines) SystemEnvironment()
         {
             var term = Settings.TerminalType ?? TerminalType;
-            var lang = Settings.TextEncoding is null ? "C" : "en_US." + Settings.TextEncoding.WebName;
+            var lang = Settings.TextEncoding is null ? "C" : "en_US." + Settings.TextEncoding.WebName.Replace("-", string.Empty, StringComparison.Ordinal);
             var (width, height) = NawsProtocol.GetEffectiveSize(Settings.WindowWidth, Settings.WindowHeight);
             return (
               string.IsNullOrEmpty(term) ? null : term,

@@ -12,9 +12,10 @@
         /// last report. Sends nothing unless we are the WILL-sender: a server
         /// <c>DON'T</c> after accept suppresses further updates (the RFC's anti-loop rule), as does a never-negotiated
         /// option. Change <see cref="TelnetClientOptions.WindowWidth"/>/
-        /// <see cref="TelnetClientOptions.WindowHeight"/> (or resize the console)
-        /// before calling; .NET exposes no console-resize event, so polling via
-        /// this method is the detection mechanism.
+        /// <see cref="TelnetClientOptions.WindowHeight"/> before calling; a 0
+        /// dimension is sent as-is (RFC 1073 "unspecified"). .NET exposes no
+        /// console-resize event, so polling via this method is the detection
+        /// mechanism.
         /// </summary>
         /// <param name="cancellationToken">A token to cancel the send.</param>
         /// <returns>An awaitable Task.</returns>

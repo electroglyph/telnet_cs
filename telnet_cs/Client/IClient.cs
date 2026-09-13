@@ -157,6 +157,30 @@
         Task WriteLineAsync(string command, string lineFeed = Client.Rfc854LineFeed);
 
         /// <summary>
+        /// Sends <c>IAC EOR</c> (end of record, RFC 885) when EOR is locally
+        /// enabled (the peer sent <c>DO EOR</c>); otherwise sends nothing and
+        /// returns <c>false</c>. (The reference <c>send_eor</c> gate;
+        /// <see cref="SendCommand"/> rejects EOR by design, so this is the
+        /// only path that emits <c>FF EF</c>.)
+        /// </summary>
+        /// <param name="cancellationToken">A token to cancel the send.</param>
+        /// <returns><c>true</c> when the EOR pair was sent.</returns>
+        Task<bool> SendEorAsync(CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Reads exactly <paramref name="count"/> characters, accumulating
+        /// plain reads until enough data arrives. Surplus past
+        /// <paramref name="count"/> is stashed for the next read.
+        /// </summary>
+        /// <param name="count">The exact number of characters to read.</param>
+        /// <param name="timeout">The maximum time to wait.</param>
+        /// <param name="cancellationToken">Token to cancel the read.</param>
+        /// <returns>Exactly <paramref name="count"/> characters.</returns>
+        /// <exception cref="EndOfStreamException">The stream ended first.</exception>
+        /// <exception cref="TimeoutException">The deadline lapsed first.</exception>
+        Task<string> ReadExactlyAsync(int count, TimeSpan timeout, CancellationToken cancellationToken = default);
+
+        /// <summary>
         /// Sends a standalone TELNET control command as an <c>IAC &lt;cmd&gt;</c>
         /// frame (RFC 854, plus EOF/SUSP/ABORT from RFC 1184 §2.5): BRK, IP,
         /// AO, AYT, EC, EL, GA, NOP, EOF, SUSP or ABORT.
