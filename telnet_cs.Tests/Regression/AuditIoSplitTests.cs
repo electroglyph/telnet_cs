@@ -74,7 +74,7 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task SplitCrNul_AcrossReads_CollapsesToSingleCr()
+        public async Task SplitCrNul_AcrossReads_PreservesNulAsData()
         {
             // Raw reads preserve bytes across segment boundaries: CR arrives
             // first, NUL arrives next as data. Line-oriented callers trim

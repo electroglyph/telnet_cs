@@ -18,7 +18,7 @@ Telnet client **and** server library for .NET 10 (C# 14).
 
 ## Hard rules
 
-- When a test fails, don't blindly fix the test. First ascertain the source of truth for the correct behavior. For features from telnetlib3, the source of truth is the telnetlib3 source code. For features defined in RFCs, the source of truth is the RFC. Tests should assert correct logic according to sources of truth. If there is a conflict regarding what is correct, don't decide on your own, ask the user and present a detailed analysis.
+- When a test fails, don't blindly fix the test. First ascertain the source of truth for the correct behavior. The source of truth is usually the telnetlib3 source code. Tests should assert correct logic according to sources of truth. If there is a conflict regarding what is correct, don't decide on your own, ask the user and present a detailed analysis.
 - NEVER run git commands (no `git status`, `git diff`, `git log`, `git add`,
 `git commit`, etc.). If you need repo state, ask the user.
 - ALWAYS use a timeout for every shell command to avoid hangs. Use the `bash` tool's `timeout` param (ms) for every call plus shell-level `timeout 15 dotnet build`, `dotnet test` with `timeout:180000` for the full suite. Never run unbounded `bash`/`dotnet` without a timeout.

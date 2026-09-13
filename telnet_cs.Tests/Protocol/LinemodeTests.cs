@@ -462,8 +462,12 @@
         }
 
         [Fact]
-        public async Task ExportSpecialCharacters_EmptyTable_Silent()
+        public async Task ExportSpecialCharacters_DefaultTable_SendsBsdRows()
         {
+            // Source of truth: ~/telnetlib3/telnetlib3/slc.py BSD_SLC_TAB (16
+            // live rows, funcs 1..16) via generate_slctab; the default export
+            // carries those rows so MODE-ACK -> SLC -> FORWARDMASK has
+            // something to send.
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
@@ -471,7 +475,18 @@
                 stream.Enqueue(255, 253, 34);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 await client.ExportSpecialCharactersAsync();
-                stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 251, 34 });
+                var triplets = new byte[]
+                {
+                  1, 3, 0, 2, 3, 0, 3, 98, 3, 4, 34, 15,
+                  5, 2, 20, 6, 3, 0, 7, 98, 28, 8, 2, 4,
+                  9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
+                  13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
+                };
+                stream.ByteWrites.Should().HaveCount(2);
+                stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 34 });
+                stream.ByteWrites[1].Should().Equal(
+                  new[] { new byte[] { 255, 250, 34, 3 }, triplets, new byte[] { 255, 240 } }
+                    .SelectMany(static p => p).ToArray());
             }
         }
 

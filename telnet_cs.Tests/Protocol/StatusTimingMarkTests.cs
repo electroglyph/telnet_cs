@@ -337,14 +337,15 @@
         }
 
         [Fact]
-        public async Task StatusBareSe_TerminatesScanAndPreservesTrailingBytes()
+        public async Task StatusBareSe_TreatedAsData_ConsumedWithSubnegotiation()
         {
-            // A bare SE ends a STATUS payload, so the bytes after it (here
-            // "AB") belong to the subsequent stream. Payload [IS] is a stray
-            // IS and is ignored silently. The trailing stray IAC SE delivers
-            // 0xF0 as data.
+            // Source of truth: ~/telnetlib3/telnetlib3/stream_writer.py has no
+            // STATUS-specific scan — every IAC inside SB is uniform and a bare
+            // 0xF0 is ordinary payload data. The whole frame through IAC SE is
+            // one STATUS subnegotiation (here a stray IS), so nothing leaks to
+            // text and nothing is answered.
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 250, 5, 0, 240, 65, 66, 255, 240);
-            output.Should().Be("ABð");
+            output.Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
         }
 
