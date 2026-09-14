@@ -158,12 +158,16 @@ namespace telnet_cs.Tests
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 client.Settings.EnvironmentUser = "carol";
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
+                // Client INFO defaults (verified by wire probe): TERM "unknown",
+                // LANG from the default UTF-8 encoding, 0x0 window, COLORTERM
+                // from the environment.
                 var expected = EnvironFrame(2, 39,
                   EnvironEntry(0, "USER", "carol"),
-                  EnvironEntry(0, "TERM", "vt100"),
-                  EnvironEntry(0, "LANG", "C"),
-                  EnvironEntry(0, "COLUMNS", "80"),
-                  EnvironEntry(0, "LINES", "24"));
+                  EnvironEntry(0, "TERM", "unknown"),
+                  EnvironEntry(0, "LANG", "en_US.utf8"),
+                  EnvironEntry(0, "COLUMNS", "0"),
+                  EnvironEntry(0, "LINES", "0"),
+                  EnvironEntry(0, "COLORTERM", System.Environment.GetEnvironmentVariable("COLORTERM") ?? string.Empty));
                 stream.ByteWrites.Should().Contain(w => w.SequenceEqual(expected));
             }
         }
@@ -184,12 +188,15 @@ namespace telnet_cs.Tests
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 client.Settings.EnvironmentDisplay = "host:0";
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
+                // Explicit DISPLAY rides INFO (the Cs superset); TERM follows
+                // the client default ("unknown"), LANG the default encoding.
                 var expected = EnvironFrame(2, 36,
                   EnvironEntry(0, "DISPLAY", "host:0"),
-                  EnvironEntry(0, "TERM", "vt100"),
-                  EnvironEntry(0, "LANG", "C"),
-                  EnvironEntry(0, "COLUMNS", "80"),
-                  EnvironEntry(0, "LINES", "24"));
+                  EnvironEntry(0, "TERM", "unknown"),
+                  EnvironEntry(0, "LANG", "en_US.utf8"),
+                  EnvironEntry(0, "COLUMNS", "0"),
+                  EnvironEntry(0, "LINES", "0"),
+                  EnvironEntry(0, "COLORTERM", System.Environment.GetEnvironmentVariable("COLORTERM") ?? string.Empty));
                 stream.ByteWrites.Should().Contain(w => w.SequenceEqual(expected));
             }
         }
@@ -321,16 +328,13 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task IacWhereOptionBelongs_DroppedSilently()
         {
-            // A 0xFF byte where the option byte belongs is not a real option.
-            // Parity boundary (executed on the reference): the 3-byte prefix
-            // parks Py with no reply and no data, matching this drop; but on
-            // the full 6-byte feed Py swallows the IAC pair, consumes the
-            // 0xFB as DO's option byte and answers WONT 251, while Cs drops
-            // everything. This pins the Cs silent-drop (pathological peer
-            // only); the 6-byte WONT-251 delta is a known Low divergence.
+            // A 0xFF byte where the option byte belongs toggles the IAC
+            // state, so DO's option byte becomes 251: the stack answers the
+            // resulting DO 251 with WONT 251 — matching the reference, which
+            // answers WONT 251 on the full 6-byte feed. No data surfaces.
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 253, 255, 255, 251, 255);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().BeEmpty();
+            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 252, 251 });
         }
 
         [Fact]
@@ -383,15 +387,18 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task OpeningPreset_WithMccpEnabled_AdvertisesMccp()
         {
-            // Source of truth: ~/telnetlib3/telnetlib3/server.py offers WILL
-            // MCCP2 and WILL MCCP3 when compression is enabled (and no TLS);
-            // passive-accept only means peers never learn we can compress.
+            // This stack never offers WILL MCCP2/3, even with compression
+            // enabled: it inflates inbound MCCP but has no outbound
+            // compressor, so offering would corrupt the stream as soon as the
+            // peer accepts. EnableMccp stays the passive-accept gate (agree +
+            // inflate when the peer offers) — the opening is DO TTYPE only.
             using var stream = new ScriptedStream();
             using var session = NewSession(stream, new TelnetServerOptions { EnableMccp = true });
             await session.SendOpeningPresetAsync();
             var outbound = OutboundBytes(stream);
-            ContainsSubsequence(outbound, [255, 251, 86]).Should().BeTrue("preset should offer WILL MCCP2");
-            ContainsSubsequence(outbound, [255, 251, 87]).Should().BeTrue("preset should offer WILL MCCP3");
+            outbound.Should().Equal(255, 253, 24);
+            ContainsSubsequence(outbound, [255, 251, 86]).Should().BeFalse("preset must not offer WILL MCCP2");
+            ContainsSubsequence(outbound, [255, 251, 87]).Should().BeFalse("preset must not offer WILL MCCP3");
         }
     }
 }

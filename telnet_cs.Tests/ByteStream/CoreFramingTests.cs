@@ -98,11 +98,11 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task WillTtypeTwice_SendsSingleDo()
         {
-            // Agreement dedups (second WILL arrives in YES state): mirrors
-            // telnetlib3's DO-ECHO-twice single-WILL pin on the agree path.
+            // A client refuses WILL TTYPE (DONT, remembered): the single DONT
+            // answers both WILLs — agreement dedup still holds, on the refusal.
             var (output, writes) = await ReadScriptedAsync(255, 251, 24, 255, 251, 24);
             output.Should().BeEmpty();
-            writes.Should().Equal(255, 253, 24);
+            writes.Should().Equal(255, 254, 24);
         }
 
         [Fact]
@@ -116,12 +116,13 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task DoEchoTwice_RefusedWithWontEachTime()
         {
-            // Refusals repeat: the RFC 1143 §7 NO row has no EMPTY/OPPOSITE
-            // split, so each DO answered from NO re-sends the refusal. Only
-            // agreements dedup.
+            // The second refusal is silent (single refusal): a remembered
+            // refusal answers nothing further (this stack's loop-avoidance;
+            // the reference repeats WONT on the DO axis, so this pins our
+            // deliberate single-refusal shape, not reference parity).
             var (output, writes) = await ReadScriptedAsync(255, 253, 1, 255, 253, 1);
             output.Should().BeEmpty();
-            writes.Should().Equal(255, 252, 1, 255, 252, 1);
+            writes.Should().Equal(255, 252, 1);
         }
 
         [Fact]
@@ -214,11 +215,12 @@ namespace telnet_cs.Tests
         [Fact(Timeout = 5000)]
         public async Task TerminatedRead_Eof_ReturnsPartialWithoutThrow()
         {
-            // No IncompleteReadError counterpart: unterminated text passes
-            // through untouched after the timeout, EOF or not.
+            // Reference readuntil parity: never returns a partial — a missed
+            // deadline throws TimeoutException (never ""), EOF or not.
             using var stream = new ScriptedStream("partial-no-terminator");
             using var client = new telnet_cs.Client.Client(stream, new CancellationToken());
-            (await client.TerminatedReadAsync(":", TimeSpan.FromMilliseconds(300))).Should().Be("partial-no-terminator");
+            Func<Task> act = () => client.TerminatedReadAsync(":", TimeSpan.FromMilliseconds(300));
+            await act.Should().ThrowAsync<TimeoutException>();
         }
 
         [Fact]

@@ -32,6 +32,7 @@
         private static void ConfigureFull(ByteStreamHandler sut)
         {
             sut.EnvironmentUser = "bob";
+            // Configured yet never volunteered in SB answers (see above).
             sut.EnvironmentDisplay = "host:0";
             sut.EnvironmentUserVars = new Dictionary<string, string>(StringComparer.Ordinal) { ["ROLE"] = "admin" };
             // Deterministic session parameters (not statics or the console probe).
@@ -66,7 +67,6 @@
         }
 
         private static byte[] UserEntry() => Concat([0], L("USER"), [1], L("bob"));
-        private static byte[] DisplayEntry() => Concat([0], L("DISPLAY"), [1], L("host:0"));
         private static byte[] RoleEntry() => Concat([3], L("ROLE"), [1], L("admin"));
         private static byte[] TermEntry() => Concat([0], L("TERM"), [1], L("xterm"));
         private static byte[] LangCEntry() => Concat([0], L("LANG"), [1], L("C"));
@@ -78,10 +78,13 @@
         [Fact]
         public async Task EnvironSend_AllRequested_ReturnsExactIsFrame()
         {
+            // DISPLAY is never volunteered in SB answers (reference send_env:
+            // DISPLAY "intentionally not available (security)") — only an
+            // explicit SEND DISPLAY is answered; the rest round-trips.
             var (output, stream) = await ReadHandlerOnceAsync(ConfigureFull, 255, 250, 36, 1, 0, 3, 255, 240);
             output.Should().BeEmpty();
             stream.ByteWrites.Should().ContainSingle().Which.Should()
-              .Equal(ExpectedIsFrame(0, Concat([UserEntry(), DisplayEntry(), .. SystemEntries(), RoleEntry()])));
+              .Equal(ExpectedIsFrame(0, Concat([UserEntry(), .. SystemEntries(), RoleEntry()])));
         }
 
         [Fact]
@@ -90,7 +93,7 @@
             var (output, stream) = await ReadHandlerOnceAsync(ConfigureFull, 255, 250, 36, 1, 0, 255, 240);
             output.Should().BeEmpty();
             var frame = stream.ByteWrites.Should().ContainSingle().Subject;
-            frame.Should().Equal(ExpectedIsFrame(0, Concat([UserEntry(), DisplayEntry(), .. SystemEntries()])));
+            frame.Should().Equal(ExpectedIsFrame(0, Concat([UserEntry(), .. SystemEntries()])));
         }
 
         [Fact]
@@ -107,7 +110,7 @@
             var (output, stream) = await ReadHandlerOnceAsync(ConfigureFull, 255, 250, 36, 1, 3, 0, 255, 240);
             output.Should().BeEmpty();
             stream.ByteWrites.Should().ContainSingle().Which.Should()
-              .Equal(ExpectedIsFrame(0, Concat([RoleEntry(), UserEntry(), DisplayEntry(), .. SystemEntries()])));
+              .Equal(ExpectedIsFrame(0, Concat([RoleEntry(), UserEntry(), .. SystemEntries()])));
         }
 
         [Fact]
@@ -117,7 +120,7 @@
             var (output, stream) = await ReadHandlerOnceAsync(ConfigureFull, 255, 250, 36, 1, 0, 0, 255, 240);
             output.Should().BeEmpty();
             stream.ByteWrites.Should().ContainSingle().Which.Should()
-              .Equal(ExpectedIsFrame(0, Concat([UserEntry(), DisplayEntry(), .. SystemEntries()])));
+              .Equal(ExpectedIsFrame(0, Concat([UserEntry(), .. SystemEntries()])));
         }
 
         [Fact]
@@ -126,7 +129,7 @@
             var (output, stream) = await ReadHandlerOnceAsync(ConfigureFull, 255, 250, 36, 1, 255, 240);
             output.Should().BeEmpty();
             stream.ByteWrites.Should().ContainSingle().Which.Should()
-              .Equal(ExpectedIsFrame(0, Concat([UserEntry(), DisplayEntry(), .. SystemEntries(), RoleEntry()])));
+              .Equal(ExpectedIsFrame(0, Concat([UserEntry(), .. SystemEntries(), RoleEntry()])));
         }
 
         [Fact]
@@ -171,11 +174,13 @@
             static void Configure(ByteStreamHandler sut) => sut.TextEncoding = Encoding.UTF8;
             var (output, stream) = await ReadHandlerOnceAsync(Configure, 255, 250, 39, 1, 0, 255, 240);
             output.Should().BeEmpty();
+            // A default handler reports TERM "unknown" (reference term) and a
+            // 0x0 window; LANG follows the explicit encoding.
             var expected = ExpectedIsFrame(0, 39,
-              Concat([0], L("TERM"), [1], L("vt100")),
+              Concat([0], L("TERM"), [1], L("unknown")),
               Concat([0], L("LANG"), [1], L("en_US.utf8")),
-              Concat([0], L("COLUMNS"), [1], L("80")),
-              Concat([0], L("LINES"), [1], L("24")),
+              Concat([0], L("COLUMNS"), [1], L("0")),
+              Concat([0], L("LINES"), [1], L("0")),
               Concat([0], L("COLORTERM"), [1], L(System.Environment.GetEnvironmentVariable("COLORTERM") ?? string.Empty)));
             stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(expected);
         }
@@ -253,9 +258,12 @@
         [Fact]
         public async Task WillNewEnvironment_GetsDo()
         {
+            // Client role: WILL NEW_ENVIRON is a server-side option, refused
+            // with DONT (reference: the client end DONTs every WILL it does
+            // not serve).
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 251, 39);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 253, 39 });
+            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 254, 39 });
         }
 
         [Fact]
@@ -285,12 +293,16 @@
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 client.Settings.EnvironmentUser = "carol";
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
+                // Client defaults: TERM "unknown", LANG from the default UTF-8
+                // encoding, 0x0 window, COLORTERM from the environment (same
+                // GetEnvironmentVariable pattern as the SB-answer tests).
                 var expected = ExpectedIsFrame(2,
                   Concat([0], L("USER"), [1], L("carol")),
-                  Concat([0], L("TERM"), [1], L("vt100")),
-                  Concat([0], L("LANG"), [1], L("C")),
-                  Concat([0], L("COLUMNS"), [1], L("80")),
-                  Concat([0], L("LINES"), [1], L("24")));
+                  Concat([0], L("TERM"), [1], L("unknown")),
+                  Concat([0], L("LANG"), [1], L("en_US.utf8")),
+                  Concat([0], L("COLUMNS"), [1], L("0")),
+                  Concat([0], L("LINES"), [1], L("0")),
+                  Concat([0], L("COLORTERM"), [1], L(System.Environment.GetEnvironmentVariable("COLORTERM") ?? string.Empty)));
                 stream.ByteWrites.Should().ContainSingle(w => w.Length > 3 && w[1] == 250).Which.Should().Equal(expected);
             }
         }

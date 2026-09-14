@@ -338,7 +338,9 @@ namespace telnet_cs.Tests
               },
               wire);
             output.Should().Be("Downstream.");
-            writes.SelectMany(w => w).Should().Equal(Iac, Do, Mccp3);
+            // WILL MCCP3 agreement also emits the empty start SB (reference:
+            // the client sends SB MCCP3 to start compression).
+            writes.SelectMany(w => w).Should().Equal(Iac, Do, Mccp3, Iac, Sb, Mccp3, Iac, Se);
             fired.Should().Be(1);
             sut.Mccp3Active.Should().BeFalse();
         }

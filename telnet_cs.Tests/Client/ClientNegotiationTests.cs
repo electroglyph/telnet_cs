@@ -64,6 +64,9 @@
         [Fact]
         public async Task WontAfterWill_AcksDisableThenHonoursNewStimulus()
         {
+            // A client refuses WILL TTYPE (DONT, remembered); the WONT and
+            // both repeated WILLs stay silent — a remembered refusal only
+            // clears on explicit new stimulus, never on peer repeats.
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
@@ -76,7 +79,7 @@
                 (await ReadOnceAsync(client)).Should().BeEmpty();
                 stream.Enqueue(255, 251, 24);
                 (await ReadOnceAsync(client)).Should().BeEmpty();
-                CountWrites(stream, 253, 24).Should().Be(2);
+                CountWrites(stream, 253, 24).Should().Be(0);
                 CountWrites(stream, 254, 24).Should().Be(1);
             }
         }
@@ -165,8 +168,10 @@
                 using var client = new Client(stream, new CancellationToken());
                 await client.RequestEnableAsync(Options.SuppressGoAhead);
                 CountWrites(stream, 253, 3).Should().Be(1);
+                // The disable goes out at once (DO then DONT: 2 writes), not
+                // queued behind the outstanding DO.
                 await client.RequestDisableAsync(Options.SuppressGoAhead);
-                stream.ByteWrites.Should().HaveCount(1);
+                stream.ByteWrites.Should().HaveCount(2);
                 stream.Enqueue(255, 251, 3);
                 (await ReadOnceAsync(client)).Should().BeEmpty();
                 CountWrites(stream, 254, 3).Should().Be(1);

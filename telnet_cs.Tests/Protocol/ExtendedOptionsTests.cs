@@ -41,20 +41,25 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task DoLogout_RefusedWithWont_AndSignalsLogout()
         {
+            // Client role: DO LOGOUT is swallowed with no reply and no signal
+            // (reference: the client end raises instead); the close hook fires
+            // only for server-role handlers.
             var signaled = false;
             var (output, writes, _) = await ReadOnceAsync(h => h.LogoutRequested += () => signaled = true, Iac, Do, 18);
             output.Should().BeEmpty();
             Concat(writes).Should().BeEmpty();
-            signaled.Should().BeTrue();
+            signaled.Should().BeFalse();
         }
 
         [Fact]
         public async Task WillLogout_RefusedWithDont_WithoutSignal()
         {
+            // WILL LOGOUT is swallowed with no reply at all on the client role
+            // (reference: the client end raises instead of answering).
             var signaled = false;
             var (output, writes, _) = await ReadOnceAsync(h => h.LogoutRequested += () => signaled = true, Iac, Will, 18);
             output.Should().BeEmpty();
-            Concat(writes).Should().Equal(Iac, Dont, 18);
+            Concat(writes).Should().BeEmpty();
             signaled.Should().BeFalse();
         }
 
@@ -158,7 +163,10 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task WillLineflow_AsServer_SendsRestartXonByDefault()
         {
-            var (output, writes, _) = await ReadOnceAsync(h => h.SendLineflowAsServer = true, Iac, Will, 33);
+            // Server role required: the SendLineflowAsServer flag alone no
+            // longer suffices — a client refuses WILL LFLOW with DONT.
+            var (output, writes, _) = await ReadOnceAsync(
+              h => { h.SendLineflowAsServer = true; h.IsServerRole = true; }, Iac, Will, 33);
             output.Should().BeEmpty();
             writes.Should().HaveCount(2);
             writes[0].Should().Equal(Iac, Do, 33);
@@ -168,9 +176,11 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task WillLineflow_AsClient_SendsNoSb()
         {
+            // Client role: WILL LFLOW is refused with a lone DONT (reference:
+            // only the server requests lineflow); no mode SB follows.
             var (output, writes, _) = await ReadOnceAsync(_ => { }, Iac, Will, 33);
             output.Should().BeEmpty();
-            Concat(writes).Should().Equal(Iac, Do, 33);
+            Concat(writes).Should().Equal(Iac, Dont, 33);
         }
 
         [Fact]
@@ -203,14 +213,15 @@ namespace telnet_cs.Tests
         public async Task SbLineflow_AfterPeerWillAlone_IgnoredWithoutWont()
         {
             // The DO-side never obeys: a peer WILL with no local agreement is
-            // not a license to command our flow control. Consumed silently
+            // not a license to command our flow control. The WILL itself is
+            // refused with DONT (client role); the SB is consumed silently
             // (reference: kept silent), never answered with WONT.
             byte? received = null;
             var (output, writes, sut) = await ReadOnceAsync(
               h => h.LineflowReceived += mode => received = mode,
               Iac, Will, 33, Iac, Sb, 33, 2, Iac, Se);
             output.Should().BeEmpty();
-            Concat(writes).Should().Equal(Iac, Do, 33);
+            Concat(writes).Should().Equal(Iac, Dont, 33);
             received.Should().BeNull();
             sut.LineflowEnabled.Should().BeTrue();
             sut.LineflowXonAny.Should().BeFalse();
@@ -247,14 +258,17 @@ namespace telnet_cs.Tests
         public async Task WillComPort_AgreesWithDo_ThenSbSignatureRequest_SurfacesWithoutReply()
         {
             // Port of test_handle_will_comport_accepted_and_signature_requested:
-            // WILL COMPORT is answered DO (agreed, not rejected), and the
-            // follow-up signature-request SB is surfaced with no reply.
+            // WILL COMPORT is answered DO (agreed, not rejected); agreement
+            // also sends the signature-probe SB, and the peer's
+            // signature-request SB is surfaced with no reply.
             byte[]? received = null;
             var (output, writes, _) = await ReadOnceAsync(
               h => h.ComPortReceived += payload => received = payload,
               Iac, Will, 44, Iac, Sb, 44, 0, Iac, Se);
             output.Should().BeEmpty();
-            writes.Should().ContainSingle().Which.Should().Equal(Iac, Do, 44);
+            writes.Should().HaveCount(2);
+            writes[0].Should().Equal(Iac, Do, 44);
+            writes[1].Should().Equal(Iac, Sb, 44, 0, Iac, Se);
             received.Should().Equal(0);
         }
 
@@ -523,7 +537,9 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task DoMccp2_RefusedByDefault()
         {
-            var (output, writes, _) = await ReadOnceAsync(_ => { }, Iac, Do, 86);
+            // DO MCCP2 is agreed (WILL) unless explicitly disabled: MCCP is
+            // passively accepted by default, so opt out for the refusal shape.
+            var (output, writes, _) = await ReadOnceAsync(h => h.EnableMccp = false, Iac, Do, 86);
             output.Should().BeEmpty();
             Concat(writes).Should().Equal(Iac, Wont, 86);
         }
@@ -607,7 +623,15 @@ namespace telnet_cs.Tests
               h => h.MudSubnegotiationReceived += (option, payload) => received = (option, payload),
               Iac, Will, 201, Iac, Sb, 201, (byte)'h', (byte)'i', Iac, Se);
             output.Should().BeEmpty();
-            Concat(writes).Should().Equal(Iac, Do, 201);
+            // Agreement also sends the reference handshake (Core.Hello +
+            // Core.Supports.Set) ahead of nothing else here.
+            var hello = System.Text.Encoding.ASCII.GetBytes("Core.Hello {\"client\":\"telnet-cs\",\"version\":\"1.0\"}");
+            var supports = System.Text.Encoding.ASCII.GetBytes("Core.Supports.Set []");
+            var expected = new[] { Iac, Do, 201, Iac, Sb, 201 }
+              .Concat(hello.Select(static b => (int)b)).Concat([Iac, Se])
+              .Concat(new[] { Iac, Sb, 201 }).Concat(supports.Select(static b => (int)b)).Concat([Iac, Se])
+              .ToArray();
+            Concat(writes).Select(static b => (int)b).Should().Equal(expected);
             received.Should().NotBeNull();
             received!.Value.Option.Should().Be(201);
             received.Value.Payload.Should().Equal((byte)'h', (byte)'i');

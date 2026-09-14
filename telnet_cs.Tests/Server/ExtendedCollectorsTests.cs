@@ -45,7 +45,15 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             (await session.RequestSendLocationAsync(TimeSpan.FromSeconds(5))).Should().Be("HI");
             session.ClientLocation.Should().Be("HI");
-            stream.ByteWrites.Should().ContainSingle().Subject.Should().Equal(Iac, Do, 23);
+            // The volunteered WILL advances negotiation, so the DO SNDLOC is
+            // followed by the advanced batch (WILL SGA, WILL BINARY, DO NAWS,
+            // DO CHARSET).
+            stream.ByteWrites.Should().HaveCount(5);
+            stream.ByteWrites[0].Should().Equal(Iac, Do, 23);
+            stream.ByteWrites[1].Should().Equal(Iac, Will, 3);
+            stream.ByteWrites[2].Should().Equal(Iac, Will, 0);
+            stream.ByteWrites[3].Should().Equal(Iac, Do, 31);
+            stream.ByteWrites[4].Should().Equal(Iac, Do, 42);
         }
 
         [Fact]
@@ -131,9 +139,15 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream(Iac, Will, 33);
             using var session = NewSession(stream);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
-            stream.ByteWrites.Should().HaveCount(2);
+            // DO LFLOW + the volunteered RESTART-XON SB, then the advanced
+            // batch the agreement releases (SGA, BINARY, NAWS, CHARSET).
+            stream.ByteWrites.Should().HaveCount(6);
             stream.ByteWrites[0].Should().Equal(Iac, Do, 33);
             stream.ByteWrites[1].Should().Equal(Iac, Sb, 33, 3, Iac, Se);
+            stream.ByteWrites[2].Should().Equal(Iac, Will, 3);
+            stream.ByteWrites[3].Should().Equal(Iac, Will, 0);
+            stream.ByteWrites[4].Should().Equal(Iac, Do, 31);
+            stream.ByteWrites[5].Should().Equal(Iac, Do, 42);
         }
 
         [Fact]
@@ -143,8 +157,13 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             (await session.SendLineflowModeAsync(true)).Should().BeTrue();
-            stream.ByteWrites.Should().HaveCount(3);
-            stream.ByteWrites[2].Should().Equal(Iac, Sb, 33, 2, Iac, Se);
+            // DO + volunteered SB + advanced batch, then the explicit mode SB.
+            stream.ByteWrites.Should().HaveCount(7);
+            stream.ByteWrites[2].Should().Equal(Iac, Will, 3);
+            stream.ByteWrites[3].Should().Equal(Iac, Will, 0);
+            stream.ByteWrites[4].Should().Equal(Iac, Do, 31);
+            stream.ByteWrites[5].Should().Equal(Iac, Do, 42);
+            stream.ByteWrites[6].Should().Equal(Iac, Sb, 33, 2, Iac, Se);
         }
 
         [Fact]

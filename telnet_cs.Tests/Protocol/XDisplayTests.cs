@@ -83,14 +83,14 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task StrayXDisplayIs_WithoutOutstandingRequest_AnswersWont()
         {
-            // Stray XDISPLAY IS without an outstanding request is ignored:
-            // subnegotiation never synthesizes WONT, so nothing is sent.
+            // A stray XDISPLAY IS is stored even with no request outstanding
+            // (reference stores unsolicited answers); no WONT is synthesized.
             using var stream = new ScriptedStream();
             stream.Enqueue([.. XDisplayIsFrame("x:0")]);
             using var session = NewSession(stream);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
-            session.ClientXDisplay.Should().BeNull();
-            session.ClientEffectiveDisplay.Should().BeNull();
+            session.ClientXDisplay.Should().Be("x:0");
+            session.ClientEffectiveDisplay.Should().Be("x:0");
             OutboundBytes(stream).Should().BeEmpty();
         }
 

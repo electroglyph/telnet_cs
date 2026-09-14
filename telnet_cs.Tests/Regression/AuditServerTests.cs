@@ -33,12 +33,14 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task TerminatedRead_StashesRemainderForNextRead()
         {
-            // Never-drop-bytes: the tail past the terminator stays buffered
-            // for the next read instead of being lost with the wire drain.
+            // The tail past the terminator stays buffered for the next read —
+            // but a tail with no terminator of its own still ends in
+            // TimeoutException rather than a partial return.
             using var stream = new ScriptedStream("hi\nrest");
             using var session = NewSession(stream);
             (await session.TerminatedReadAsync("\n", TimeSpan.FromSeconds(2))).Should().Be("hi\n");
-            (await session.TerminatedReadAsync("\n", TimeSpan.FromMilliseconds(200))).Should().Be("rest");
+            Func<Task> act = () => session.TerminatedReadAsync("\n", TimeSpan.FromMilliseconds(200));
+            await act.Should().ThrowAsync<TimeoutException>();
         }
 
         [Fact]
@@ -58,14 +60,13 @@ namespace telnet_cs.Tests
         {
             // Option 39 is NEW-ENVIRON (RFC 1572) while the waiter asked on
             // OLD-ENVIRON, option 36 (RFC 1408); verb 0 is IS in both. The
-            // variants are deliberately tracked separately, and RFC 1408 /
-            // 1572 section 6 allow IS only from the WILL side, which this
-            // peer never negotiated — so the OLD wait must time out empty
-            // and the unsolicited NEW frame must not satisfy it.
+            // variants are tracked separately, so the OLD wait still times
+            // out empty — but the unsolicited NEW frame is now stored in
+            // ClientNewEnvironment (reference delivers IS even unsolicited).
             using var stream = new ScriptedStream(Iac, Sb, 39, 0, 0, 65, 1, 98, Iac, Se);
             using var session = NewSession(stream);
             (await session.RequestEnvironmentAsync(TimeSpan.FromMilliseconds(400))).Should().BeEmpty();
-            session.ClientNewEnvironment.Should().BeEmpty();
+            session.ClientNewEnvironment.Should().ContainSingle(kv => kv.Key == "A" && kv.Value == "b");
         }
 
         [Fact]

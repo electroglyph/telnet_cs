@@ -89,13 +89,15 @@
         [Fact]
         public async Task TypeSend_TruncatesTo40Chars()
         {
+            // Types go out verbatim: no 40-char cap (reference sends the
+            // full TTYPE string).
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
                 using var client = new Client(stream, new CancellationToken());
                 client.Settings.TerminalTypes.Add(new string('a', 41));
                 var writes = await SendThroughClientAsync(client, stream, 1);
-                writes.Should().ContainSingle().Which.Should().Equal(TypeIsFrame(new string('a', 40)));
+                writes.Should().ContainSingle().Which.Should().Equal(TypeIsFrame(new string('a', 41)));
             }
         }
 
@@ -117,13 +119,14 @@
         [Fact]
         public async Task TypeSend_EmptyStringFallsBackToUnknown()
         {
+            // The fallback is lowercase "unknown" (reference term="unknown").
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
                 using var client = new Client(stream, new CancellationToken());
                 client.Settings.TerminalType = string.Empty;
                 var writes = await SendThroughClientAsync(client, stream, 1);
-                writes.Should().ContainSingle().Which.Should().Equal(TypeIsFrame("UNKNOWN"));
+                writes.Should().ContainSingle().Which.Should().Equal(TypeIsFrame("unknown"));
             }
         }
 

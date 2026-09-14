@@ -337,11 +337,13 @@ namespace telnet_cs.Tests
         [Fact]
         public void RapidToggle_SendsSingleFrame()
         {
-            // F-N5 pin (ours correct): at most one wire request per negotiation.
+            // Him-side disables go out immediately even with a DO outstanding
+            // (reference iac() never gates DONT): the toggle sends DO then
+            // DONT at once, and the re-enable queues silently behind the DONT.
             var state = new NegotiationState();
             state.RequestEnable(31).Should().Be(Commands.Do);
-            state.RequestDisable(31).Should().BeNull("queued while outstanding");
-            state.RequestEnable(31).Should().BeNull("second toggle cancels the queue");
+            state.RequestDisable(31).Should().Be(Commands.Dont);
+            state.RequestEnable(31).Should().BeNull("re-enable queues behind the outstanding DONT");
         }
 
         [Fact]
@@ -377,10 +379,13 @@ namespace telnet_cs.Tests
         [Fact]
         public void RefusedWill_AnsweredEveryTime()
         {
-            // F-N7 pin (ours correct): strict RFC answers every refusal.
+            // Repeats of a refused WILL stay silent: the first refusal goes
+            // out once (remembered), later repeats find the option already
+            // refused (loop-avoidance; the reference repeats WONT on the DO
+            // axis, but this stack deliberately answers once).
             var state = new NegotiationState();
             state.ReceivedWill(7, agree: false).Should().Be(Commands.Dont);
-            state.ReceivedWill(7, agree: false).Should().Be(Commands.Dont);
+            state.ReceivedWill(7, agree: false).Should().BeNull();
         }
     }
 }

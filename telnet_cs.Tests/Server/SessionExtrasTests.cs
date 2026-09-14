@@ -42,7 +42,15 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
             (await session.SendGaAsync()).Should().BeFalse();
-            stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 251, 3 });
+            // No IAC GA goes out (suppressed under SGA); the four writes are
+            // the advanced batch the DO SGA agreement releases.
+            stream.ByteWrites.SelectMany(static w => w).Should()
+              .NotContain(b => b == 249);
+            stream.ByteWrites.Should().HaveCount(4);
+            stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 3 });
+            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 251, 0 });
+            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 253, 31 });
+            stream.ByteWrites[3].Should().Equal(new byte[] { 255, 253, 42 });
         }
 
         [Fact]
@@ -448,9 +456,9 @@ namespace telnet_cs.Tests
             await session.SendOpeningPresetAsync();
             (await waiter).Should().BeTrue();
             // A missing option misses its deadline, which the waiter reports
-            // with TimeoutException rather than a false return.
-            Func<Task> missingAct = () => client.WaitForOptionEnabledAsync(Options.LineMode, local: false, TimeSpan.FromMilliseconds(200));
-            await missingAct.Should().ThrowAsync<TimeoutException>();
+            // with a false return (it catches TimeoutException internally).
+            (await client.WaitForOptionEnabledAsync(Options.LineMode, local: false, TimeSpan.FromMilliseconds(200)))
+              .Should().BeFalse();
         }
     }
 }

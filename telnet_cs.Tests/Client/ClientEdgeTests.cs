@@ -279,13 +279,13 @@
         [Fact]
         public async Task DoLogout_ClosesStreamWithoutReply()
         {
-            // RFC 727: a DO LOGOUT asks us to end the session — no
-            // negotiation bytes go out, the stream closes (the reference
-            // closes its transport).
+            // Client role: DO LOGOUT is swallowed with no reply and the stream
+            // stays open (reference: the client end raises instead); only a
+            // server-role handler closes on DO LOGOUT.
             using var stream = new ScriptedStream(255, 253, 18);
             using var sut = new Client(stream, new CancellationToken());
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
-            stream.Connected.Should().BeFalse();
+            stream.Connected.Should().BeTrue();
             stream.ByteWrites.Should().BeEmpty();
         }
 
@@ -394,10 +394,12 @@
         [Fact]
         public async Task TerminatedRead_Unterminated_StashesNothing()
         {
+            // Unterminated text is never returned: the wait throws
+            // TimeoutException instead of yielding a partial.
             using var stream = new ScriptedStream("AB");
             using var sut = new Client(stream, new CancellationToken());
-            (await sut.TerminatedReadAsync(":", TimeSpan.FromMilliseconds(200), 1)).Should().Be("AB");
-            (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
+            Func<Task> act = () => sut.TerminatedReadAsync(":", TimeSpan.FromMilliseconds(200), 1);
+            await act.Should().ThrowAsync<TimeoutException>();
         }
 
         [Fact]
@@ -524,10 +526,13 @@
         [Fact]
         public async Task TerminatedRead_ReturnsPromptlyWhenNoTerminator()
         {
+            // A peer that never answers still ends the wait with
+            // TimeoutException — the wait never returns a partial or "".
             var fake = A.Fake<IByteStream>();
             A.CallTo(() => fake.Connected).Returns(true);
             using var sut = new Client(fake, TimeSpan.FromMilliseconds(1), default) { MillisecondReadDelay = 1 };
-            (await sut.TerminatedReadAsync(":", TimeSpan.FromMilliseconds(60), 1)).Should().BeEmpty();
+            Func<Task> act = () => sut.TerminatedReadAsync(":", TimeSpan.FromMilliseconds(60), 1);
+            await act.Should().ThrowAsync<TimeoutException>();
         }
 
         [Fact]

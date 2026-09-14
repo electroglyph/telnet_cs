@@ -74,7 +74,18 @@ namespace telnet_cs.Tests
         {
             var (output, writes, _) = await ReadOnceAsync(_ => { }, Iac, Will, option);
             output.Should().BeEmpty();
-            Concat(writes).Should().Equal((byte)Iac, (byte)Do, (byte)option);
+            // Agreement alone is just the DO — except ZMP and GMCP, whose
+            // agreement also sends the reference handshake (zmp.ident /
+            // Core.Hello + Core.Supports.Set; ByteStreamHandler WeAgree path).
+            int[] expected = option switch
+            {
+                Zmp => [Iac, Do, option, Iac, Sb, option, .. Text("zmp.ident\0telnet-cs\01.0\0"), Iac, Se],
+                Gmcp => [Iac, Do, option,
+                  Iac, Sb, option, .. Text("Core.Hello {\"client\":\"telnet-cs\",\"version\":\"1.0\"}"), Iac, Se,
+                  Iac, Sb, option, .. Text("Core.Supports.Set []"), Iac, Se],
+                _ => [Iac, Do, option],
+            };
+            Concat(writes).Select(static b => (int)b).Should().Equal(expected);
         }
 
         [Theory]

@@ -233,22 +233,21 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SendOpeningPresetAsync_SendsExactPresetFrames()
         {
+            // Reference begin_negotiation: the opening preset is DO TTYPE
+            // only; SGA/BINARY/NAWS/CHARSET follow in the advanced preset
+            // once negotiation advances (telnetlib3 server.py:251-256).
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             await session.SendOpeningPresetAsync();
             OutboundBytes(stream).Should().Equal(
-              255, 253, 24,
-              255, 251, 3,
-              255, 251, 0,
-              255, 253, 32,
-              255, 253, 31,
-              255, 253, 36,
-              255, 253, 34);
+              255, 253, 24);
         }
 
         [Fact]
         public async Task SendOpeningPresetAsync_AllTogglesOn_SendsExactPresetFrames()
         {
+            // The toggles surface in the advanced preset after the peer
+            // answers; the opening itself stays exactly DO TTYPE.
             var options = new TelnetServerOptions
             {
                 RequestXDisplay = true,
@@ -259,16 +258,7 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream, options);
             await session.SendOpeningPresetAsync();
             OutboundBytes(stream).Should().Equal(
-              255, 253, 24,
-              255, 251, 3,
-              255, 251, 0,
-              255, 253, 32,
-              255, 253, 31,
-              255, 253, 36,
-              255, 253, 35,
-              255, 253, 34,
-              255, 253, 42,
-              255, 253, 23);
+              255, 253, 24);
         }
 
         [Fact]
@@ -298,7 +288,7 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             await session.SendOpeningPresetAsync();
             int first = stream.ByteWrites.Count;
-            first.Should().Be(7);
+            first.Should().Be(1);
             await session.SendOpeningPresetAsync();
             stream.ByteWrites.Should().HaveCount(first);
         }
@@ -359,8 +349,9 @@ namespace telnet_cs.Tests
         public async Task OpeningPreset_AllTogglesOff_PeerWillTtype_GetsExactlyOneDo()
         {
             // EXTEND of SendOpeningPresetAsync_AllTogglesOff_SendsNothing: with
-            // SGA/ECHO offers off, the peer's WILL TTYPE still gets exactly one
-            // IAC DO TTYPE and no WILL SGA / WILL ECHO.
+            // SGA/ECHO offers off (and CHARSET requesting off so the advanced
+            // preset stays silent), the peer's WILL TTYPE still gets exactly
+            // one IAC DO TTYPE and no WILL SGA / WILL ECHO.
             var options = new TelnetServerOptions
             {
                 OfferEcho = false,
@@ -371,6 +362,7 @@ namespace telnet_cs.Tests
                 RequestWindowSize = false,
                 RequestEnvironment = false,
                 RequestLinemode = false,
+                RequestCharacterSet = false,
             };
             using var stream = new ScriptedStream();
             using var session = NewSession(stream, options);
@@ -383,11 +375,14 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task OpeningPreset_OfferSga_SentExactlyOnceAndOutstanding()
         {
-            // Port of test_default_sends_will_sga: the default preset offers
-            // WILL SGA exactly once; the us-side stays WantYes until answered.
+            // Port of test_default_sends_will_sga: WILL SGA leaves with the
+            // advanced preset (not the opening) once the peer WILLs TTYPE;
+            // the us-side stays WantYes until answered.
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             await session.SendOpeningPresetAsync();
+            stream.Enqueue(255, 251, 24);
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             CountFrame(OutboundBytes(stream), [255, 251, 3]).Should().Be(1);
             session.Negotiation.GetStates((int)Options.SuppressGoAhead).Us
                 .Should().Be(NegotiationState.SideState.WantYes);
@@ -404,8 +399,17 @@ namespace telnet_cs.Tests
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.Negotiation.IsEnabledByPeer((int)Options.TerminalType).Should().BeTrue();
             await session.RequestDisableAsync(Options.TerminalType);
-            stream.ByteWrites.Should().HaveCount(2);
-            stream.ByteWrites[1].Should().Equal(255, 254, 24);
+            // The DONT is still sent; the peer's WILL TTYPE first released
+            // the TTYPE probe and the advanced batch (reference
+            // begin_advanced_negotiation).
+            stream.ByteWrites.Should().HaveCount(7);
+            stream.ByteWrites[0].Should().Equal(255, 253, 24);
+            stream.ByteWrites[1].Should().Equal(255, 250, 24, 1, 255, 240);
+            stream.ByteWrites[2].Should().Equal(255, 251, 3);
+            stream.ByteWrites[3].Should().Equal(255, 251, 0);
+            stream.ByteWrites[4].Should().Equal(255, 253, 31);
+            stream.ByteWrites[5].Should().Equal(255, 253, 42);
+            stream.ByteWrites[6].Should().Equal(255, 254, 24);
         }
 
         [Theory]
@@ -543,10 +547,14 @@ namespace telnet_cs.Tests
 
             // The username echoes (agreed echo); the secret never hits the
             // wire, and no extra WILL ECHO is emitted (already agreed).
+            // AuthenticateAsync itself sends no negotiation bytes at all
+            // (prompts + suppressed-echo reads only); the three 251s are
+            // WILL ECHO (pre-agreed above) plus WILL SGA / WILL BINARY from
+            // the advanced preset the DO ECHO released.
             string outbound = System.Text.Encoding.Latin1.GetString(OutboundBytes(stream));
             outbound.Should().Contain("bob");
             outbound.Should().NotContain("s3cret");
-            OutboundBytes(stream).Where(b => b == 251).Should().HaveCount(1);
+            OutboundBytes(stream).Where(b => b == 251).Should().HaveCount(3);
         }
 
         private static async Task WaitForWritesAsync(ScriptedStream stream, Func<string, bool> ready)
@@ -683,7 +691,9 @@ namespace telnet_cs.Tests
             int presetBytes = OutboundBytes(stream).Length;
             stream.Enqueue([255, 252, 24]);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
-            OutboundBytes(stream).Skip(presetBytes).ToArray().Should().Equal(255, 251, 1, 255, 253, 39);
+            OutboundBytes(stream).Skip(presetBytes).ToArray().Should().Equal(
+              255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42,
+              255, 251, 1, 255, 253, 39);
         }
 
         [Fact]
@@ -717,7 +727,10 @@ namespace telnet_cs.Tests
             stream.Enqueue([255, 253, 0]);
             using var session = NewSession(stream);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
-            OutboundBytes(stream).Should().Equal(255, 251, 0, 255, 253, 0);
+            OutboundBytes(stream).Should().Equal(
+              255, 251, 0,
+              255, 251, 3, 255, 253, 31, 255, 253, 42,
+              255, 253, 0);
         }
 
         [Fact]
@@ -778,15 +791,22 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestTerminalTypesAsync_MixedCaseDouble_Terminates()
         {
-            // RFC 1091 §5: case is insignificant, so "BBB" repeats "bbb" and ends
-            // the list (the classic triple-repeat can never arrive: the server
-            // structurally stops at the first double).
+            // Repeat detection is ordinal (reference: plain ==, MTTS-only
+            // case-insensitivity): "BBB" does NOT repeat "bbb", so all three
+            // answers are collected and the cycle ends at the timeout; only an
+            // exact repeat would stop it early.
             using var stream = new ScriptedStream();
             stream.Enqueue([.. TtypeIsFrame("AAA"), .. TtypeIsFrame("bbb"), .. TtypeIsFrame("BBB")]);
             using var session = NewSession(stream);
             var types = await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5));
-            types.Should().Equal("AAA", "bbb");
-            OutboundBytes(stream).Should().Equal(255, 250, 24, 1, 255, 240, 255, 251, 1);
+            types.Should().Equal("AAA", "bbb", "BBB");
+            // SEND count depends on the background-pump race, both observed:
+            // request-wins sends initial + one per collected answer (4), while
+            // pump-wins files the answers first and the request replays them
+            // with fewer re-asks (2). Either way the deferred WILL ECHO fires
+            // once. Only the collected chain is timing-independent.
+            CountSubsequence(OutboundBytes(stream), [255, 250, 24, 1, 255, 240]).Should().BeOneOf(2, 4);
+            CountSubsequence(OutboundBytes(stream), [255, 251, 1]).Should().Be(1);
         }
 
         [Fact]
@@ -1031,7 +1051,9 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientEnvironment.Should().Contain("X", "y");
-            OutboundBytes(stream).Should().Equal(255, 253, 36);
+            OutboundBytes(stream).Should().Equal(
+              255, 253, 36,
+              255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42);
         }
 
         [Fact]
@@ -1050,26 +1072,28 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task StrayIs_WithoutOutstandingRequest_AnswersWont()
         {
-            // Stray TTYPE IS without an outstanding request is ignored:
-            // subnegotiation never synthesizes WONT, so nothing is sent.
+            // A stray TTYPE IS is stored even with no request outstanding
+            // (reference on_ttype stores unconditionally, "even when
+            // unsolicited"): no WONT and no IS reply are sent, but the store
+            // arms a deferred WILL ECHO (FF FB 01) on flush.
             using var stream = new ScriptedStream();
             stream.Enqueue([.. TtypeIsFrame("x")]);
             using var session = NewSession(stream);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
-            session.ClientTerminalTypes.Should().BeEmpty();
-            OutboundBytes(stream).Should().BeEmpty();
+            session.ClientTerminalTypes.Should().Equal("x");
+            OutboundBytes(stream).Should().Equal(255, 251, 1);
         }
 
         [Fact]
         public async Task StraySpeedIs_WithoutOutstandingRequest_AnswersWont()
         {
-            // Stray TSPEED IS without an outstanding request is ignored:
-            // subnegotiation never synthesizes WONT, so nothing is sent.
+            // A stray TSPEED IS is stored even with no request outstanding
+            // (reference stores unsolicited answers); outbound stays empty.
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 250, 32, 0, (byte)'9', (byte)'6', (byte)'0', (byte)'0', (byte)',', (byte)'9', (byte)'6', (byte)'0', (byte)'0', 255, 240]);
             using var session = NewSession(stream);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
-            session.ClientTerminalSpeed.Should().BeNull();
+            session.ClientTerminalSpeed.Should().Be("9600,9600");
             OutboundBytes(stream).Should().BeEmpty();
         }
 
@@ -1202,7 +1226,11 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             await AgreeLinemodeAsync(session, stream);
             session.Negotiation.IsEnabledByPeer((int)Options.LineMode).Should().BeTrue();
-            OutboundBytes(stream).Should().Equal(255, 253, 34);
+            // Explicit DO LINEMODE (we asked first): no MODE proposal goes
+            // out; the advanced preset follows the DO LINEMODE instead.
+            OutboundBytes(stream).Should().Equal(
+              255, 253, 34,
+              255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42);
         }
 
         [Fact]
@@ -1211,13 +1239,16 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             // WILL LINEMODE agrees the option, then MODE asking for EDIT only
-            // is echoed verbatim plus MODE_ACK (4).
+            // is echoed verbatim plus MODE_ACK (4). A non-ACK MODE answers
+            // MODE+ACK only (reference: the SLC table is published once, on
+            // the first ACKed MODE); the advanced preset goes out last.
             stream.Enqueue([255, 251, 34, 255, 250, 34, 1, 1, 255, 240]);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(
               [255, 253, 34,
-               .. BsdSlcPublishFrame(),
-               255, 250, 34, 1, 5, 255, 240]);
+               255, 250, 34, 1, 16, 255, 240,
+               255, 250, 34, 1, 5, 255, 240,
+               255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42]);
         }
 
         [Fact]
@@ -1226,15 +1257,16 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             // MODE [EDIT] is echoed verbatim plus ACK; a later MODE [0] is a
-            // new mask and is echoed verbatim plus ACK as well. The SLC table
-            // goes out once, on the first MODE.
+            // new mask and is echoed verbatim plus ACK as well. Neither
+            // carries ACK, so no SLC table goes out at all.
             stream.Enqueue([255, 251, 34, 255, 250, 34, 1, 1, 255, 240, 255, 250, 34, 1, 0, 255, 240]);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(
               [255, 253, 34,
-               .. BsdSlcPublishFrame(),
+               255, 250, 34, 1, 16, 255, 240,
                255, 250, 34, 1, 5, 255, 240,
-               255, 250, 34, 1, 4, 255, 240]);
+               255, 250, 34, 1, 4, 255, 240,
+               255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42]);
         }
 
         [Fact]
@@ -1242,13 +1274,18 @@ namespace telnet_cs.Tests
         {
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
-            // MODE+ACK [EDIT] differs from stored 0: server rule adopts it with
-            // no MODE reply (the client rule would ignore it and answer the next
-            // MODE, which must not happen) — but the first MODE still publishes
-            // the SLC table.
+            // MODE+ACK [EDIT] (mask 5 = EDIT|ACK) differs from stored 0: the
+            // server rule adopts it with no MODE reply — and the ACK publishes
+            // the SLC table once. The following plain MODE [1] echoes the
+            // adopted value, so it is silent too (unchanged masks earn no
+            // reply). Only the MODE proposal and the advanced batch surround.
             stream.Enqueue([255, 251, 34, 255, 250, 34, 1, 5, 255, 240, 255, 250, 34, 1, 1, 255, 240]);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
-            OutboundBytes(stream).Should().Equal([255, 253, 34, .. BsdSlcPublishFrame()]);
+            OutboundBytes(stream).Should().Equal(
+              [255, 253, 34,
+               255, 250, 34, 1, 16, 255, 240,
+               .. BsdSlcPublishFrame(),
+               255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42]);
         }
 
         [Fact]
@@ -1258,7 +1295,12 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             stream.Enqueue([255, 251, 34, 255, 250, 34, 255, 240, 255, 250, 34, 1, 7, 9, 255, 240]);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
-            OutboundBytes(stream).Should().Equal(255, 253, 34);
+            // Malformed MODE frames stay silent, but the WILL LINEMODE
+            // agreement itself still draws the MODE proposal + advanced batch.
+            OutboundBytes(stream).Should().Equal(
+              255, 253, 34,
+              255, 250, 34, 1, 16, 255, 240,
+              255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42);
         }
 
         [Fact]
@@ -1270,6 +1312,7 @@ namespace telnet_cs.Tests
             await session.SendModeAsync(3);
             OutboundBytes(stream).Should().Equal(
               255, 253, 34,
+              255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42,
               255, 250, 34, 1, 3, 255, 240);
         }
 
@@ -1294,6 +1337,7 @@ namespace telnet_cs.Tests
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(
               255, 253, 34,
+              255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42,
               255, 250, 34, 253, 2, 255, 255, 255, 240);
         }
 
@@ -1307,7 +1351,9 @@ namespace telnet_cs.Tests
             stream.Enqueue([255, 251, 34, 255, 250, 34, 253, 2, 255, 240]);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(
-              255, 253, 34);
+              255, 253, 34,
+              255, 250, 34, 1, 16, 255, 240,
+              255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42);
         }
 
         [Fact]
@@ -1367,6 +1413,7 @@ namespace telnet_cs.Tests
             await session.PublishSpecialCharactersAsync();
             OutboundBytes(stream).Should().Equal(
               255, 253, 34,
+              255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42,
               255, 250, 34, 3,
               1, 3, 0, 2, 3, 0, 3, 2, 5, 4, 34, 15, 5, 2, 20, 6, 3, 0,
               7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
@@ -1386,6 +1433,7 @@ namespace telnet_cs.Tests
             await session.PublishSpecialCharactersAsync();
             OutboundBytes(stream).Should().Equal(
               255, 253, 34,
+              255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42,
               255, 250, 34, 3,
               1, 3, 0, 2, 3, 0, 3, 98, 3, 4, 34, 15,
               5, 2, 20, 6, 3, 0, 7, 98, 28, 8, 2, 4,
@@ -1403,6 +1451,7 @@ namespace telnet_cs.Tests
             await session.RequestRemoteSpecialCharactersAsync();
             OutboundBytes(stream).Should().Equal(
               255, 253, 34,
+              255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42,
               255, 250, 34, 3, 0, 3, 0, 255, 240);
         }
 
@@ -1418,6 +1467,7 @@ namespace telnet_cs.Tests
             await session.SendCommand(Commands.Break);
             OutboundBytes(stream).Should().Equal(
               255, 253, 34,
+              255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42,
               255, 243,
               255, 253, 6);
         }
@@ -1435,7 +1485,7 @@ namespace telnet_cs.Tests
             options.Log = logged.Add;
             session.SetLinemodeEntry(3, 2, 3, 64);
             await session.SendCommand(Commands.InterruptProcess);
-            OutboundBytes(stream).Should().Equal(255, 253, 34, 255, 244);
+            OutboundBytes(stream).Should().Equal(255, 253, 34, 255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42, 255, 244);
             logged.Should().ContainSingle().Which.Should().Contain("Synch");
         }
 
@@ -1461,8 +1511,10 @@ namespace telnet_cs.Tests
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(
               [255, 253, 34,
+               255, 250, 34, 1, 16, 255, 240,
                255, 250, 34, 3, 3, 130, 5, 255, 240,
-               .. ForwardMaskFrame()]);
+               .. ForwardMaskFrame(),
+               255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42]);
         }
 
         [Fact]
@@ -1470,23 +1522,26 @@ namespace telnet_cs.Tests
         {
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
-            // MODE [EDIT] is echoed verbatim plus ACK and publishes the SLC
-            // table once; the peer's MODE+ACK echoing a different mask is
-            // adopted silently with no reply.
+            // MODE [EDIT] is answered MODE+ACK; the MODE+ACK publishes the SLC
+            // table once (reference: non-ACK MODE answers MODE+ACK with no SLC;
+            // SLC goes out once, on the first ACK). The advanced batch follows.
             stream.Enqueue([255, 251, 34, 255, 250, 34, 1, 1, 255, 240, 255, 250, 34, 1, 7, 255, 240]);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(
               [255, 253, 34,
+               255, 250, 34, 1, 16, 255, 240,
+               255, 250, 34, 1, 5, 255, 240,
                .. BsdSlcPublishFrame(),
-               255, 250, 34, 1, 5, 255, 240]);
+               255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42]);
         }
 
         [Fact]
         public async Task InboundImportRequest_DefaultTable_SendsFullTable()
         {
             // RFC 1184 §2.4: (0,DEFAULT,0) resets to the defaults and answers
-            // with the full table — the 16 BSD rows, every NOSUPPORT row as
-            // [func,DEFAULT,0] so the peer may use its own values.
+            // with the supported rows only — NOSUPPORT gap rows are never put
+            // on the wire (reference _slc_send skips nosupport rows). The MODE
+            // proposal comes first, the advanced batch last.
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             stream.Enqueue([255, 251, 34, 255, 250, 34, 3, 0, 3, 0, 255, 240]);
@@ -1497,15 +1552,18 @@ namespace telnet_cs.Tests
               7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
               13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
             };
-            var gaps = Enumerable.Range(17, 14).SelectMany(static f => new byte[] { (byte)f, 3, 0 });
-            OutboundBytes(stream).Should().Equal([255, 253, 34, 255, 250, 34, 3, .. bsd, .. gaps, 255, 240]);
+            OutboundBytes(stream).Should().Equal(
+              [255, 253, 34,
+               255, 250, 34, 1, 16, 255, 240,
+               255, 250, 34, 3, .. bsd, 255, 240,
+               255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42]);
         }
 
         [Fact]
         public async Task InboundImportRequest_ConfiguredTable_RendersDefaultsForGaps()
         {
-            // Explicit rows override the BSD defaults; out-of-table functions
-            // still render as [func,DEFAULT,0].
+            // Explicit rows override the BSD defaults; NOSUPPORT rows are
+            // omitted from the answer (reference _slc_send skips them).
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             session.SetLinemodeEntry(3, 2, 5);
@@ -1517,8 +1575,11 @@ namespace telnet_cs.Tests
               7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
               13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
             };
-            var gaps = Enumerable.Range(17, 14).SelectMany(static f => new byte[] { (byte)f, 3, 0 });
-            OutboundBytes(stream).Should().Equal([255, 253, 34, 255, 250, 34, 3, .. bsd, .. gaps, 255, 240]);
+            OutboundBytes(stream).Should().Equal(
+              [255, 253, 34,
+               255, 250, 34, 1, 16, 255, 240,
+               255, 250, 34, 3, .. bsd, 255, 240,
+               255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42]);
         }
 
         [Fact]
@@ -1533,11 +1594,13 @@ namespace telnet_cs.Tests
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(
               255, 253, 34,
+              255, 250, 34, 1, 16, 255, 240,
               255, 250, 34, 3,
               1, 3, 0, 2, 3, 0, 3, 2, 5, 4, 34, 15, 5, 2, 20, 6, 3, 0,
               7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
               13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
-              255, 240);
+              255, 240,
+              255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42);
         }
 
         [Fact]
@@ -1550,11 +1613,13 @@ namespace telnet_cs.Tests
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(
               255, 253, 34,
+              255, 250, 34, 1, 16, 255, 240,
               255, 250, 34, 3,
               1, 3, 0, 2, 3, 0, 3, 98, 3, 4, 34, 15, 5, 2, 20, 6, 3, 0,
               7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
               13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
-              255, 240);
+              255, 240,
+              255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42);
         }
 
         [Fact]
@@ -1567,7 +1632,11 @@ namespace telnet_cs.Tests
             stream.Enqueue([255, 251, 34, 255, 250, 34, 3, 3, 255, 240]);
             var act = async () => await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             await act.Should().ThrowAsync<InvalidDataException>();
-            OutboundBytes(stream).Should().Equal(255, 253, 34);
+            // The MODE proposal and the advanced batch precede the throw.
+            OutboundBytes(stream).Should().Equal(
+              255, 253, 34,
+              255, 250, 34, 1, 16, 255, 240,
+              255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42);
         }
 
         [Fact]
@@ -1575,7 +1644,10 @@ namespace telnet_cs.Tests
         {
             // (0,DEFAULT,0) resets negotiated-away rows before answering:
             // IP is moved to ^E, the import restores ^C, and a later
-            // (0,VALUE,0) exports the restored value.
+            // (0,VALUE,0) exports the restored value. The advanced batch lands
+            // after the forwardmask but before the IMPORT/SENDCURRENT answers:
+            // the batch is awaited inline, while import answers are
+            // fire-and-forget (verified ServerSession.Linemode.cs:183-186).
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             session.SetLinemodeEntry(3, 2, 3);
@@ -1591,12 +1663,13 @@ namespace telnet_cs.Tests
               7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
               13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
             };
-            var gaps = Enumerable.Range(17, 14).SelectMany(static f => new byte[] { (byte)f, 3, 0 });
             OutboundBytes(stream).Should().Equal(
               [255, 253, 34,
+               255, 250, 34, 1, 16, 255, 240,
                255, 250, 34, 3, 3, 130, 5, 255, 240,
                .. ForwardMaskFrame(),
-               255, 250, 34, 3, .. bsd, .. gaps, 255, 240,
+               255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42,
+               255, 250, 34, 3, .. bsd, 255, 240,
                255, 250, 34, 3, .. bsd, 255, 240]);
         }
 
@@ -1606,35 +1679,30 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             await session.SendOpeningPresetAsync();
-            // After the preset we are WILL-sender for SGA and BINARY (WANTYES)
-            // and have outstanding DOs for TTYPE/TSPEED/NAWS/ENVIRON/LINEMODE;
+            // The opening preset is DO TTYPE only (reference begin_negotiation).
             // WILL ECHO is deferred until TTYPE reveals the client, so it is
             // absent here. The peer then asks us to report STATUS (DO STATUS →
-            // agreed WILL-sender, the RFC 859 §5 role gate), so the snapshot
-            // reports the two WILLs plus the five DOs — never STATUS itself
+            // agreed WILL-sender, the RFC 859 §5 role gate): WILL STATUS goes
+            // out, the DO volunteers one minimal IS immediately and the SEND
+            // answers a second (reference: WILL, IS on DO, IS on SEND), then
+            // the advanced batch (WILL SGA, WILL BINARY, DO NAWS, DO CHARSET)
+            // follows once negotiation advances. The snapshot carries only
+            // the options actually touched (FD 18) — never STATUS itself
             // (reference _send_status skips it in both halves) — IAC SE terminated.
-            // The DO volunteers one IS immediately and the SEND answers a
-            // second, matching the reference (executed: WILL, IS on DO, IS on SEND).
             stream.Enqueue([255, 253, 5, 255, 250, 5, 1, 255, 240]);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             byte[] outbound = OutboundBytes(stream);
-            outbound.Take(21).Should().Equal(
-              255, 253, 24,
-              255, 251, 3,
-              255, 251, 0,
-              255, 253, 32,
-              255, 253, 31,
-              255, 253, 36,
-              255, 253, 34);
-            outbound.Skip(21).Take(3).Should().Equal(255, 251, 5);
+            outbound.Take(3).Should().Equal(255, 253, 24);
+            outbound.Skip(3).Take(3).Should().Equal(255, 251, 5);
             byte[] snapshot =
             [
               255, 250, 5, 0,
-              251, 0, 251, 3,
-              253, 24, 253, 31, 253, 32, 253, 34, 253, 36,
+              253, 24,
               255, 240,
             ];
-            outbound.Skip(24).Should().Equal([.. snapshot, .. snapshot]);
+            outbound.Skip(6).Should().Equal(
+              [.. snapshot, .. snapshot,
+               255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42]);
         }
 
         [Fact]

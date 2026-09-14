@@ -59,8 +59,11 @@ namespace telnet_cs.Tests
         [Fact]
         public void GmcpDecode_InvalidJson_Throws()
         {
+            // Malformed GMCP JSON surfaces as ArgumentException wrapping the
+            // JSON error (reference gmcp_decode raises ValueError wrapping
+            // JSONDecodeError), not a bare JsonException.
             var decode = () => MudProtocol.GmcpDecode("Package {bad json}"u8);
-            decode.Should().Throw<JsonException>();
+            decode.Should().Throw<ArgumentException>();
         }
 
         [Fact]

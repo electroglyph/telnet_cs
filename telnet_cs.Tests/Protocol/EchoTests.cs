@@ -102,8 +102,10 @@
         public async Task DontEcho_WhenUsEnabled_RepliesWontOnce_ThenSilent()
         {
             // Port of test_iac_wont_and_dont_suppressed_when_remote_false
-            // (grant half): revoking an agreed us-side grant answers a single
-            // WONT; the repeated DONT is silent.
+            // (grant half): revoking an agreed us-side grant is silent —
+            // DONT/WONT never earn a reply (reference: no reply bytes for
+            // negatives, avoiding refusal loops) — so no WONT goes out at all
+            // and both repeated DONTs stay silent.
             using var stream = new ScriptedStream(255, 253, 1, 255, 254, 1, 255, 254, 1);
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
@@ -111,7 +113,7 @@
             sut.IsServerRole = true;
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             CountWrites(stream, 251, 1).Should().Be(1);
-            CountWrites(stream, 252, 1).Should().Be(1);
+            CountWrites(stream, 252, 1).Should().Be(0);
             sut.Negotiation.IsEnabledByUs(1).Should().BeFalse();
         }
 

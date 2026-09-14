@@ -30,7 +30,11 @@ namespace telnet_cs.Tests
             options.RequestTerminalSpeed.Should().BeTrue();
             options.RequestWindowSize.Should().BeTrue();
             options.RequestEnvironment.Should().BeTrue();
-            options.RequestLinemode.Should().BeTrue();
+            // Char mode by default (reference line_mode=False); the charset
+            // menu is on with the 16-entry reference offer list.
+            options.RequestLinemode.Should().BeFalse();
+            options.RequestCharacterSet.Should().BeTrue();
+            options.CharsetOffers.Should().HaveCount(16);
             options.LoginUserPrompt.Should().Be("login: ");
             options.LoginPasswordPrompt.Should().Be("Password: ");
             options.MaxLoginAttempts.Should().Be(3);
@@ -163,8 +167,11 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task Stop_DoesNotKillAcceptedSessions()
+        public async Task Stop_ClosesAcceptedSessions()
         {
+            // Stop closes accepted sessions (reference Server.close closes
+            // each transport): the session read ends empty and reports
+            // disconnected instead of delivering further peer bytes.
             using var server = new TelnetServer(0);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
@@ -172,15 +179,8 @@ namespace telnet_cs.Tests
             using var session = await acceptTask;
             server.Stop();
 
-            await client.WriteAsync("still-here");
-            var received = string.Empty;
-            var sw = Stopwatch.StartNew();
-            while (!received.Contains("still-here", StringComparison.Ordinal) && sw.Elapsed < TimeSpan.FromSeconds(10))
-            {
-                received += await session.ReadAsync();
-            }
-
-            received.Should().Contain("still-here");
+            (await session.ReadAsync(TimeSpan.FromSeconds(10))).Should().BeEmpty();
+            session.IsConnected.Should().BeFalse();
         }
 
         [Fact]
@@ -249,8 +249,10 @@ namespace telnet_cs.Tests
             await client.TerminatedReadAsync("Password: ", TimeSpan.FromSeconds(10));
             await client.WriteLineAsync("wrong");
             (await authTask).Should().BeFalse();
-            // No ">" prompt ever arrives: a bounded read stays empty.
-            (await client.TerminatedReadAsync(">", TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
+            // No ">" prompt ever arrives: the trailing read throws
+            // TimeoutException instead of returning empty.
+            Func<Task> act = () => client.TerminatedReadAsync(">", TimeSpan.FromMilliseconds(500));
+            await act.Should().ThrowAsync<TimeoutException>();
         }
 
         // Raw-socket auth: a ScriptedStream delivers all queued bytes in one

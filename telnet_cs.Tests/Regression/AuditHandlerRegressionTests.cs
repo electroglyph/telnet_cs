@@ -142,8 +142,10 @@
             }
 
             result.Should().Be("OK");
+            // A bare handler answers with the default terminal type
+            // "unknown" (reference term="unknown"), not "vt100".
             var expected = new byte[] { 255, 250, 24, 0 }
-              .Concat(Encoding.ASCII.GetBytes("vt100"))
+              .Concat(Encoding.ASCII.GetBytes("unknown"))
               .Concat(new byte[] { 255, 240 }).ToArray();
             stream.ByteWrites.Should().ContainSingle()
               .Which.Should().Equal(expected);
@@ -297,11 +299,15 @@
         [Fact]
         public async Task CancelledHandlerReturnsEmpty()
         {
+            // A pre-cancelled handler read throws OperationCanceledException
+            // (the Client/ServerSession wrappers still return "" on mid-read
+            // cancel; only the raw handler surfaces the cancellation).
             using var stream = new ScriptedStream("AB");
             using var cts = new CancellationTokenSource();
             cts.Cancel();
             using var handler = new ByteStreamHandler(stream, cts, 1);
-            (await handler.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
+            Func<Task> act = () => handler.ReadAsync(TimeSpan.FromMilliseconds(100));
+            await act.Should().ThrowAsync<OperationCanceledException>();
         }
     }
 }

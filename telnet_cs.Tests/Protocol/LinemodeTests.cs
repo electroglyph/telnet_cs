@@ -306,14 +306,18 @@
             using var sut = new ByteStreamHandler(stream, cts, 1);
             stream.Enqueue(255, 250, 34, 3, 3, 2, 9, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
-            // Same level, different value, ACK set: silent switch to 10.
+            // Any ACKed triplet is dropped, never stored: the ACKed change to
+            // 10 lands nowhere, so the row stays at 9 and the third triplet —
+            // identical level+value to the stored row — is ignored too. One
+            // SLC reply total (the first adopt), not two.
             stream.Enqueue(255, 250, 34, 3, 3, 130, 10, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
-            // Proves the switch landed: 9 is now the change, agreed with ACK.
+            // Proves 10 was dropped: 9 is still the stored value, so this
+            // identical triplet is ignored rather than agreed with ACK.
             stream.Enqueue(255, 250, 34, 3, 3, 2, 9, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
-            stream.ByteWrites.Should().HaveCount(2);
-            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 3, 3, 130, 9, 255, 240 });
+            stream.ByteWrites.Should().ContainSingle().Which.Should()
+              .Equal(new byte[] { 255, 250, 34, 3, 3, 130, 9, 255, 240 });
         }
 
         [Fact]
@@ -352,6 +356,9 @@
         [Fact]
         public async Task SlcCantChange_DisagreesWithoutAck()
         {
+            // A valued CANTCHANGE row still adopts the peer value and replies
+            // level+mask+ACK (reference _slc_change: valued rows accept the
+            // peer value), instead of echoing the own row back.
             using var stream = new ScriptedStream();
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
@@ -359,15 +366,18 @@
             stream.Enqueue(255, 250, 34, 3, 3, 2, 9, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.ByteWrites.Should().ContainSingle().Which.Should()
-              .Equal(new byte[] { 255, 250, 34, 3, 3, 1, 7, 255, 240 });
+              .Equal(new byte[] { 255, 250, 34, 3, 3, 130, 9, 255, 240 });
         }
 
         [Fact]
         public async Task SlcUnknownFunction_RefusedAsDefault()
         {
+            // Out-of-range functions answer (NOSUPPORT, 0xFF); the 0xFF value
+            // doubles on the wire like any IAC data byte (reference: out of
+            // range -> SLC_nosupport). NOSUPPORT receipt answers (0x80, 0xFF).
             var (_, stream) = await ReadWithStreamAsync(255, 250, 34, 3, 31, 2, 65, 255, 240);
             stream.ByteWrites.Should().ContainSingle().Which.Should()
-              .Equal(new byte[] { 255, 250, 34, 3, 31, 3, 0, 255, 240 });
+              .Equal(new byte[] { 255, 250, 34, 3, 31, 0, 255, 255, 255, 240 });
         }
 
         [Fact]
@@ -585,11 +595,13 @@
         [Fact]
         public async Task SlcForw2_WithoutForw1_RefusedAsNoSupport()
         {
-            // RFC 1184 §5.5: lone FORW2 is refused as NOSUPPORT, not accepted.
+            // The lone-FORW2 gate is gone (reference has none): a lone FORW2
+            // is adopted with ACK like any valued row — the default FORW2
+            // (00,FF) takes the valued path since the value differs.
             var (output, stream) = await ReadWithStreamAsync(255, 250, 34, 3, 18, 2, 5, 255, 240);
             output.Should().BeEmpty();
             stream.ByteWrites.Should().ContainSingle().Which.Should()
-              .Equal(new byte[] { 255, 250, 34, 3, 18, 0, 0, 255, 240 });
+              .Equal(new byte[] { 255, 250, 34, 3, 18, 130, 5, 255, 240 });
         }
 
         [Fact]

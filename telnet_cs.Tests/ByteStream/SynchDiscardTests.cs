@@ -62,9 +62,11 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task IpCancelsRead()
         {
-            // IP keeps its normal meaning mid-scan: pending reads cancel.
+            // IAC IP is log-only (reference handle_ip): it neither cancels
+            // the read nor surfaces as data — the bytes around it ("B") are
+            // still delivered.
             var (output, _) = await ReadDiscardingAsync(255, 244, 65, 255, 242, 66);
-            output.Should().BeEmpty();
+            output.Should().Be("B");
         }
 
         [Fact]

@@ -42,9 +42,11 @@
         [Fact]
         public void ReceivedWont_WhenEnabled_RepliesDontAndDisables()
         {
+            // Negative replies are never answered on the wire (reference:
+            // handle_wont is state-only): the WONT only moves him to No.
             var state = new NegotiationState();
             state.ReceivedWill(3, agree: true).Should().Be(Commands.Do);
-            state.ReceivedWont(3).Should().Be(Commands.Dont);
+            state.ReceivedWont(3).Should().BeNull();
             state.IsEnabledByPeer(3).Should().BeFalse();
         }
 
@@ -75,9 +77,11 @@
         [Fact]
         public void ReceivedDont_WhenUsEnabled_RepliesWontAndDisables()
         {
+            // Negative replies are never answered on the wire (reference:
+            // handle_dont is state-only): the DONT only moves us to No.
             var state = new NegotiationState();
             state.ReceivedDo(3, agree: true).Should().Be(Commands.Will);
-            state.ReceivedDont(3).Should().Be(Commands.Wont);
+            state.ReceivedDont(3).Should().BeNull();
             state.IsEnabledByUs(3).Should().BeFalse();
         }
 
@@ -126,10 +130,13 @@
         [Fact]
         public void QueuedDisable_DrainsWhenEnableCompletes()
         {
+            // Him-side disables go out immediately even with a DO outstanding
+            // (reference iac() never gates DONT): no queue is left behind, so
+            // the later WILL lands on WantNo and settles silently to No.
             var state = new NegotiationState();
             state.RequestEnable(3).Should().Be(Commands.Do);
-            state.RequestDisable(3).Should().BeNull();
-            state.ReceivedWill(3, agree: true).Should().Be(Commands.Dont);
+            state.RequestDisable(3).Should().Be(Commands.Dont);
+            state.ReceivedWill(3, agree: true).Should().BeNull();
             state.IsEnabledByPeer(3).Should().BeFalse();
             state.ReceivedWont(3).Should().BeNull();
         }
@@ -137,12 +144,15 @@
         [Fact]
         public void QueuedDisable_DroppedWhenRefusedInto()
         {
+            // The disable goes out at once (no queue to drop); the WONT then
+            // completes the outstanding disable to No. A WONT answering our
+            // own DONT is completion, not a refusal, so nothing is remembered.
             var state = new NegotiationState();
             state.RequestEnable(3).Should().Be(Commands.Do);
-            state.RequestDisable(3).Should().BeNull();
+            state.RequestDisable(3).Should().Be(Commands.Dont);
             state.ReceivedWont(3).Should().BeNull();
             state.IsEnabledByPeer(3).Should().BeFalse();
-            state.WasRefusedByPeer(3).Should().BeTrue();
+            state.WasRefusedByPeer(3).Should().BeFalse();
         }
 
         [Fact]
@@ -185,11 +195,12 @@
         {
             var state = new NegotiationState();
             state.RequestEnable(3).Should().Be(Commands.Do);
-            state.RequestDisable(3).Should().BeNull();
-            // Same-as-outstanding drops the queued opposite with no traffic.
+            // The disable goes out immediately (WantNo outstanding); the
+            // re-enable then queues behind it, and the WILL drains that queue.
+            state.RequestDisable(3).Should().Be(Commands.Dont);
             state.RequestEnable(3).Should().BeNull();
-            // Proved cleared: the outstanding enable now completes plainly
-            // instead of draining into a queued disable.
+            // Proved queued: the WILL drains into the queued enable and the
+            // option ends enabled instead of settling to No.
             state.ReceivedWill(3, agree: true).Should().BeNull();
             state.IsEnabledByPeer(3).Should().BeTrue();
         }
@@ -317,10 +328,12 @@
         {
             var state = new NegotiationState();
             state.RequestEnable(3).Should().Be(Commands.Do);
+            // Immediate DONT out of the outstanding enable; the disable is now
+            // the outstanding request, so the redundant second call is silent.
+            state.RequestDisable(3).Should().Be(Commands.Dont);
             state.RequestDisable(3).Should().BeNull();
-            // Redundant while queued: no-op, the queue survives.
-            state.RequestDisable(3).Should().BeNull();
-            state.ReceivedWill(3, agree: true).Should().Be(Commands.Dont);
+            // The WILL lands on the outstanding disable and settles to No.
+            state.ReceivedWill(3, agree: true).Should().BeNull();
             state.IsEnabledByPeer(3).Should().BeFalse();
         }
 

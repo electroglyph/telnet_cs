@@ -27,7 +27,8 @@
             {
                 var start = DateTime.Now;
                 sut.MillisecondReadDelay = 1;
-                await sut.TerminatedReadAsync(".", timeout, 1);
+                Func<Task> act = () => sut.TerminatedReadAsync(".", timeout, 1);
+                await act.Should().ThrowAsync<TimeoutException>();
                 DateTime.Now.Subtract(start).Should().BeCloseTo(timeout.Add(TimeSpan.FromMilliseconds(millisecondTolerance)), TimeSpan.FromMilliseconds(millisecondTolerance));
             }
         }

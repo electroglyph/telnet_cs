@@ -118,13 +118,17 @@
         [Fact]
         public async Task CustomTextEncodingPreEncodesWrites()
         {
-            using var stream = new ScriptedStream();
+            // Non-ASCII without agreed BINARY throws EncoderFallbackException
+            // (reference: UnicodeEncodeError on strict ASCII); agreeing BINARY
+            // first lets the configured encoding through pre-encoded.
+            using var stream = new ScriptedStream(255, 253, 0);
             using var client = new Client(stream, new CancellationToken());
+            (await client.ReadAsync(TimeSpan.FromMilliseconds(200))).Should().BeEmpty();
             client.Settings.TextEncoding = Encoding.UTF8;
             await client.WriteAsync("caf\u00E9");
             stream.StringWrites.Should().BeEmpty();
-            stream.ByteWrites.Should().HaveCount(1);
-            stream.ByteWrites[0].Should().Equal(new byte[] { 99, 97, 102, 195, 169 });
+            stream.ByteWrites.Should().HaveCount(2);
+            stream.ByteWrites[1].Should().Equal(new byte[] { 99, 97, 102, 195, 169 });
         }
 
         [Fact]

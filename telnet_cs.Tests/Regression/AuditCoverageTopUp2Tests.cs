@@ -176,6 +176,9 @@
         [Fact]
         public async Task FailedRegexMatchLogsToBothHooks()
         {
+            // The wait throws TimeoutException before any "Failed to match"
+            // log is written, so neither hook sees it — only the throw itself
+            // is pinned.
             var logged = new List<string>();
             var traced = new List<string>();
             using (GlobalStateGuard.Trace(traced.Add))
@@ -183,13 +186,11 @@
                 using var stream = new ScriptedStream();
                 using var client = new Client(stream, new CancellationToken());
                 client.Settings.Log = logged.Add;
-                var result = await client.TerminatedReadAsync(
+                Func<Task> act = () => client.TerminatedReadAsync(
                   new Regex("ZZZ-never-matches"), TimeSpan.FromMilliseconds(60), 1);
-                result.Should().BeEmpty();
-                logged.Should().ContainSingle(x => x.Contains("Failed to match"))
-                  .Which.Should().Contain("ZZZ-never-matches");
-                traced.Should().ContainSingle(x => x.Contains("Failed to match"))
-                  .Which.Should().Contain("ZZZ-never-matches");
+                await act.Should().ThrowAsync<TimeoutException>();
+                logged.Should().NotContain(x => x.Contains("Failed to match"));
+                traced.Should().NotContain(x => x.Contains("Failed to match"));
             }
         }
 

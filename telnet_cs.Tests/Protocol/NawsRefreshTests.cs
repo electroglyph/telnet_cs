@@ -77,6 +77,9 @@
         [Fact]
         public async Task RefreshWindowSize_AfterDont_Suppressed()
         {
+            // DO NAWS is agreed (WILL + initial SB); the DONT revocation gets
+            // no WONT reply (negatives are state-only), and the later resize
+            // sends nothing because NAWS is no longer agreed.
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
@@ -87,12 +90,13 @@
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 stream.Enqueue(255, 254, 31);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
-                stream.ByteWrites.Should().HaveCount(3);
-                stream.ByteWrites[2].Should().Equal(new byte[] { 255, 252, 31 });
+                stream.ByteWrites.Should().HaveCount(2);
+                stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 31 });
+                stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 31, 0, 100, 0, 30, 255, 240 });
                 client.Settings.WindowWidth = 120;
                 client.Settings.WindowHeight = 40;
                 await client.RefreshWindowSizeAsync();
-                stream.ByteWrites.Should().HaveCount(3);
+                stream.ByteWrites.Should().HaveCount(2);
             }
         }
 

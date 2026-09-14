@@ -101,13 +101,14 @@
         [Fact]
         public async Task MidSbVerb_AbortsFramingWithoutReply()
         {
-            // IAC DO inside SB STATUS loses framing: the partial is discarded, the
-            // verb never dispatches (no negotiation reply), and the stream resyncs
-            // as data — the orphaned option byte 65 surfaces as "A", the trailing
-            // stray IAC SE delivers 0xF0, then the trailing text.
+            // IAC + negotiation verb inside SB drops the outer frame and
+            // dispatches the inner command (reference: "interrupted by IAC",
+            // buffer cleared, inner cmd persists): the inner DO 65 is refused
+            // with WONT, and the 65 byte never surfaces as data — only the
+            // stray IAC SE (0xF0 -> "ð") and trailing text do.
             var (output, writes) = await ReadScriptedWithWritesAsync(255, 250, 5, 1, 255, 253, 65, 255, 240, 66, 67);
-            output.Should().Be("AðBC");
-            writes.Should().BeEmpty();
+            output.Should().Be("ðBC");
+            writes.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 252, 65 });
         }
 
         [Fact]
@@ -228,9 +229,9 @@
         [InlineData(253, 3, 251)]   // DO SGA -> WILL SGA
         [InlineData(251, 3, 253)]   // WILL SGA -> DO SGA
         [InlineData(253, 24, 251)]  // DO TT -> WILL
-        [InlineData(251, 24, 253)]  // WILL TT -> DO
+        [InlineData(251, 24, 254)]  // WILL TT -> DONT (client role: server asks, we never serve)
         [InlineData(253, 32, 251)]  // DO TS -> WILL
-        [InlineData(251, 32, 253)]  // WILL TS -> DO
+        [InlineData(251, 32, 254)]  // WILL TS -> DONT (client role)
         [InlineData(253, 1, 252)]   // DO Echo without opt-in -> WONT (see EchoTests)
         [InlineData(251, 1, 253)]   // WILL Echo -> DO; local echo suppressed instead (see EchoTests)
         [InlineData(253, 99, 252)]   // DO unknown -> WONT
@@ -305,14 +306,16 @@
         [Fact]
         public async Task InterruptProcessCancelsPendingRead()
         {
-            var fake = FakeStreamOnce(new[] { 255, 244 }); // IAC IP -> CancelPendingReads()
+            // IAC IP is log-only (reference handle_ip): the in-flight read
+            // survives past it and waits out its full timeout.
+            var fake = FakeStreamOnce(new[] { 255, 244 }); // IAC IP -> logged, read continues
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(fake, cts, 1);
             var sw = Stopwatch.StartNew();
             var result = await sut.ReadAsync(TimeSpan.FromMilliseconds(2000));
             sw.Stop();
             result.Should().BeEmpty();
-            sw.Elapsed.Should().BeLessThan(TimeSpan.FromMilliseconds(1000));
+            sw.Elapsed.Should().BeGreaterThanOrEqualTo(TimeSpan.FromMilliseconds(1500));
         }
 
         [Fact]

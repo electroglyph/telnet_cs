@@ -98,28 +98,33 @@
         [Fact]
         public async Task StatusSend_RefusedOption_Omitted()
         {
-            // TELOPT 92 stays refused; the snapshots carry no self STATUS
-            // entry (the reference skips it), so both IS frames are empty.
+            // Refused options render as WONT/DONT in the snapshot (previously
+            // omitted): TELOPT 92 was refused by us, so the IS frames carry
+            // the DONT pair (reference _send_status iterates touched options,
+            // False -> WONT/DONT).
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 253, 5, 255, 251, 92, 255, 250, 5, 1, 255, 240);
             output.Should().BeEmpty();
             stream.ByteWrites.Should().HaveCount(4);
             stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 5 });
             stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 5, 0, 255, 240 });
             stream.ByteWrites[2].Should().Equal(new byte[] { 255, 254, 92 });
-            stream.ByteWrites[3].Should().Equal(new byte[] { 255, 250, 5, 0, 255, 240 });
+            stream.ByteWrites[3].Should().Equal(new byte[] { 255, 250, 5, 0, 254, 92, 255, 240 });
         }
 
         [Fact]
         public async Task StatusSend_AfterRevoke_OmitsAgain()
         {
+            // DO SGA is agreed (WILL SGA), then the DONT revocation is silent
+            // (negatives earn no reply, so no WONT) and drops us back to No —
+            // the SEND snapshot therefore omits SGA again, exactly like the
+            // DO-time snapshot taken before SGA was agreed.
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 253, 5, 255, 253, 3, 255, 254, 3, 255, 250, 5, 1, 255, 240);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().HaveCount(5);
+            stream.ByteWrites.Should().HaveCount(4);
             stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 5 });
             stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 5, 0, 255, 240 });
             stream.ByteWrites[2].Should().Equal(new byte[] { 255, 251, 3 });
-            stream.ByteWrites[3].Should().Equal(new byte[] { 255, 252, 3 });
-            stream.ByteWrites[4].Should().Equal(new byte[] { 255, 250, 5, 0, 255, 240 });
+            stream.ByteWrites[3].Should().Equal(new byte[] { 255, 250, 5, 0, 255, 240 });
         }
 
         [Fact]

@@ -113,11 +113,12 @@ namespace telnet_cs.Tests
         {
             // The padding-carrying SB shares the empty form's gates: with
             // compression not opted in, WILL 86 is declined and the SB arms
-            // nothing, so the following bytes stay plain data.
+            // nothing, so the following bytes stay plain data. The default
+            // now accepts MCCP, so opt out explicitly for this shape.
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 251, 86, 255, 250, 86, 0, 255, 240]);
             stream.Enqueue(ZlibCompress("HI").Select(b => (int)b).ToArray());
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using var session = new ServerSession(stream, new TelnetServerOptions { EnableMccp = false }, CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().NotBe("HI");
             byte[] writes = stream.ByteWrites.SelectMany(w => w).ToArray();
             ContainsFrame(writes, new byte[] { 255, 254, 86 }).Should().BeTrue();
