@@ -1388,6 +1388,10 @@
                     return false;
                 }
 
+                // A size report assumes the peer enabled NAWS even when no
+                // WILL arrived first: latch remote agreement (no reply bytes
+                // ever answer an SB) so STATUS listings and wait gates see it.
+                Negotiation.ReceivedWill((int)Options.WindowSize, agree: true);
                 return true;
             }
         }

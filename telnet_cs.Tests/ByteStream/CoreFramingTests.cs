@@ -96,13 +96,14 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task WillTtypeTwice_SendsSingleDo()
+        public async Task WillTtypeTwice_SendsDontEachTime()
         {
-            // A client refuses WILL TTYPE (DONT, remembered): the single DONT
-            // answers both WILLs — agreement dedup still holds, on the refusal.
+            // A client refuses WILL TTYPE: every refused WILL earns its
+            // own DONT — duplicate refusals are idempotent, and a peer
+            // that re-sends a request expects a reply per copy.
             var (output, writes) = await ReadScriptedAsync(255, 251, 24, 255, 251, 24);
             output.Should().BeEmpty();
-            writes.Should().Equal(255, 254, 24);
+            writes.Should().Equal(255, 254, 24, 255, 254, 24);
         }
 
         [Fact]
@@ -116,13 +117,12 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task DoEchoTwice_RefusedWithWontEachTime()
         {
-            // The second refusal is silent (single refusal): a remembered
-            // refusal answers nothing further (this stack's loop-avoidance;
-            // the reference repeats WONT on the DO axis, so this pins our
-            // deliberate single-refusal shape, not reference parity).
+            // Each refused DO earns its own WONT: duplicate refusals are
+            // idempotent on the wire, and a re-sent request still gets a
+            // reply.
             var (output, writes) = await ReadScriptedAsync(255, 253, 1, 255, 253, 1);
             output.Should().BeEmpty();
-            writes.Should().Equal(255, 252, 1);
+            writes.Should().Equal(255, 252, 1, 255, 252, 1);
         }
 
         [Fact]

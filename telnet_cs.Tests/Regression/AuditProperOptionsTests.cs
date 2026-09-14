@@ -92,20 +92,14 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task TtableIs_DeclinedWithRejectedVerb()
+        public async Task TtableIs_IgnoredWithoutReply()
         {
-            // Source of truth: RFC 2066 requires TTABLE-REJECTED (05) in response to
-            // TTABLE-IS when the table is not accepted; the minimal set
-            // REQUEST/ACCEPTED/REJECTED/TTABLE-REJECTED MUST be supported. The
-            // reference never ACKs tables (stream_writer.py raises for TTABLE), so the
-            // RFC is the wire authority here.
-            // Our code: ByteStreamHandler.cs ReplyCharsetAnswerAsync emits
-            // BuildTTableRejected() which is [7] while the verbs stay rotated, so wire
-            // FF FA 2A 04 ... FF F0 earns FF FA 2A 07 FF F0.
-            // Proof: inbound TTABLE-IS must earn exactly FF FA 2A 05 FF F0; observing
-            // 07 at index 3 proves the rotation. This test is correct.
+            // Table transfer is not implemented: an inbound TTABLE-IS is
+            // logged and ignored with no reply. Answering would invite a
+            // transfer the stack cannot consume, and the read loop must
+            // survive unimplemented verbs.
             var (_, writes) = await ReadScriptedAsync(255, 250, 42, 4, 65, 255, 240);
-            writes.Should().Equal(255, 250, 42, 5, 255, 240);
+            writes.Should().BeEmpty();
         }
 
         [Fact]

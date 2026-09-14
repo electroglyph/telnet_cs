@@ -48,7 +48,7 @@ speed), 1091 (terminal type), 1096 (X display), 1184 (linemode), 1372
     `byte[]` data gets RFC 854 IAC doubling.
   - Environment/charset — auto TERM/LANG/COLUMNS/LINES answers, MS-telnet
     USER exclusion, force-binary on encoding-suffixed LANG/CHARSET, 4-case
-    charset selection with US-ASCII fallback and TTABLE-REJECTED, deferred
+    charset selection with US-ASCII fallback and TTABLE verbs ignored, deferred
     opening negotiation (ECHO and NEW-ENVIRON held back until TTYPE answers,
     skipped for MUD clients), and password echo suppression at login.
   - MUD + MCCP — GMCP/MSDP/MSSP/MSP/MXP/ZMP/ATCP/Aardwolf codecs and

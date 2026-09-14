@@ -379,13 +379,12 @@ namespace telnet_cs.Tests
         [Fact]
         public void RefusedWill_AnsweredEveryTime()
         {
-            // Repeats of a refused WILL stay silent: the first refusal goes
-            // out once (remembered), later repeats find the option already
-            // refused (loop-avoidance; the reference repeats WONT on the DO
-            // axis, but this stack deliberately answers once).
+            // Every refused WILL is answered, including repeats: duplicate
+            // refusals are idempotent, and a re-sent request still earns
+            // its own reply.
             var state = new NegotiationState();
             state.ReceivedWill(7, agree: false).Should().Be(Commands.Dont);
-            state.ReceivedWill(7, agree: false).Should().BeNull();
+            state.ReceivedWill(7, agree: false).Should().Be(Commands.Dont);
         }
     }
 }

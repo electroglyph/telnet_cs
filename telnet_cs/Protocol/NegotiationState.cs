@@ -337,9 +337,9 @@
         /// <summary>
         /// Shared RFC 1143 "upon receipt of WILL/DO" table over one side:
         /// <c>him</c> with DO/DONT verbs answers WILL, <c>us</c> with WILL/WONT
-        /// verbs answers DO. A refusal is remembered: repeating the same
-        /// positive request still answers nothing (reference: the reply goes
-        /// out once; later repeats find the option already refused).
+        /// verbs answers DO. Every refused request is answered: duplicate
+        /// refusals are idempotent on the wire, and peers that re-send a
+        /// request expect a reply to each copy rather than silence.
         /// </summary>
         private Commands? ReceivedPositiveLocked(
           int option, bool agree, SideState[] side, bool[] queued, bool[] refused, Commands agreeVerb, Commands refuseVerb)
@@ -351,11 +351,6 @@
                     {
                         side[option] = SideState.Yes;
                         return agreeVerb;
-                    }
-
-                    if (refused[option])
-                    {
-                        return null;
                     }
 
                     refused[option] = true;

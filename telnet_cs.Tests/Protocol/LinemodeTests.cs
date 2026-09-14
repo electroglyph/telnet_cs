@@ -245,12 +245,30 @@
         }
 
         [Fact]
-        public async Task ForwardMaskWillWont_RecordAcceptedSilently()
+        public async Task ForwardMaskWillWont_OnClient_Ignored()
         {
-            // WILL/WONT record the remote sub-state without any reply.
+            // Client role never sends DO, so a WILL/WONT answer has no
+            // proposal behind it and records nothing.
             using var stream = new ScriptedStream();
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
+            stream.Enqueue(255, 250, 34, 251, 2, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            sut.Linemode.ForwardMaskAccepted.Should().BeFalse();
+            stream.Enqueue(255, 250, 34, 252, 2, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+            sut.Linemode.ForwardMaskAccepted.Should().BeFalse();
+        }
+
+        [Fact]
+        public async Task ForwardMaskWillWont_OnServer_RecordedSilently()
+        {
+            // Server role accepts WILL/WONT answers without any reply.
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            sut.IsServerRole = true;
             stream.Enqueue(255, 250, 34, 251, 2, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             sut.Linemode.ForwardMaskAccepted.Should().BeTrue();
@@ -258,6 +276,42 @@
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
             sut.Linemode.ForwardMaskAccepted.Should().BeFalse();
+        }
+
+        [Fact]
+        public async Task ForwardMaskDont_WithPayload_KeepsOffered()
+        {
+            // A DONT carrying payload bytes is dropped without clearing
+            // the offered sub-state.
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            stream.Enqueue(255, 250, 34, 253, 2, 0x01, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            sut.Linemode.ForwardMaskOffered.Should().BeTrue();
+            stream.Enqueue(255, 250, 34, 254, 2, 0x09, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+            sut.Linemode.ForwardMaskOffered.Should().BeTrue();
+            sut.Linemode.ForwardMask.Should().Equal(0x01);
+        }
+
+        [Fact]
+        public async Task ForwardMaskDoDont_OnServer_Ignored()
+        {
+            // Server role rejects wrong-role verbs with no state change:
+            // a DO proposal stores nothing, a DONT clears nothing.
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            sut.IsServerRole = true;
+            stream.Enqueue(255, 250, 34, 253, 2, 0x01, 0x02, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.Enqueue(255, 250, 34, 254, 2, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+            sut.Linemode.ForwardMask.Should().BeNull();
+            sut.Linemode.ForwardMaskOffered.Should().BeFalse();
         }
 
         [Fact]

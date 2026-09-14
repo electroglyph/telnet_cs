@@ -241,6 +241,22 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task DoLineflow_AsServer_RefusedButLaterSbHonored()
+        {
+            // Directional refusal with a latch: WONT goes out for the
+            // server-role DO, but the peer sends modes regardless, so a
+            // later SB is honored rather than ignored.
+            byte? received = null;
+            var (output, writes, sut) = await ReadOnceAsync(
+              h => { h.IsServerRole = true; h.LineflowReceived += mode => received = mode; },
+              Iac, Do, 33, Iac, Sb, 33, 0, Iac, Se);
+            output.Should().BeEmpty();
+            Concat(writes).Should().Equal(Iac, Wont, 33);
+            received.Should().Be(0);
+            sut.LineflowEnabled.Should().BeFalse();
+        }
+
+        [Fact]
         public async Task SbComPort_SurfacesRawPayloadWithoutReply()
         {
             // RFC 2217 framing level only: the payload is surfaced for the
@@ -389,13 +405,14 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task SbCharsetTTableIs_AnsweredTTableRejected()
+        public async Task SbCharsetTTableIs_IgnoredWithoutReply()
         {
+            // Table transfer is not implemented: inbound TTABLE-IS is
+            // logged and ignored with no reply and no event.
             var (output, writes, _) = await ReadOnceAsync(
               _ => { }, Iac, Sb, 42, 4, Iac, Se);
             output.Should().BeEmpty();
-            writes.Should().HaveCount(1);
-            writes[0].Should().Equal(Iac, Sb, 42, 5, Iac, Se);
+            writes.Should().BeEmpty();
         }
 
         [Fact]

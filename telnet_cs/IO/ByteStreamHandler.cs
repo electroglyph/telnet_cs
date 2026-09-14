@@ -2407,11 +2407,12 @@
         /// and fires <see cref="CharsetAccepted"/>; REJECTED leaves the charset
         /// null (TextEncoding stays unset, so bytes keep passing through as
         /// (char)byte; no bytes are dropped)
-        /// and fires <see cref="CharsetRejected"/>. An inbound
-        /// <c>TTABLE-IS</c> is answered <c>TTABLE-REJECTED</c> (table transfer
-        /// declined); <c>TTABLE-REJECTED</c> only clears the outstanding
-        /// request, <c>TTABLE-ACK/NAK</c> and other verbs are logged and
-        /// ignored (never thrown: the read loop must survive them).
+        /// and fires <see cref="CharsetRejected"/>. Inbound table-transfer
+        /// verbs (<c>TTABLE-IS/ACK/NAK</c>) are logged and ignored: table
+        /// transfer is not implemented, and answering would only invite a
+        /// transfer the stack cannot consume; <c>TTABLE-REJECTED</c> only
+        /// clears the outstanding request. All are never thrown: the read
+        /// loop must survive them.
         /// </summary>
         /// <param name="payload">The received payload, verb first.</param>
         private Task ReplyCharsetAnswerAsync(List<byte> payload)
@@ -2436,9 +2437,8 @@
 
             if (payload[0] == CharsetProtocol.TTableIs)
             {
-                WriteLog("Declining CHARSET table transfer with TTABLE-REJECTED.");
-                var frame = EnvironmentProtocol.FrameSubnegotiation((int)Options.CharacterSet, CharsetProtocol.BuildTTableRejected());
-                return WriteWireAsync(frame, 0, frame.Length, internalCancellation.Token);
+                WriteLog("Ignoring CHARSET table transfer (not implemented).");
+                return Task.CompletedTask;
             }
 
             if (payload[0] == CharsetProtocol.TTableRejected)
@@ -2698,6 +2698,18 @@
                 return Task.CompletedTask;
             }
 
+            if (IsServerRole && (payload[0] == (byte)Commands.Do || payload[0] == (byte)Commands.Dont))
+            {
+                WriteLog("Ignoring LINEMODE FORWARDMASK proposal on server role.");
+                return Task.CompletedTask;
+            }
+
+            if (!IsServerRole && (payload[0] == (byte)Commands.Will || payload[0] == (byte)Commands.Wont))
+            {
+                WriteLog("Ignoring LINEMODE FORWARDMASK answer on client role.");
+                return Task.CompletedTask;
+            }
+
             if (payload[0] == (byte)Commands.Will || payload[0] == (byte)Commands.Wont)
             {
                 Linemode.ApplyForwardMaskAnswer(payload[0] == (byte)Commands.Will);
@@ -2709,6 +2721,7 @@
                 if (payload.Count > 2)
                 {
                     WriteLog("Ignoring LINEMODE FORWARDMASK DONT with payload bytes.");
+                    return Task.CompletedTask;
                 }
 
                 Linemode.ApplyForwardMaskRefusal();
@@ -3028,6 +3041,13 @@
                 (int)Commands.Wont => Negotiation.ReceivedWont(inputOption),
                 _ => null,
             };
+            if (IsServerRole && inputVerb == (int)Commands.Do && inputOption == (int)Options.RemoteFlowControl && reply is Commands.Wont)
+            {
+                // Directional refusal with a latch: WONT goes out, but the
+                // peer sends LFLOW modes regardless, so local agreement is
+                // recorded too (reply discarded) and later modes are honored.
+                Negotiation.ReceivedDo(inputOption, agree: true);
+            }
             // An inbound WONT/DONT that flips an MCCP side Yes-to-No ends
             // inflation; stray repeats change nothing, so they stay silent
             // here too. Outbound compression keeps running (the peer only

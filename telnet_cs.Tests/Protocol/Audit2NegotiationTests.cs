@@ -136,19 +136,16 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task RepeatWillUnknown_SendsSingleRefusal()
+        public async Task RepeatWillUnknown_ResendsRefusal()
         {
-            // audit2 §2 F2-UNKNOWN-RESEND.
-            // Reference: stream_writer.py:2315-2320 (else branch: iac(DONT)
-            // + rejected_will), :1089-1096 (DONT: first sets remote=False
-            // and sends; repeat with opt in remote and not enabled ->
-            // return False).
-            // Repro (client writer): feed FF FB 07 FF FB 07 (opt 7
-            // unknown) step-by-step — after 2nd byte sent=FF FE 07, after
-            // 5th byte sent unchanged FF FE 07; rejected_will={0x07}.
+            // Each refused WILL is answered: duplicate refusals are
+            // idempotent on the wire, and a peer that re-sends a request
+            // expects a reply to each copy rather than silence.
+            // Repro: feed FF FB 07 FF FB 07 (opt 7 unknown) -> sent
+            // FF FE 07 FF FE 07.
             var (output, writes) = await ReadScriptedAsync(255, 251, 7, 255, 251, 7);
             output.Should().BeEmpty();
-            writes.Should().Equal(255, 254, 7);
+            writes.Should().Equal(255, 254, 7, 255, 254, 7);
         }
 
         [Fact]

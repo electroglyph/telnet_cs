@@ -9,10 +9,9 @@ namespace telnet_cs.Protocol
     /// verbs and framing helpers. Either side may send
     /// <c>IAC SB CHARSET REQUEST &lt;sep&gt;&lt;sep-joined-list&gt; IAC SE</c>;
     /// the peer answers <c>ACCEPTED &lt;charset&gt;</c> or <c>REJECTED</c>.
-    /// Table transfer (verbs 4-7) is declined: an inbound <c>TTABLE-IS</c> is
-    /// answered <c>TTABLE-REJECTED</c> (RFC 2066 §: the REQUEST/ACCEPTED/
-    /// REJECTED/TTABLE-REJECTED set is the mandatory minimum; the full
-    /// TTABLE-IS/ACK/NAK table exchange is an optional group we do not send).
+    /// Table transfer (verbs 4-7) is unimplemented: inbound table verbs
+    /// are logged and ignored with no reply, since answering would invite
+    /// a transfer the stack cannot consume.
     /// </summary>
     public static class CharsetProtocol
     {
@@ -25,7 +24,7 @@ namespace telnet_cs.Protocol
         /// <summary>Reject a character set (3).</summary>
         public const byte Rejected = 3;
 
-        /// <summary>Offer a translation table (4). Answered with <see cref="TTableRejected"/>.</summary>
+        /// <summary>Offer a translation table (4). Logged and ignored.</summary>
         public const byte TTableIs = 4;
 
         /// <summary>Reject a translation table (5). Leaves the charset unchanged.</summary>

@@ -64,9 +64,9 @@
         [Fact]
         public async Task WontAfterWill_AcksDisableThenHonoursNewStimulus()
         {
-            // A client refuses WILL TTYPE (DONT, remembered); the WONT and
-            // both repeated WILLs stay silent — a remembered refusal only
-            // clears on explicit new stimulus, never on peer repeats.
+            // A client refuses WILL TTYPE; the WONT stays silent, but
+            // every refused WILL earns its own DONT — repeats are
+            // answered, not remembered-silent.
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
@@ -80,7 +80,7 @@
                 stream.Enqueue(255, 251, 24);
                 (await ReadOnceAsync(client)).Should().BeEmpty();
                 CountWrites(stream, 253, 24).Should().Be(0);
-                CountWrites(stream, 254, 24).Should().Be(1);
+                CountWrites(stream, 254, 24).Should().Be(3);
             }
         }
 

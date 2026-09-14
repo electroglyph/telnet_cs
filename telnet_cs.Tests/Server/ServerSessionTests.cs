@@ -1120,7 +1120,9 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientWindowSize.Should().Be(((ushort)80, (ushort)24));
-            OutboundBytes(stream).Should().BeEmpty();
+            // Latching remote NAWS counts as negotiation advance, so the
+            // advanced preset follows (DO NAWS itself deduped as agreed).
+            OutboundBytes(stream).Should().Equal(255, 251, 3, 255, 251, 0, 255, 253, 42);
         }
 
         [Fact]
@@ -1131,6 +1133,23 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientWindowSize.Should().Be(((ushort)100, (ushort)30));
+            OutboundBytes(stream).Should().Equal(255, 251, 3, 255, 251, 0, 255, 253, 42);
+        }
+
+        [Fact]
+        public async Task InboundNaws_Unsolicited_MarksRemoteEnabled()
+        {
+            // A size report with no prior WILL NAWS still assumes the peer
+            // enabled the option: the size is stored and remote agreement
+            // is latched. The latch counts as negotiation advance, so the
+            // advanced preset follows (no reply answers the SB itself).
+            using var stream = new ScriptedStream();
+            stream.Enqueue([255, 250, 31, 0, 80, 0, 24, 255, 240]);
+            using var session = NewSession(stream);
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
+            session.ClientWindowSize.Should().Be(((ushort)80, (ushort)24));
+            session.Negotiation.IsEnabledByPeer(31).Should().BeTrue();
+            OutboundBytes(stream).Should().Equal(255, 251, 3, 255, 251, 0, 255, 253, 42);
         }
 
         [Fact]
@@ -1153,7 +1172,7 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientWindowSize.Should().Be(((ushort)0, (ushort)0));
-            OutboundBytes(stream).Should().BeEmpty();
+            OutboundBytes(stream).Should().Equal(255, 251, 3, 255, 251, 0, 255, 253, 42);
         }
 
         [Fact]
@@ -1361,8 +1380,9 @@ namespace telnet_cs.Tests
         {
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
-            // An unsolicited FORWARDMASK proposal is accepted silently: the
-            // LINEMODE agreement is answered, the mask itself gets no reply.
+            // An unsolicited FORWARDMASK proposal is rejected silently on
+            // server role: the LINEMODE agreement is answered, the mask
+            // itself stores nothing and gets no reply.
             stream.Enqueue([255, 251, 34, 255, 250, 34, 253, 2, 255, 240]);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             OutboundBytes(stream).Should().Equal(
