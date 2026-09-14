@@ -10,8 +10,9 @@ using System.IO.Compression;
 /// <see cref="CompressChunk"/> call feeds plaintext through a persistent
 /// <see cref="ZLibStream"/> (dictionary continuity across chunks, like the
 /// reference compressor) and drains whatever the sync flush produced, so
-/// every returned slice is immediately inflatable by the peer. A final
-/// <see cref="Finish"/> emits the zlib trailer.
+/// every returned slice is immediately inflatable by the peer. The stream is
+/// never finished mid-session (the reference never stops its compressor);
+/// <see cref="Dispose"/> drops it, and the peer sees truncation.
 /// Threading: calls must be externally serialized (the write filter holds
 /// its send gate across compress-plus-write); a private lock guards the
 /// spill against future callers.
@@ -20,7 +21,6 @@ internal sealed class MccpCompressor : IDisposable
 {
     private readonly MemoryStream spill = new();
     private readonly ZLibStream zlib;
-    private bool finished;
     private bool disposed;
 
     /// <summary>
@@ -49,10 +49,6 @@ internal sealed class MccpCompressor : IDisposable
         }
 
         ObjectDisposedException.ThrowIf(disposed, this);
-        if (finished)
-        {
-            throw new InvalidOperationException("The compressor was already finished.");
-        }
 
         if (count == 0)
         {
@@ -63,29 +59,6 @@ internal sealed class MccpCompressor : IDisposable
         {
             zlib.Write(buffer, offset, count);
             zlib.Flush();
-            byte[] wire = spill.ToArray();
-            spill.SetLength(0);
-            return wire;
-        }
-    }
-
-    /// <summary>
-    /// Ends the stream and returns the trailing wire bytes (the zlib
-    /// trailer; empty when the stream produced nothing more). The
-    /// compressor is unusable afterwards.
-    /// </summary>
-    public byte[] Finish()
-    {
-        ObjectDisposedException.ThrowIf(disposed, this);
-        if (finished)
-        {
-            return [];
-        }
-
-        finished = true;
-        lock (spill)
-        {
-            zlib.Dispose();
             byte[] wire = spill.ToArray();
             spill.SetLength(0);
             return wire;

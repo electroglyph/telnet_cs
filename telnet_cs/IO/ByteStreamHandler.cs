@@ -575,6 +575,16 @@
 
         private int mccpShutdownOption = (int)Options.Mccp2;
 
+        // Whether the pending corrupt-path refusal sends WONT (our offer
+        // withdrawn) rather than DONT (the peer's offer refused), captured
+        // when the stream armed: a peer-WILLed option refuses with DONT, an
+        // option we offered ourselves withdraws with WONT.
+        private bool mccpShutdownWont;
+
+        // Arm-time capture feeding the flag above (the corrupt path itself
+        // carries no option: the last armed stream selects the refusal).
+        private bool mccpArmedWont;
+
         /// <summary>
         /// Gets the first raw wire byte seen on this handler, or -1 when
         /// nothing arrived yet. The server checks it for a TLS ClientHello
@@ -953,6 +963,34 @@
                     if (mccp.Failed)
                     {
                         ShutdownMccpCorrupt();
+                        // A corrupt chunk feeds the reader nothing: whatever
+                        // is still buffered belonged to the failed stream, so
+                        // discard it instead of parsing garbage as telnet.
+                        // Bytes arriving in later reads parse raw as normal
+                        // (agreement has ended).
+                        while (byteStream.Available > 0)
+                        {
+                            int dropped;
+                            try
+                            {
+                                dropped = byteStream.ReadByte();
+                            }
+                            catch (System.IO.IOException)
+                            {
+                                break;
+                            }
+                            catch (InvalidOperationException)
+                            {
+                                break;
+                            }
+
+                            if (dropped == -1)
+                            {
+                                break;
+                            }
+
+                            NoteInboundByte(dropped);
+                        }
                     }
                     else
                     {
@@ -1041,17 +1079,53 @@
         /// dropped by the decompressor (the reader is fed nothing), the
         /// stream reference is released, and a refusal goes out at the next
         /// async flush point. The refusal is this stack's extension (the
-        /// reference only clears state and logs): WONT for MCCP3 (withdrawing
-        /// our offer), DONT otherwise (refusing theirs).
+        /// reference only clears state and logs): WONT withdraws our own
+        /// offer, DONT refuses the peer's (chosen when the stream armed).
         /// </summary>
         private void ShutdownMccpCorrupt()
         {
-            WriteLog("MCCP decompression failed; answering DONT and resuming plaintext.");
+            WriteLog("MCCP decompression failed; refusing compression and resuming plaintext.");
             Mccp2Active = false;
             Mccp3Active = false;
             MccpStream = null;
             MccpStateChanged?.Invoke(false, false, null);
+            if (mccpArmedWont)
+            {
+                Negotiation.ReceivedDont(mccpShutdownOption);
+            }
+            else
+            {
+                Negotiation.ReceivedWont(mccpShutdownOption);
+            }
+
+            mccpShutdownWont = mccpArmedWont;
             mccpShutdownPending = true;
+        }
+
+        /// <summary>
+        /// Ends inbound MCCP inflation after the peer takes agreement back
+        /// (<c>IAC WONT</c> / <c>IAC DONT</c>): stops feeding the
+        /// decompressor and reports the loss session-side.
+        /// Already-buffered bytes still drain (the stream reference is kept,
+        /// like <see cref="FinishMccpStream"/>). Outbound compression is
+        /// deliberately untouched: the reference never stops its compressor
+        /// on WONT/DONT, so our write views keep running to disconnect.
+        /// </summary>
+        /// <param name="inputOption">The MCCP option that ended.</param>
+        private void TeardownInboundMccp(int inputOption)
+        {
+            if (inputOption == (int)Options.Mccp2)
+            {
+                Mccp2Active = false;
+            }
+            else
+            {
+                Mccp3Active = false;
+            }
+
+            mccpShutdownPending = false;
+            mccpShutdownWont = false;
+            MccpStateChanged?.Invoke(Mccp2Active, Mccp3Active, MccpStream);
         }
 
         /// <summary>
@@ -1188,7 +1262,9 @@
             if (mccpShutdownPending)
             {
                 mccpShutdownPending = false;
-                if (mccpShutdownOption == (int)Options.Mccp3)
+                bool sendWont = mccpShutdownWont;
+                mccpShutdownWont = false;
+                if (sendWont)
                 {
                     await SendWont(mccpShutdownOption).ConfigureAwait(false);
                 }
@@ -1727,26 +1803,37 @@
                     return;
                 }
 
-                WriteLog("Starting MCCP compression; ignoring padding bytes.");
+                // Compression has a direction: MCCP2 flows server-to-client
+                // (only a client inflates), MCCP3 client-to-server (only a
+                // server inflates). A marker for the wrong direction never
+                // arms inflation; a client seeing the peer's MCCP3 marker
+                // only makes sure its own outbound view is up.
                 if (inputOption == (int)Options.Mccp2)
                 {
+                    if (IsServerRole)
+                    {
+                        return;
+                    }
+
+                    WriteLog("Starting MCCP compression; ignoring padding bytes.");
                     Mccp2Active = true;
-                }
-                else
-                {
-                    Mccp3Active = true;
-                }
-
-                ArmMccpStream(inputOption);
-                if (inputOption == (int)Options.Mccp2)
-                {
+                    ArmMccpStream(inputOption);
                     Mccp2StartReceived?.Invoke();
-                }
-                else
-                {
-                    Mccp3StartReceived?.Invoke();
+                    return;
                 }
 
+                if (!IsServerRole)
+                {
+                    // Wrong direction to inflate, and outbound already
+                    // started when we agreed to the peer's WILL: nothing
+                    // more to do.
+                    return;
+                }
+
+                WriteLog("Starting MCCP compression; ignoring padding bytes.");
+                Mccp3Active = true;
+                ArmMccpStream(inputOption);
+                Mccp3StartReceived?.Invoke();
                 return;
             }
 
@@ -2103,12 +2190,27 @@
                     return;
                 }
 
+                // Direction gate (see the padding-carrying path above):
+                // MCCP2 inflates client-side only, MCCP3 server-side only.
                 if (inputOption == (int)Options.Mccp2)
                 {
+                    if (IsServerRole)
+                    {
+                        return;
+                    }
+
                     WriteLog("MCCP2 compression started; inflating inbound bytes.");
                     Mccp2Active = true;
                     ArmMccpStream(inputOption);
                     Mccp2StartReceived?.Invoke();
+                    return;
+                }
+
+                if (!IsServerRole)
+                {
+                    // Wrong direction to inflate, and outbound already
+                    // started when we agreed to the peer's WILL: nothing
+                    // more to do.
                     return;
                 }
 
@@ -2138,7 +2240,10 @@
         /// Arms the session-owned MCCP decompressor, replacing a spent one
         /// (ended or failed) so a fresh SB always starts a fresh stream.
         /// </summary>
-        /// <param name="inputOption">The MCCP option that armed (for the corrupt-path refusal: WONT for MCCP3, DONT for MCCP2).</param>
+        /// <param name="inputOption">The MCCP option that armed (also captures
+        /// the corrupt-path refusal: WONT when our own offer is withdrawn,
+        /// DONT when the peer's offer is refused; and forces strict zlib on
+        /// server-role MCCP3, whose peer sends zlib only).</param>
         private void ArmMccpStream(int inputOption)
         {
             if (MccpStream is null || !MccpStream.IsActive)
@@ -2146,8 +2251,11 @@
                 MccpStream = new MccpDecompressor();
             }
 
+            MccpStream.StrictZlib = IsServerRole && inputOption == (int)Options.Mccp3;
             mccpShutdownPending = false;
+            mccpShutdownWont = false;
             mccpShutdownOption = inputOption;
+            mccpArmedWont = !Negotiation.IsEnabledByPeer(inputOption);
             MccpStateChanged?.Invoke(Mccp2Active, Mccp3Active, MccpStream);
         }
 
@@ -2911,6 +3019,7 @@
                 return;
             }
 
+            var (usBefore, himBefore) = Negotiation.GetStates(inputOption);
             var reply = inputVerb switch
             {
                 (int)Commands.Do => Negotiation.ReceivedDo(inputOption, AgreeEcho(inputOption, peerPerforms: false)),
@@ -2919,8 +3028,20 @@
                 (int)Commands.Wont => Negotiation.ReceivedWont(inputOption),
                 _ => null,
             };
+            // An inbound WONT/DONT that flips an MCCP side Yes-to-No ends
+            // inflation; stray repeats change nothing, so they stay silent
+            // here too. Outbound compression keeps running (the peer only
+            // took back its own direction).
+            bool mccpAgreementLost = (inputOption == (int)Options.Mccp2 || inputOption == (int)Options.Mccp3) &&
+                ((inputVerb == (int)Commands.Wont && himBefore == NegotiationState.SideState.Yes) ||
+                 (inputVerb == (int)Commands.Dont && usBefore == NegotiationState.SideState.Yes));
             if (reply is null)
             {
+                if (mccpAgreementLost)
+                {
+                    TeardownInboundMccp(inputOption);
+                }
+
                 WriteLog($"No reply to {inputVerb} {inputOption}: already in that state (RFC 1143).");
                 return;
             }
@@ -2942,6 +3063,11 @@
             (byte)inputOption,
                 };
                 await WriteWireAsync(outBuffer, 0, outBuffer.Length, internalCancellation.Token).ConfigureAwait(false);
+            }
+
+            if (mccpAgreementLost)
+            {
+                TeardownInboundMccp(inputOption);
             }
 
             if (inputOption == (int)Options.WindowSize && inputVerb == (int)Commands.Do && reply is Commands.Will)

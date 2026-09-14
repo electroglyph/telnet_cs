@@ -117,8 +117,10 @@
         // Outbound MCCP3 compression (client role): null while the wire stays
         // plaintext, otherwise the compressing view every client and handler
         // write goes through. Published by NoteMccp3StartSent once our empty
-        // SB start marker went out raw; reads, closes and urgent sends keep
-        // using the raw ByteStream.
+        // SB start marker went out raw. Strict: the view runs to disconnect
+        // (the reference never stops its compressor, not even on WONT/DONT),
+        // so a live view also covers re-agreement and is never replaced.
+        // Reads, closes and urgent sends keep using the raw ByteStream.
         private MccpWriteFilter? mccp3Filter;
         private readonly Lock mccp3Gate = new();
 
@@ -129,15 +131,6 @@
         {
             lock (mccp3Gate)
             {
-                if (mccp3Filter is not null && !Negotiation.IsEnabledByPeer((int)Options.Mccp3))
-                {
-                    // The peer took compression back: later writes go out
-                    // raw; bytes already compressed stay that way — the wire
-                    // cannot un-compress mid-stream.
-                    mccp3Filter.Dispose();
-                    mccp3Filter = null;
-                }
-
                 return mccp3Filter ?? ByteStream;
             }
         }

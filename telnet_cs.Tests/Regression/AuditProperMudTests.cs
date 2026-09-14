@@ -89,20 +89,15 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task NonEmptyMccpSb_StillArmsCompression()
         {
-            // Source of truth: the reference pops the MCCP option byte, drops extras,
-            // and still activates. ~/telnetlib3/telnetlib3/stream_writer.py
-            // _handle_sb_mccp2/_handle_sb_mccp3 do buf.popleft() then set active without
-            // checking length; the MCCP spec only defines the empty handshake but does
-            // not contradict this leniency.
-            // Our code: telnet_cs/IO/ByteStreamHandler.cs logs and ignores any non-empty
-            // MCCP SB, so mid-stream FF FA 56 00 FF F0 never arms and following bytes
-            // stay plaintext.
-            // Proof: WILL 86 plus padded SB 86 00 plus zlib("HI") must read "HI" when
-            // compression armed; plaintext proves the arm was skipped. This test is
-            // correct.
+            // The start marker carries no payload on the wire, but a padded
+            // SB still arms: the option byte selects the stream and extras
+            // are dropped. MCCP3 flows client-to-server, so this is pinned
+            // server-side (a server ignores MCCP2 markers entirely).
+            // Proof: WILL 87 plus padded SB 87 00 plus zlib("HI") reads "HI";
+            // plaintext would prove the arm was skipped.
             var options = new TelnetServerOptions { EnableMccp = true };
             using var stream = new ScriptedStream();
-            stream.Enqueue([255, 251, 86, 255, 250, 86, 0, 255, 240]);
+            stream.Enqueue([255, 251, 87, 255, 250, 87, 0, 255, 240]);
             stream.Enqueue(ZlibCompress("HI").Select(b => (int)b).ToArray());
             using var session = new ServerSession(stream, options, CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromSeconds(2))).Should().Be("HI");

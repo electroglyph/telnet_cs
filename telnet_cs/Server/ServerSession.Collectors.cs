@@ -766,23 +766,19 @@
         /// MCCP2: the empty SB start marker goes out raw, and only then is
         /// the compressing write view published, so every writer is either
         /// fully before the marker (raw) or fully after it (compressed).
-        /// A peer that later takes compression back drops the view again
-        /// (later writes go out raw; bytes already compressed stay that
-        /// way — the wire cannot un-compress mid-stream).
+        /// Strict: once started the view runs to disconnect — the reference
+        /// never stops its compressor, not even on WONT/DONT — so a live
+        /// view also covers re-agreement and is never replaced.
         /// </summary>
         /// <param name="cancellationToken">A token to cancel the send.</param>
         private async Task MaybeStartMccp2Async(CancellationToken cancellationToken)
         {
-            if (mccp2Filter is not null && !Negotiation.IsEnabledByUs((int)Options.Mccp2))
+            lock (mccpFilterGate)
             {
-                mccp2Filter.Dispose();
-                mccp2Filter = null;
-                return;
-            }
-
-            if (mccp2Filter is not null || !Negotiation.IsEnabledByUs((int)Options.Mccp2))
-            {
-                return;
+                if (mccp2Filter is not null || !Negotiation.IsEnabledByUs((int)Options.Mccp2))
+                {
+                    return;
+                }
             }
 
             var frame = EnvironmentProtocol.FrameSubnegotiation((int)Options.Mccp2, []);
@@ -795,14 +791,25 @@
             await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
             try
             {
-                if (!Negotiation.IsEnabledByUs((int)Options.Mccp2))
+                lock (mccpFilterGate)
                 {
-                    return;
+                    if (mccp2Filter is not null || !Negotiation.IsEnabledByUs((int)Options.Mccp2))
+                    {
+                        return;
+                    }
                 }
 
                 await ByteStream.WriteAsync(frame, 0, frame.Length, linked.Token).ConfigureAwait(false);
                 Context.NoteWritten(frame.Length);
-                mccp2Filter = new MccpWriteFilter(ByteStream, new MccpCompressor());
+                lock (mccpFilterGate)
+                {
+                    if (mccp2Filter is not null)
+                    {
+                        return;
+                    }
+
+                    mccp2Filter = new MccpWriteFilter(ByteStream, new MccpCompressor());
+                }
             }
             finally
             {

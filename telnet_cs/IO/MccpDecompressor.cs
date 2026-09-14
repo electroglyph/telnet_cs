@@ -153,6 +153,15 @@ internal sealed class MccpDecompressor : IDisposable
         input.Dispose();
     }
 
+    /// <summary>
+    /// Gets or sets whether only a conforming zlib stream is accepted.
+    /// When set, sniffing skips the gzip/raw fallbacks: any non-zlib
+    /// (or corrupt zlib) stream fails immediately instead of retrying raw
+    /// deflate. Used where the peer is specified to send zlib only.
+    /// Defaults to <c>false</c>.
+    /// </summary>
+    public bool StrictZlib { get; set; }
+
     private void Sniff()
     {
         if (input.Length == 0)
@@ -161,7 +170,31 @@ internal sealed class MccpDecompressor : IDisposable
         }
 
         var first = input.GetBuffer()[0];
-        if ((first & 0x0F) == 0x08)
+        if (StrictZlib)
+        {
+            // The peer frames a conforming zlib stream here (RFC 1950), so
+            // validate the two-byte header up front: the inflater decodes
+            // some non-zlib bytes as garbage instead of rejecting them.
+            if (input.Length < 2)
+            {
+                return;
+            }
+
+            var buffer = input.GetBuffer();
+            var header = (buffer[0] << 8) | buffer[1];
+            if ((buffer[0] & 0x0F) != 0x08 || header % 31 != 0)
+            {
+                Failed = true;
+                ready.Clear();
+            }
+            else
+            {
+                isZlib = true;
+            }
+
+            sniffed = true;
+        }
+        else if ((first & 0x0F) == 0x08)
         {
             // RFC 1950 CMF: compression method 8 (deflate), any window size.
             // The high nibble encodes the window (CINFO); only the default
@@ -236,7 +269,7 @@ internal sealed class MccpDecompressor : IDisposable
         }
         catch (InvalidDataException)
         {
-            if (isZlib && !rawRetried)
+            if (isZlib && !rawRetried && !StrictZlib)
             {
                 // The reference inflates zlib-first and retries raw deflate
                 // on failure: a raw stream that happens to start with a

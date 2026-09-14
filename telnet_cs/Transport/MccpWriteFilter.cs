@@ -15,6 +15,10 @@ using telnet_cs.IO;
 /// stream, so <see cref="Dispose"/> releases only the compressor and the
 /// send gate. One send gate serializes each compress-plus-write as a unit,
 /// so concurrent session and handler writes cannot interleave chunks.
+/// Strict: the view runs to disconnect — the reference never stops its
+/// outbound compressor, not even on WONT/DONT — so there is no finish path;
+/// <see cref="Dispose"/> drops the compressor mid-stream (the peer sees
+/// truncation, exactly as against the reference closing the socket).
 /// </summary>
 internal sealed class MccpWriteFilter : IByteStream
 {
@@ -88,29 +92,6 @@ internal sealed class MccpWriteFilter : IByteStream
         // that default spelling exactly, then compress the bytes.
         byte[] encoded = ByteStringConverter.ConvertStringToByteArray(value, null);
         return WriteAsync(encoded, 0, encoded.Length, cancellationToken);
-    }
-
-    /// <summary>
-    /// Ends the compression stream and writes the trailer, so a peer
-    /// inflating the session sees a clean stream end instead of truncation.
-    /// </summary>
-    /// <param name="cancellationToken">A token to cancel the write.</param>
-    public async Task FinishAsync(CancellationToken cancellationToken)
-    {
-        ObjectDisposedException.ThrowIf(disposed, this);
-        await writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            byte[] wire = compressor.Finish();
-            if (wire.Length != 0)
-            {
-                await inner.WriteAsync(wire, 0, wire.Length, cancellationToken).ConfigureAwait(false);
-            }
-        }
-        finally
-        {
-            writeGate.Release();
-        }
     }
 
     /// <inheritdoc/>

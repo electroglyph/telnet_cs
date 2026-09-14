@@ -48,8 +48,22 @@
         // and urgent sends keep using the raw ByteStream.
         private MccpWriteFilter? mccp2Filter;
 
+        // Serializes the publish above against the deferred flush: the view
+        // is installed once and runs to disconnect (never unpublished), so
+        // the gate only ever guards a single publish.
+        private readonly Lock mccpFilterGate = new();
+
         /// <inheritdoc/>
-        protected override IByteStream WriteStream => mccp2Filter ?? ByteStream;
+        protected override IByteStream WriteStream
+        {
+            get
+            {
+                lock (mccpFilterGate)
+                {
+                    return mccp2Filter ?? ByteStream;
+                }
+            }
+        }
 
         /// <summary>
         /// Initialises a new instance of the <see cref="ServerSession"/> class
@@ -375,6 +389,9 @@
                 mccp3Agreed = mccp3;
                 mccpStream = stream;
             };
+            // A peer WONT/DONT never stops our outbound view: like the
+            // reference compressor it runs to disconnect, so there is no
+            // agreement-loss hook to wire here.
             // A received CHARSET (or encoding-suffixed LANG) environment
             // entry presumes BINARY capability: decode 8-bit data even
             // without an agreed inbound BINARY direction. An agreed CHARSET

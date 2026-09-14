@@ -95,6 +95,14 @@
             {
                 await OfferEnableAsync(Options.Mccp2, cancellationToken).ConfigureAwait(false);
             }
+
+            // Inbound MCCP3 is explicit opt-in too (never over TLS): the
+            // WILL goes out here, and the session inflates everything after
+            // the peer's own SB start marker once it accepts.
+            if (Settings.OfferMccp3 && !IsTls)
+            {
+                await OfferEnableAsync(Options.Mccp3, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         /// <summary>

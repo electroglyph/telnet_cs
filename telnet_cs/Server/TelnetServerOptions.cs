@@ -143,6 +143,18 @@
         public bool OfferMccp2 { get; set; }
 
         /// <summary>
+        /// Gets or sets whether sessions offer client-to-server MCCP3
+        /// compression (<c>WILL MCCP3</c>, option 87) in the advanced preset.
+        /// Defaults to <c>false</c>: offering is explicit opt-in (like the
+        /// reference compression flag), while <see cref="EnableMccp"/> alone
+        /// only passively accepts the peer's offer. When the peer accepts, it
+        /// sends its own empty SB start marker and compresses everything
+        /// after it, which the session inflates; stays unoffered over TLS in
+        /// any case.
+        /// </summary>
+        public bool OfferMccp3 { get; set; }
+
+        /// <summary>
         /// Gets or sets the prompt sent before reading the login name in
         /// <c>ServerSession.AuthenticateAsync</c> (S2). Defaults to
         /// <c>"login: "</c>.
