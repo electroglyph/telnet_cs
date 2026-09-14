@@ -28,7 +28,8 @@ Console.WriteLine(p1 == p2);               // False (different values)
 ```
 
 Records can have methods, custom constructors, and inherit from other records — but a record can
-inherit only another record (never a class). A plain class may inherit from a record.
+inherit only another record (never a class), and a class cannot inherit from a record either
+(`class Sub : SomeRecord` fails with CS8865: "Only records may inherit from records").
 
 ### Init-only setters
 Properties (or indexers) that can only be set during construction or in an object/`with` initializer. Backs the `with` expression on records and immutable DTOs:
@@ -93,7 +94,9 @@ Person? p = flag ? new Person("A", "B") : null;  // C# 8 rejected this
 ```
 
 ### Covariant return types
-An override (or interface implementation) may return a more derived type than the base method:
+An `override` may return a more derived type than the base method (override-only — an
+interface implementation still requires an exact signature match; a differing return type
+fails with CS0738):
 
 ```csharp
 abstract class Animal { public abstract Animal Clone(); }
@@ -495,7 +498,8 @@ Fixed-size inline buffers in a struct (safe-code equivalent of `fixed` buffers),
 [System.Runtime.CompilerServices.InlineArray(10)]
 public struct Buffer
 {
-    private int _element0;   // single field; compiler synthesizes indexer/length
+    private int _element0;   // single field; compiler synthesizes a bounds-checked indexer
+                             // (no Length member — get the length from the attribute or via Span)
 }
 
 var b = new Buffer();
