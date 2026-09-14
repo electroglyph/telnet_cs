@@ -229,7 +229,7 @@
         }
 
         [Fact]
-        public async Task EnvironSend_StrayIs_GetsWont()
+        public async Task EnvironSend_StrayIs_IgnoredSilently()
         {
             var (output, stream) = await ReadHandlerOnceAsync(ConfigureFull, 255, 250, 36, 0, 255, 240);
             output.Should().BeEmpty();

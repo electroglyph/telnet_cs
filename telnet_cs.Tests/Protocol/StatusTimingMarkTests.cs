@@ -50,7 +50,7 @@
         }
 
         [Fact]
-        public async Task StatusSend_NoAgreements_GetsWont()
+        public async Task StatusSend_NoAgreements_IgnoredSilently()
         {
             // A STATUS SEND with no agreement is ignored silently: no IS and
             // no WONT reply.
@@ -60,7 +60,7 @@
         }
 
         [Fact]
-        public async Task StatusSend_WhileOursOutstanding_GetsWont()
+        public async Task StatusSend_WhileOursOutstanding_IgnoredSilently()
         {
             // A locally-requested (WantYes) STATUS is not agreed yet, so an
             // early SEND is still ignored silently with no reply.
@@ -141,7 +141,7 @@
         }
 
         [Fact]
-        public async Task StatusSend_StrayIs_GetsWont()
+        public async Task StatusSend_StrayIs_IgnoredSilently()
         {
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { }, 255, 250, 5, 0, 255, 240);
             output.Should().BeEmpty();

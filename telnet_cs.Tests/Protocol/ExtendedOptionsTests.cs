@@ -39,7 +39,7 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task DoLogout_RefusedWithWont_AndSignalsLogout()
+        public async Task DoLogout_ClientRole_IgnoredSilently()
         {
             // Client role: DO LOGOUT is swallowed with no reply and no signal
             // (reference: the client end raises instead); the close hook fires
@@ -52,7 +52,7 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task WillLogout_RefusedWithDont_WithoutSignal()
+        public async Task WillLogout_ClientRole_IgnoredSilently()
         {
             // WILL LOGOUT is swallowed with no reply at all on the client role
             // (reference: the client end raises instead of answering).
@@ -60,6 +60,25 @@ namespace telnet_cs.Tests
             var (output, writes, _) = await ReadOnceAsync(h => h.LogoutRequested += () => signaled = true, Iac, Will, 18);
             output.Should().BeEmpty();
             Concat(writes).Should().BeEmpty();
+            signaled.Should().BeFalse();
+        }
+
+        [Fact]
+        public async Task WillLogout_ServerRole_RefusedWithDont()
+        {
+            // Server role: an unwanted WILL LOGOUT offer is refused with DONT
+            // (negotiation must answer a mode-change request) and raises no
+            // logoff signal — only server-role DO LOGOUT does that.
+            var signaled = false;
+            var (output, writes, _) = await ReadOnceAsync(
+              h =>
+              {
+                  h.IsServerRole = true;
+                  h.LogoutRequested += () => signaled = true;
+              },
+              Iac, Will, 18);
+            output.Should().BeEmpty();
+            Concat(writes).Should().Equal(Iac, Dont, 18);
             signaled.Should().BeFalse();
         }
 
@@ -321,6 +340,20 @@ namespace telnet_cs.Tests
               h => h.LineflowReceived += _ => fired++, Iac, Do, 33, Iac, Sb, 33, 9, Iac, Se);
             output.Should().BeEmpty();
             fired.Should().Be(0);
+        }
+
+        [Fact]
+        public async Task SbLineflow_TrailingBytes_IgnoredWithoutEvent()
+        {
+            // An LFLOW frame must be exactly one mode byte: trailing bytes
+            // mark the whole frame malformed, so nothing fires and the
+            // flow-control state is untouched.
+            var fired = 0;
+            var (output, _, sut) = await ReadOnceAsync(
+              h => h.LineflowReceived += _ => fired++, Iac, Do, 33, Iac, Sb, 33, 1, 2, 3, Iac, Se);
+            output.Should().BeEmpty();
+            fired.Should().Be(0);
+            sut.LineflowEnabled.Should().BeTrue();
         }
 
         [Fact]

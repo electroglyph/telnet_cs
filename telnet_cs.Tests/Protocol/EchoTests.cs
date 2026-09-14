@@ -135,7 +135,7 @@
         }
 
         [Fact]
-        public async Task WillEcho_AfterAgreedDoEcho_RepliesDont()
+        public async Task WillEcho_AfterAgreedDoEcho_StaysSilent()
         {
             using var stream = new ScriptedStream();
             using var cts = new CancellationTokenSource();

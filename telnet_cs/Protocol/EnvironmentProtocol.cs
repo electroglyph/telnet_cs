@@ -321,7 +321,7 @@
         private static byte[] Encode(string text) => System.Text.Encoding.Latin1.GetBytes(text);
 
         /// <summary>
-        /// ESC-escapes embedded VAR/VALUE/ESC/USERVAR bytes (RFC 1408 §4.3).
+        /// ESC-escapes embedded VAR/VALUE/ESC/USERVAR bytes (RFC 1408 §2).
         /// </summary>
         private static byte[] Escape(byte[] raw)
         {

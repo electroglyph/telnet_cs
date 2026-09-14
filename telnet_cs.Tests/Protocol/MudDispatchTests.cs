@@ -467,6 +467,17 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task SbAardwolf_SingleByte_YieldsEmptyData()
+        {
+            // A one-byte frame carries only the channel byte: DataBytes stays
+            // empty (never null) so consumers can always enumerate it.
+            int[] reads = [Iac, Will, Aardwolf, .. SbBody(Aardwolf, [0x41])];
+            var (output, _, sut) = await ReadOnceAsync(_ => { }, reads);
+            output.Should().BeEmpty();
+            sut.AardwolfData.Should().ContainSingle().Which.DataBytes.Should().BeEmpty();
+        }
+
+        [Fact]
         public async Task SbAardwolf_EmptyPayload_DecodesUnknown()
         {
             var (_, _, sut) = await ReadOnceAsync(
