@@ -55,10 +55,11 @@
         private bool tspeedProbeSent;
         private bool xdisplayProbeSent;
         // A non-terminal TTYPE answer owed a follow-up SEND (the reference
-        // request_ttype per answer): set when the answer arrives, sent by
-        // the flush after the read, so background and explicit collection
-        // cycle identically with one SEND per answer.
-        private bool ttypeResendDue;
+        // request_ttype per answer): counted when solicited answers arrive
+        // and drained by the flush after the read, so background and
+        // explicit collection cycle identically with one SEND per answer no
+        // matter who consumed first or how answers batch across passes.
+        private int ttypeResendsOwed;
         private bool echoNegotiated;
         private bool environRequested;
         private bool negotiateEchoPending;
@@ -475,8 +476,10 @@
                 lock (collectorLock)
                 {
                     // Anything the background pump filed after the previous
-                    // collection is replayed below as solicited (re-asked), so
-                    // wire counts are deterministic no matter who consumed first.
+                    // collection is replayed below as solicited (re-asked):
+                    // each replayed answer owes its follow-up SEND exactly
+                    // like a live one, so the wire count is deterministic no
+                    // matter who consumed first.
                     // preDone: the pump already finished a cycle (e.g. an empty
                     // answer) — replay it without polling for more.
                     snapshot = [.. terminalTypeChain];
@@ -501,11 +504,39 @@
                 replayedAny = true;
                 lock (collectorLock)
                 {
-                    // Replayed answers never re-arm the cycle: each got its
-                    // follow-up SEND when it first arrived (or needs none),
-                    // and the initial SEND above covers continuation.
-                    AppendTerminalTypeAnswerLocked(snapshot[i]);
+                    // Replayed answers re-ask exactly like live ones
+                    // (telnetlib3 sends one SEND per answer no matter who
+                    // consumed it): each grown answer owes its follow-up,
+                    // drained below before polling starts.
+                    bool grown = AppendTerminalTypeAnswerLocked(snapshot[i]);
+                    if (grown && TtypeCycleSolicitedLocked())
+                    {
+                        ttypeResendsOwed++;
+                    }
                 }
+            }
+
+            // Answers the pump filed ahead of this request still owe their
+            // per-answer follow-ups: emit them here (not in some later
+            // flush) so the count is fixed before polling starts.
+            while (true)
+            {
+                bool owed;
+                lock (collectorLock)
+                {
+                    owed = ttypeResendsOwed > 0;
+                    if (owed)
+                    {
+                        ttypeResendsOwed--;
+                    }
+                }
+
+                if (!owed)
+                {
+                    break;
+                }
+
+                await SendSbAsync(Options.TerminalType, [], cancellationToken).ConfigureAwait(false);
             }
 
             if (preDone && replayedAny)
@@ -522,8 +553,8 @@
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
             while (!IsTerminalTypeDone() && DateTime.UtcNow < end && !linked.Token.IsCancellationRequested)
             {
-                // A fresh non-terminal answer arms its follow-up SEND in the
-                // read's flush (ttypeResendDue): nothing to send here.
+                // A fresh non-terminal answer owes its follow-up SEND, paid
+                // by the read's flush (ttypeResendsOwed): nothing to send here.
                 var text = await ReadAsync(TimeSpan.FromMilliseconds(MillisecondReadDelay), linked.Token).ConfigureAwait(false);
                 if (!string.IsNullOrEmpty(text))
                 {
@@ -565,7 +596,7 @@
             lock (collectorLock)
             {
                 expectingTerminalType = false;
-                ttypeResendDue = false;
+                ttypeResendsOwed = 0;
                 // Watermark for the next request's replay; release the
                 // cycle-complete freeze so gap answers are kept.
                 terminalTypesConsumedUpTo = terminalTypeChain.Count;
@@ -603,7 +634,7 @@
         private async Task FlushDeferredNegotiationAsync(CancellationToken cancellationToken)
         {
             bool sendTtypeProbe = false;
-            bool sendTtypeCycle = false;
+            int sendTtypeCycleSends = 0;
             bool sendTspeedProbe = false;
             bool sendXDisplayProbe = false;
             bool reciprocateCharset = false;
@@ -671,10 +702,16 @@
                     sendAdvanced = true;
                 }
 
-                if (ttypeResendDue && TtypeCycleSolicitedLocked())
+                if (ttypeResendsOwed > 0)
                 {
-                    ttypeResendDue = false;
-                    sendTtypeCycle = true;
+                    // One SEND per answer (telnetlib3 request_ttype parity):
+                    // drain every owed follow-up, not just one per flush, so
+                    // answers batched in a single pass match back-to-back
+                    // ones on the wire. Owed implies solicited at arm time,
+                    // so no gate here: a cycle that completed mid-pass still
+                    // owes the SENDs its answers earned.
+                    sendTtypeCycleSends = ttypeResendsOwed;
+                    ttypeResendsOwed = 0;
                 }
 
                 wantEcho = (advancedNegotiationSent || echoArmedByAnswer) && negotiateEchoPending && !echoNegotiated;
@@ -710,11 +747,16 @@
             if (sendTtypeProbe)
             {
                 await SendSbAsync(Options.TerminalType, [], cancellationToken).ConfigureAwait(false);
+                if (sendTtypeCycleSends > 0)
+                {
+                    // The probe doubles as one follow-up.
+                    sendTtypeCycleSends--;
+                }
             }
-            else if (sendTtypeCycle)
+
+            while (sendTtypeCycleSends > 0)
             {
-                // One SEND per answer: when the probe above just went out
-                // it doubles as the follow-up, so the cycle owes nothing.
+                sendTtypeCycleSends--;
                 await SendSbAsync(Options.TerminalType, [], cancellationToken).ConfigureAwait(false);
             }
 
@@ -1463,9 +1505,11 @@
                 bool resendable = AppendTerminalTypeAnswerLocked(answer);
                 if (resendable && TtypeCycleSolicitedLocked())
                 {
-                    // Non-terminal answer to a live solicitation: the flush
-                    // after this read asks for the next one.
-                    ttypeResendDue = true;
+                    // Non-terminal answer to a live solicitation: each one
+                    // owes a follow-up SEND, paid by the flush after this
+                    // read (or, for replayed answers, by the request's own
+                    // drain before polling).
+                    ttypeResendsOwed++;
                 }
 
                 return true;

@@ -74,7 +74,9 @@ namespace telnet_cs.Tests
             stream.Enqueue([.. TtypeIsFrame("vt100"), .. TtypeIsFrame("xterm")]);
             using var session = NewSession(stream);
             await session.RequestTerminalTypesAsync(TimeSpan.FromMilliseconds(300));
-            CountSubsequence(OutboundBytes(stream), new byte[] { 255, 250, 24, 1 }).Should().BeGreaterThanOrEqualTo(2);
+            // Deterministic: initial SEND plus one per answer (3), no matter
+            // who consumed first — replayed answers re-ask like live ones.
+            CountSubsequence(OutboundBytes(stream), new byte[] { 255, 250, 24, 1 }).Should().Be(3);
         }
 
         [Fact]
@@ -112,7 +114,9 @@ namespace telnet_cs.Tests
             stream.Enqueue([.. TtypeIsFrame("XTERM"), .. TtypeIsFrame("xterm")]);
             using var session = NewSession(stream);
             await session.RequestTerminalTypesAsync(TimeSpan.FromMilliseconds(300));
-            CountSubsequence(OutboundBytes(stream), new byte[] { 255, 250, 24, 1 }).Should().BeGreaterThanOrEqualTo(2);
+            // Deterministic: initial SEND plus one per answer (3) — the
+            // second SEND proves xterm != XTERM is a new answer.
+            CountSubsequence(OutboundBytes(stream), new byte[] { 255, 250, 24, 1 }).Should().Be(3);
         }
     }
 }

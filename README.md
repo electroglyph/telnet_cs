@@ -4,19 +4,16 @@ What this is: a C# telnet server/client library, async only.
 
 Fair warning: this is 100% GMO, non-organic clanker generated code.
 
-I am not sure how correct this is yet, there be dragons here.
+I'm reasonably sure this is beginning to be mostly correct now,
+but use with caution.
 
-Don't use this for anything important yet.
-
-My development process: telnet server/client made based on a core group
-of RFCs. Code reorganized and audited multiple times by AI for clarity
-and correctness. After that I cloned [telnetlib3](https://github.com/jquast/telnetlib3) and had AI
-port some of the missing features over. The full list is below.
-
-Previous behavior was then aligned to telnetlib3, I trust jquast's decisions
-here a lot more than my own.
+This started out as a plain telnet client/server lib, and then I had the
+clanker port over most of the applicable features from telnetlib3.
 
 I left a lot of telnetlib3's stuff out of scope, because it does A LOT.
+
+There are a few minor currently known divergences from telnetlib3 mentioned
+here: [divergences](docs/divergences.md)
 
 Thanks and respect to jquast and all the other contributors of telnetlib3.
 

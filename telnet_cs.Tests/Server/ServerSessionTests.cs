@@ -649,9 +649,11 @@ namespace telnet_cs.Tests
             stream.Enqueue([.. TtypeIsFrame("Mudlet"), .. TtypeIsFrame("Mudlet")]);
             using var session = NewSession(stream);
             (await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5))).Should().Equal("Mudlet");
-            // The TTYPE SEND went out, WILL ECHO is withheld for the MUD
-            // client, but DO NEW_ENVIRON still follows the answers.
-            OutboundBytes(stream).Should().Equal(255, 250, 24, 1, 255, 240, 255, 253, 39);
+            // The TTYPE SENDs went out (initial + one per non-terminal
+            // answer, none for the terminating repeat), WILL ECHO is
+            // withheld for the MUD client, but DO NEW_ENVIRON still
+            // follows the answers.
+            OutboundBytes(stream).Should().Equal(255, 250, 24, 1, 255, 240, 255, 250, 24, 1, 255, 240, 255, 253, 39);
         }
 
         [Fact]
@@ -775,8 +777,10 @@ namespace telnet_cs.Tests
             var types = await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5));
             types.Should().Equal("aaa", "bbb");
             // The resolving repeat releases WILL ECHO and DO NEW_ENVIRON
-            // right after the TTYPE SEND.
-            OutboundBytes(stream).Should().Equal(255, 250, 24, 1, 255, 240, 255, 251, 1, 255, 253, 39);
+            // right after the TTYPE SENDs: one SEND per non-terminal
+            // answer (initial + aaa + bbb, like telnetlib3's request_ttype
+            // per answer), none for the terminating repeat.
+            OutboundBytes(stream).Should().Equal(255, 250, 24, 1, 255, 240, 255, 250, 24, 1, 255, 240, 255, 250, 24, 1, 255, 240, 255, 251, 1, 255, 253, 39);
         }
 
         [Fact]
@@ -792,12 +796,10 @@ namespace telnet_cs.Tests
             stream.Enqueue([.. TtypeIsFrame("bbb"), .. TtypeIsFrame("bbb")]);
             (await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5))).Should().Equal("bbb");
             session.ClientTerminalTypes.Should().Equal("bbb", "bbb");
-            // SEND count depends on the background-pump race: request-wins
-            // sends its own SEND plus one per collected answer (2), while
-            // pump-wins files an answer first and the request replays it
-            // with an extra SEND (3). Only the collected chain is
-            // timing-independent.
-            CountSubsequence(OutboundBytes(stream), [255, 250, 24, 1, 255, 240]).Should().BeOneOf(2, 3);
+            // Deterministic: each call sends its own SEND plus one per
+            // collected answer (2 + 2), no matter who consumed first —
+            // replayed answers re-ask exactly like live ones.
+            CountSubsequence(OutboundBytes(stream), [255, 250, 24, 1, 255, 240]).Should().Be(4);
         }
 
         [Fact]
@@ -812,12 +814,10 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             var types = await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5));
             types.Should().Equal("AAA", "bbb", "BBB");
-            // SEND count depends on the background-pump race, both observed:
-            // request-wins sends initial + one per collected answer (4), while
-            // pump-wins files the answers first and the request replays them
-            // with fewer re-asks (2). Either way the deferred WILL ECHO fires
-            // once. Only the collected chain is timing-independent.
-            CountSubsequence(OutboundBytes(stream), [255, 250, 24, 1, 255, 240]).Should().BeOneOf(2, 4);
+            // Deterministic: initial SEND plus one per collected answer (4),
+            // no matter who consumed first. Either way the deferred WILL
+            // ECHO fires once.
+            CountSubsequence(OutboundBytes(stream), [255, 250, 24, 1, 255, 240]).Should().Be(4);
             CountSubsequence(OutboundBytes(stream), [255, 251, 1]).Should().Be(1);
         }
 
@@ -859,8 +859,9 @@ namespace telnet_cs.Tests
             session.ClientTerminalTypes.Should().Equal("ALPHA", "BETA", "GAMMA", "ALPHA");
             session.ClientEffectiveTerminalType.Should().Be("ALPHA");
             // The looped repeat releases WILL ECHO and DO NEW_ENVIRON
-            // right after the TTYPE SEND.
-            OutboundBytes(stream).Should().Equal(255, 250, 24, 1, 255, 240, 255, 251, 1, 255, 253, 39);
+            // right after the TTYPE SENDs: one per non-terminal answer
+            // (initial + ALPHA + BETA + GAMMA), none for the repeat.
+            OutboundBytes(stream).Should().Equal(255, 250, 24, 1, 255, 240, 255, 250, 24, 1, 255, 240, 255, 250, 24, 1, 255, 240, 255, 250, 24, 1, 255, 240, 255, 251, 1, 255, 253, 39);
         }
 
         [Fact]
