@@ -81,6 +81,11 @@
         private readonly Dictionary<string, string> clientNewEnvironment = new(StringComparer.Ordinal);
         private bool forceBinaryDecoding;
         private System.Text.Encoding? charsetEncoding;
+        // The handler of the currently running wire pass, if any (set and
+        // cleared by ReadWireOnceAsync). At most one pass runs at a time,
+        // so a subnegotiation callback always belongs to this handler and
+        // a mid-pass latch can refresh its decoding immediately.
+        private ByteStreamHandler? activeReadHandler;
         // MCCP agreement survives across per-read handlers: the arming SB,
         // stream end, and corrupt shutdown report through MccpStateChanged.
         private bool mccp2Agreed;
@@ -1372,7 +1377,13 @@
             {
                 // RFC 2066 ACCEPTED shares its byte value (2) with INFO, so it
                 // is consumed here, ahead of the gate.
-                return TryConsumeCharset(payload);
+                if (!TryConsumeCharset(payload))
+                {
+                    return false;
+                }
+
+                RefreshActiveReadHandlerEncoding();
+                return true;
             }
 
             if (inputOption == (int)Options.Status)
@@ -1776,6 +1787,40 @@
                 }
 
                 return true;
+            }
+        }
+
+        /// <summary>
+        /// Re-applies the latched charset decoding to the running wire
+        /// pass's handler, if any. A pass that consumes a CHARSET ACCEPTED
+        /// mid-slice would otherwise decode bytes arriving later in the
+        /// same slice with its pre-latch snapshot (the reference switches
+        /// its stream reader the moment the agreement lands, so post-agree
+        /// bytes in the same chunk already use the new encoding).
+        /// Single-flight: at most one pass runs, so this always reaches
+        /// the pass whose dispatch latched. Plain property sets, safe to
+        /// call with the collector lock released (callers hold none).
+        /// </summary>
+        private void RefreshActiveReadHandlerEncoding()
+        {
+            var handler = activeReadHandler;
+            if (handler is null)
+            {
+                return;
+            }
+
+            bool forceBinary;
+            System.Text.Encoding? agreedEncoding;
+            lock (collectorLock)
+            {
+                forceBinary = forceBinaryDecoding;
+                agreedEncoding = charsetEncoding;
+            }
+
+            handler.ForceBinaryDecoding = forceBinary;
+            if (agreedEncoding is not null)
+            {
+                handler.TextEncoding = agreedEncoding;
             }
         }
 

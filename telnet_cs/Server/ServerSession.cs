@@ -201,6 +201,11 @@
             using (var handler = new ByteStreamHandler(WriteStream, linked, MillisecondReadDelay))
             {
                 FeedSession(handler);
+                // Single-flight (ReadRateLimit): this is the only pass
+                // running, so subnegotiation callbacks below re-enter on
+                // this thread and RefreshActiveReadHandlerEncoding always
+                // reaches exactly this handler.
+                activeReadHandler = handler;
                 try
                 {
                     string result = await handler.ReadAsync(timeout).ConfigureAwait(false);
@@ -241,6 +246,7 @@
                 }
                 finally
                 {
+                    activeReadHandler = null;
                     sbResumeState = handler.SbResumeState;
                     framingState = handler.FramingState;
                     // Raw wire bytes the handler pulled (negotiation
@@ -395,11 +401,24 @@
             // A received CHARSET (or encoding-suffixed LANG) environment
             // entry presumes BINARY capability: decode 8-bit data even
             // without an agreed inbound BINARY direction. An agreed CHARSET
-            // additionally switches the read encoding to the charset.
-            handler.ForceBinaryDecoding = forceBinaryDecoding;
-            if (charsetEncoding is not null)
+            // additionally switches the read encoding to the charset. The
+            // pair is read atomically: both latch together in
+            // TryConsumeCharset, and a split read could mix generations. A
+            // latch landing mid-pass is pushed into this same handler by
+            // RefreshActiveReadHandlerEncoding, so the snapshot here only
+            // needs to be whole, not re-taken.
+            bool forceBinary;
+            System.Text.Encoding? agreedEncoding;
+            lock (collectorLock)
             {
-                handler.TextEncoding = charsetEncoding;
+                forceBinary = forceBinaryDecoding;
+                agreedEncoding = charsetEncoding;
+            }
+
+            handler.ForceBinaryDecoding = forceBinary;
+            if (agreedEncoding is not null)
+            {
+                handler.TextEncoding = agreedEncoding;
             }
 
             // Server role: a simultaneous inbound CHARSET REQUEST (one
