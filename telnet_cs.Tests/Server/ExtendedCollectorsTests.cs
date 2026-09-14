@@ -91,10 +91,23 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SimultaneousCharsetRequest_WhileOursOutstanding_AnswersRejected()
         {
-            using var stream = new ScriptedStream(
-              Iac, Sb, 42, 1, 32, 85, 84, 70, 45, 56, Iac, Se);
+            // Deterministic ordering: our REQUEST must genuinely be
+            // outstanding before the peer's REQUEST arrives. Prequeueing it
+            // lets the constructor-started background pump answer first
+            // with ACCEPTED (or beat our REQUEST to the wire), which is
+            // correct for an idle session but not what this test pins.
+            using var stream = new ScriptedStream();
             using var session = NewSession(stream);
-            (await session.RequestCharsetAsync(TimeSpan.FromMilliseconds(200))).Should().BeNull();
+            var task = session.RequestCharsetAsync(TimeSpan.FromMilliseconds(200));
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            while (stream.ByteWrites.Count == 0 && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(1);
+            }
+
+            stream.ByteWrites.Should().NotBeEmpty("our CHARSET REQUEST must be outstanding before the peer's arrives");
+            stream.Enqueue(Iac, Sb, 42, 1, 32, 85, 84, 70, 45, 56, Iac, Se);
+            (await task).Should().BeNull();
             stream.ByteWrites.Should().HaveCount(2);
             stream.ByteWrites[0].Take(5).Should().Equal(Iac, Sb, 42, 1, 32);
             stream.ByteWrites[1].Should().Equal(Iac, Sb, 42, 3, Iac, Se);

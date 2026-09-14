@@ -785,7 +785,12 @@ namespace telnet_cs.Tests
             stream.Enqueue([.. TtypeIsFrame("bbb"), .. TtypeIsFrame("bbb")]);
             (await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5))).Should().Equal("bbb");
             session.ClientTerminalTypes.Should().Equal("bbb", "bbb");
-            CountSubsequence(OutboundBytes(stream), [255, 250, 24, 1, 255, 240]).Should().Be(2);
+            // SEND count depends on the background-pump race: request-wins
+            // sends its own SEND plus one per collected answer (2), while
+            // pump-wins files an answer first and the request replays it
+            // with an extra SEND (3). Only the collected chain is
+            // timing-independent.
+            CountSubsequence(OutboundBytes(stream), [255, 250, 24, 1, 255, 240]).Should().BeOneOf(2, 3);
         }
 
         [Fact]
