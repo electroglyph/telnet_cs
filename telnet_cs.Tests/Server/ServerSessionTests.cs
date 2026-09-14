@@ -346,12 +346,14 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task OpeningPreset_AllTogglesOff_PeerWillTtype_GetsExactlyOneDo()
+        public async Task OpeningPreset_AllTogglesOff_PeerWillTtype_SendsNothing()
         {
             // EXTEND of SendOpeningPresetAsync_AllTogglesOff_SendsNothing: with
             // SGA/ECHO offers off (and CHARSET requesting off so the advanced
-            // preset stays silent), the peer's WILL TTYPE still gets exactly
-            // one IAC DO TTYPE and no WILL SGA / WILL ECHO.
+            // preset stays silent), the peer's unsolicited WILL TTYPE gets no
+            // DO reply (the server records it without answering) and the SB
+            // probe stays off because TTYPE requesting is off: nothing goes
+            // out, and no WILL SGA / WILL ECHO either.
             var options = new TelnetServerOptions
             {
                 OfferEcho = false,
@@ -369,7 +371,7 @@ namespace telnet_cs.Tests
             await session.SendOpeningPresetAsync();
             stream.Enqueue(255, 251, 24);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
-            OutboundBytes(stream).Should().Equal(255, 253, 24);
+            OutboundBytes(stream).Should().BeEmpty();
         }
 
         [Fact]
@@ -647,8 +649,9 @@ namespace telnet_cs.Tests
             stream.Enqueue([.. TtypeIsFrame("Mudlet"), .. TtypeIsFrame("Mudlet")]);
             using var session = NewSession(stream);
             (await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5))).Should().Equal("Mudlet");
-            // Only the TTYPE SEND went out: no WILL ECHO follows it.
-            OutboundBytes(stream).Should().Equal(255, 250, 24, 1, 255, 240);
+            // The TTYPE SEND went out, WILL ECHO is withheld for the MUD
+            // client, but DO NEW_ENVIRON still follows the answers.
+            OutboundBytes(stream).Should().Equal(255, 250, 24, 1, 255, 240, 255, 253, 39);
         }
 
         [Fact]
@@ -667,23 +670,27 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task TtypeStall_FinalTimeout_ReleasesDeferredEnviron()
+        public async Task TtypeStall_FinalTimeout_ReleasesEchoOnly()
         {
-            // One ANSI answer and then silence: the collection timeout is the
-            // final wait, so the deferred DO NEW_ENVIRON still goes out.
+            // One ANSI answer and then silence: the first answer arms WILL
+            // ECHO, but nothing arms the environ phase (an ANSI first
+            // answer defers it, and the stalled final wait releases
+            // nothing without advance), so no DO NEW_ENVIRON goes out.
             var options = new TelnetServerOptions { RequestNewEnvironment = true };
             using var stream = new ScriptedStream();
             stream.Enqueue(TtypeIsFrame("ANSI"));
             using var session = new ServerSession(stream, options, CancellationToken.None);
             (await session.RequestTerminalTypesAsync(TimeSpan.FromMilliseconds(300))).Should().Equal("ANSI");
-            ContainsSubsequence(OutboundBytes(stream), [255, 253, 39]).Should().BeTrue();
+            ContainsSubsequence(OutboundBytes(stream), [255, 251, 1]).Should().BeTrue();
+            ContainsSubsequence(OutboundBytes(stream), [255, 253, 39]).Should().BeFalse();
         }
 
         [Fact]
-        public async Task TtypeRefused_ReleasesDeferredNegotiations()
+        public async Task TtypeRefused_SendsNothingWithoutAdvance()
         {
-            // A raw client that WONTs TTYPE releases both deferred offers once
-            // the opening preset marked the session as advanced.
+            // A raw client that WONTs TTYPE arms both deferred offers, but
+            // a refusal alone advances nothing, so neither WILL ECHO nor
+            // DO NEW_ENVIRON goes out.
             var options = new TelnetServerOptions { RequestNewEnvironment = true };
             using var stream = new ScriptedStream();
             using var session = new ServerSession(stream, options, CancellationToken.None);
@@ -691,9 +698,7 @@ namespace telnet_cs.Tests
             int presetBytes = OutboundBytes(stream).Length;
             stream.Enqueue([255, 252, 24]);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
-            OutboundBytes(stream).Skip(presetBytes).ToArray().Should().Equal(
-              255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42,
-              255, 251, 1, 255, 253, 39);
+            OutboundBytes(stream).Skip(presetBytes).ToArray().Should().BeEmpty();
         }
 
         [Fact]
@@ -769,7 +774,9 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             var types = await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5));
             types.Should().Equal("aaa", "bbb");
-            OutboundBytes(stream).Should().Equal(255, 250, 24, 1, 255, 240, 255, 251, 1);
+            // The resolving repeat releases WILL ECHO and DO NEW_ENVIRON
+            // right after the TTYPE SEND.
+            OutboundBytes(stream).Should().Equal(255, 250, 24, 1, 255, 240, 255, 251, 1, 255, 253, 39);
         }
 
         [Fact]
@@ -851,7 +858,9 @@ namespace telnet_cs.Tests
             types.Should().Equal("ALPHA", "BETA", "GAMMA");
             session.ClientTerminalTypes.Should().Equal("ALPHA", "BETA", "GAMMA", "ALPHA");
             session.ClientEffectiveTerminalType.Should().Be("ALPHA");
-            OutboundBytes(stream).Should().Equal(255, 250, 24, 1, 255, 240, 255, 251, 1);
+            // The looped repeat releases WILL ECHO and DO NEW_ENVIRON
+            // right after the TTYPE SEND.
+            OutboundBytes(stream).Should().Equal(255, 250, 24, 1, 255, 240, 255, 251, 1, 255, 253, 39);
         }
 
         [Fact]
@@ -1080,13 +1089,14 @@ namespace telnet_cs.Tests
             // A stray TTYPE IS is stored even with no request outstanding
             // (reference on_ttype stores unconditionally, "even when
             // unsolicited"): no WONT and no IS reply are sent, but the store
-            // arms a deferred WILL ECHO (FF FB 01) on flush.
+            // arms a deferred WILL ECHO (FF FB 01) and DO NEW_ENVIRON
+            // (FF FD 27) on flush.
             using var stream = new ScriptedStream();
             stream.Enqueue([.. TtypeIsFrame("x")]);
             using var session = NewSession(stream);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientTerminalTypes.Should().Equal("x");
-            OutboundBytes(stream).Should().Equal(255, 251, 1);
+            OutboundBytes(stream).Should().Equal(255, 251, 1, 255, 253, 39);
         }
 
         [Fact]

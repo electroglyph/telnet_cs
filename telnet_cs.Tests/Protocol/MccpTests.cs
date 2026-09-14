@@ -14,6 +14,7 @@ namespace telnet_cs.Tests
     using FluentAssertions;
     using Xunit;
     using telnet_cs.IO;
+    using telnet_cs.Client;
     using telnet_cs.Server;
 
     public class MccpTests
@@ -377,6 +378,178 @@ namespace telnet_cs.Tests
             stream.Enqueue(compressed[(compressed.Length / 2)..].Select(b => (int)b).ToArray());
             var output2 = await session.ReadAsync(TimeSpan.FromMilliseconds(50));
             (output1 + output2).Should().Be("Hello, session!");
+        }
+
+        private static byte[] OutboundBytes(ScriptedStream stream)
+        {
+            return stream.ByteWrites.SelectMany(static b => b).ToArray();
+        }
+
+        private static int CountFrame(byte[] haystack, byte[] needle)
+        {
+            int count = 0;
+            for (int i = 0; i + needle.Length <= haystack.Length; i++)
+            {
+                bool match = true;
+                for (int j = 0; j < needle.Length; j++)
+                {
+                    if (haystack[i + j] != needle[j])
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+
+                if (match)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private static int IndexOfFrame(byte[] haystack, byte[] needle)
+        {
+            for (int i = 0; i + needle.Length <= haystack.Length; i++)
+            {
+                bool match = true;
+                for (int j = 0; j < needle.Length; j++)
+                {
+                    if (haystack[i + j] != needle[j])
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+
+                if (match)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private static string ZlibInflate(byte[] payload)
+        {
+            using var ms = new MemoryStream(payload);
+            using var inflater = new ZLibStream(ms, CompressionMode.Decompress);
+            using var reader = new StreamReader(inflater, Encoding.ASCII);
+            return reader.ReadToEnd();
+        }
+
+        [Fact]
+        public async Task OfferMccp2_AdvancedPreset_SendsWillMccp2()
+        {
+            // Explicit opt-in offer: once the peer advances negotiation
+            // (WILL TTYPE, option 24, here), the advanced preset carries
+            // IAC WILL MCCP2 exactly once.
+            using var stream = new ScriptedStream();
+            using var session = new ServerSession(
+              stream, new TelnetServerOptions { OfferMccp2 = true }, CancellationToken.None);
+            await session.SendOpeningPresetAsync();
+            stream.Enqueue(Iac, Will, 24);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
+            CountFrame(OutboundBytes(stream), [Iac, Will, Mccp2]).Should().Be(1);
+        }
+
+        [Fact]
+        public async Task OfferMccp2_Accepted_CompressesOutbound()
+        {
+            // The peer accepts the offer (DO MCCP2): the session emits the
+            // empty SB start marker raw, then compresses everything after
+            // it, so the trailing bytes inflate back to the sent text.
+            using var stream = new ScriptedStream();
+            using var session = new ServerSession(
+              stream, new TelnetServerOptions { OfferMccp2 = true }, CancellationToken.None);
+            await session.SendOpeningPresetAsync();
+            stream.Enqueue(Iac, Will, 24);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
+            stream.Enqueue(Iac, Do, Mccp2);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
+            await session.WriteAsync("hi");
+            var wire = OutboundBytes(stream);
+            byte[] start = [Iac, Sb, Mccp2, Iac, Se];
+            CountFrame(wire, start).Should().Be(1);
+            int at = IndexOfFrame(wire, start);
+            at.Should().BeGreaterThanOrEqualTo(0);
+            var compressed = wire[(at + start.Length)..];
+            compressed.Should().NotBeEmpty();
+            ZlibInflate(compressed).Should().Be("hi");
+        }
+
+        [Fact]
+        public async Task OfferMccp2_Tls_SendsNoWillMccp2()
+        {
+            // Compression is never offered over TLS: the advanced preset
+            // still negotiates everything else, but stays silent on MCCP2.
+            using var stream = new ScriptedStream();
+            using var session = new ServerSession(
+              stream, new TelnetServerOptions { OfferMccp2 = true }, CancellationToken.None);
+            session.IsTls = true;
+            await session.SendOpeningPresetAsync();
+            stream.Enqueue(Iac, Will, 24);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
+            var wire = OutboundBytes(stream);
+            wire.Should().NotBeEmpty();
+            CountFrame(wire, [Iac, Will, Mccp2]).Should().Be(0);
+        }
+
+        [Fact]
+        public async Task ClientMccp3_Agreed_CompressesOutbound()
+        {
+            // The client answers WILL MCCP3 with DO plus the empty SB start,
+            // then compresses everything it sends: the bytes after the start
+            // marker inflate back to the written payload.
+            using var stream = new ScriptedStream();
+            using var client = new Client(stream, new CancellationToken());
+            stream.Enqueue(Iac, Will, Mccp3);
+            (await client.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
+            await client.WriteAsync([(byte)'h', (byte)'i']);
+            var wire = OutboundBytes(stream);
+            byte[] start = [Iac, Sb, Mccp3, Iac, Se];
+            CountFrame(wire, [Iac, Do, Mccp3]).Should().Be(1);
+            CountFrame(wire, start).Should().Be(1);
+            int at = IndexOfFrame(wire, start);
+            at.Should().BeGreaterThanOrEqualTo(0);
+            var compressed = wire[(at + start.Length)..];
+            compressed.Should().NotBeEmpty();
+            ZlibInflate(compressed).Should().Be("hi");
+        }
+
+        [Fact]
+        public async Task ClientMccp3_PeerWont_RevertsToPlaintext()
+        {
+            // The peer takes MCCP3 back: the outbound filter is dropped, so
+            // later writes go out as raw bytes.
+            using var stream = new ScriptedStream();
+            using var client = new Client(stream, new CancellationToken());
+            stream.Enqueue(Iac, Will, Mccp3);
+            (await client.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
+            stream.Enqueue(Iac, Wont, Mccp3);
+            (await client.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
+            await client.WriteAsync([(byte)'h', (byte)'i']);
+            var wire = OutboundBytes(stream);
+            CountFrame(wire, [Iac, Do, Mccp3]).Should().Be(1);
+            wire[^2..].Should().Equal((byte)'h', (byte)'i');
+        }
+
+        [Fact]
+        public async Task ClientMccp3_Disabled_DeclinesAndWritesRaw()
+        {
+            // Compression off: the client answers WILL MCCP3 with DONT and
+            // never compresses.
+            using var stream = new ScriptedStream();
+            using var client = new Client(stream, new CancellationToken());
+            client.Settings.EnableMccp = false;
+            stream.Enqueue(Iac, Will, Mccp3);
+            (await client.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
+            await client.WriteAsync([(byte)'h', (byte)'i']);
+            var wire = OutboundBytes(stream);
+            CountFrame(wire, [Iac, Dont, Mccp3]).Should().Be(1);
+            wire[^2..].Should().Equal((byte)'h', (byte)'i');
         }
     }
 }

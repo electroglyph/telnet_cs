@@ -205,18 +205,19 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SessionCounters_NegotiationReply_CountsWireBytes()
         {
-            // An inbound WILL TTYPE advances negotiation: the reply is DO TTYPE
-            // (3B) + the TTYPE SEND probe (6B) + the advanced batch (12B) = 21
-            // bytes, not a lone 3-byte frame; all of it must reach the
-            // transmit counter even though it never passes through a
-            // WriteAsync overload. Observed: FF FD 18 / FF FA 18 01 FF F0 /
+            // An inbound WILL TTYPE advances negotiation: the server answers
+            // with no DO (it records the WILL and probes instead) + the
+            // TTYPE SEND probe (6B) + the advanced batch (12B) = 18 bytes,
+            // not a lone 3-byte frame; all of it must reach the transmit
+            // counter even though it never passes through a WriteAsync
+            // overload. Observed: FF FA 18 01 FF F0 /
             // FF FB 03 FF FB 00 FF FD 1F FF FD 2A.
             using var stream = new ScriptedStream(255, 251, 24);
             using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             session.Context.CharsReceived.Should().Be(3);
-            session.Context.CharsSent.Should().Be(21);
-            stream.ByteWrites.SelectMany(w => w).Should().HaveCount(21);
+            session.Context.CharsSent.Should().Be(18);
+            stream.ByteWrites.SelectMany(w => w).Should().HaveCount(18);
         }
 
         [Fact]

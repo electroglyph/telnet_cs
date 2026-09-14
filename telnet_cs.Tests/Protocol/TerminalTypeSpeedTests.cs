@@ -300,5 +300,18 @@
             output.Should().BeEmpty();
             stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(SpeedIsFrame("9600,9600"));
         }
+
+        [Fact]
+        public async Task SpeedEmptySb_SendsNothing()
+        {
+            // An SB frame with no subcommand byte carries no SEND verb, so
+            // there is nothing to answer (the reference parser likewise
+            // needs the command byte before it can respond).
+            var (output, stream) = await ReadHandlerOnceAsync(
+              static h => h.TerminalSpeed = "19200,19200",
+              [255, 250, 32, 255, 240]);
+            output.Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+        }
     }
 }

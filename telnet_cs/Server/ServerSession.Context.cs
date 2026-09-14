@@ -117,6 +117,8 @@ namespace telnet_cs.Server
             {
                 ShutdownPump();
                 StopIdleTimer();
+                mccp2Filter?.Dispose();
+                mccp2Filter = null;
             }
 
             base.Dispose(disposing);

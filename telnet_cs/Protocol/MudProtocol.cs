@@ -77,6 +77,22 @@ namespace telnet_cs.Protocol
         }
 
         /// <summary>
+        /// Default GMCP modules announced in <c>Core.Supports.Set</c> with the
+        /// <c>Core.Hello</c> handshake (package name and version 1 each).
+        /// </summary>
+        public static readonly string[] DefaultGmcpModules =
+        [
+            "char 1",
+            "char.vitals 1",
+            "char.items 1",
+            "room 1",
+            "room.info 1",
+            "comm 1",
+            "comm.channel 1",
+            "group 1",
+        ];
+
+        /// <summary>
         /// Encodes a GMCP message carrying a package name only (no data body).
         /// </summary>
         /// <param name="package">The dotted package name.</param>

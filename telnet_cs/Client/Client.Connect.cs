@@ -342,7 +342,7 @@
             }
 
             var buffer = new byte[] { (byte)Commands.InterpretAsCommand, (byte)verb, (byte)option };
-            return ByteStream.WriteAsync(buffer, 0, buffer.Length, InternalCancellation.Token);
+            return WriteStream.WriteAsync(buffer, 0, buffer.Length, InternalCancellation.Token);
         }
     }
 }

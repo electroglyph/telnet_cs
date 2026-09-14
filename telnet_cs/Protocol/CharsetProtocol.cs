@@ -138,8 +138,9 @@ namespace telnet_cs.Protocol
 
         /// <summary>
         /// Reads the character-set name from an <c>ACCEPTED</c> payload (verb first).
-        /// RFC 2066 section 2 requires ACCEPTED to name a charset, so a payload
-        /// without a name is malformed.
+        /// An empty name is tolerated (the peer named nothing): it yields an
+        /// empty string rather than throwing, so the read loop survives a
+        /// malformed ACCEPTED and the caller takes the rejection path.
         /// </summary>
         /// <param name="payload">The received payload, verb first.</param>
         public static string ParseAccepted(IReadOnlyList<byte> payload)
@@ -147,7 +148,7 @@ namespace telnet_cs.Protocol
             ArgumentNullException.ThrowIfNull(payload);
             if (payload.Count < 2)
             {
-                throw new ArgumentException("ACCEPTED payload must name a character set.", nameof(payload));
+                return string.Empty;
             }
 
             return Encoding.ASCII.GetString([.. payload.Skip(1)]);
@@ -240,9 +241,63 @@ namespace telnet_cs.Protocol
                 catch (ArgumentException)
                 {
                 }
+
+                // The codec registry knows "cp1252" but not "cp1250" (nor the
+                // CJK "CP936"/"CP932"/"CP949"/"CP950" the reference server
+                // offers): a "cp" prefix with trailing digits names a Windows
+                // code page directly, so resolve it by number. Keeps matching
+                // consistent — both sides canonicalize through here.
+                var byNumber = TryGetEncodingByCodePageNumber(candidate);
+                if (byNumber is not null)
+                {
+                    return byNumber;
+                }
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Resolves a "cpNNNN" spelling (any casing, e.g. <c>CP936</c>) to its
+        /// canonical <see cref="Encoding.WebName"/> via the numeric code page,
+        /// or null when the spelling is not a numeric code page or the runtime
+        /// has no such page.
+        /// </summary>
+        /// <param name="candidate">The charset name variant to try.</param>
+        private static string? TryGetEncodingByCodePageNumber(string candidate)
+        {
+            if (!candidate.StartsWith("cp", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var digits = candidate.AsSpan(2);
+            if (digits.IsEmpty)
+            {
+                return null;
+            }
+
+            foreach (var ch in digits)
+            {
+                if (!char.IsAsciiDigit(ch))
+                {
+                    return null;
+                }
+            }
+
+            if (!int.TryParse(digits, out var codePage))
+            {
+                return null;
+            }
+
+            try
+            {
+                return Encoding.GetEncoding(codePage).WebName;
+            }
+            catch (ArgumentException)
+            {
+                return null;
+            }
         }
 
         /// <summary>

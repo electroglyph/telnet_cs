@@ -99,14 +99,12 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public void CharsetParseAccepted_EmptyPayload_ThrowsArgumentException()
+        public void CharsetParseAccepted_EmptyPayload_ReturnsEmpty()
         {
-            // RFC 2066 section 2: ACCEPTED carries <Charset>, "identical to
-            // one of the character sets in the REQUEST" — the name is
-            // mandatory, and [] lacks even the verb, so the input is
-            // malformed and throwing fits .NET parse-method convention.
-            Action parse = () => CharsetProtocol.ParseAccepted([]);
-            parse.Should().Throw<ArgumentException>();
+            // An ACCEPTED without even the verb carries no charset names,
+            // so it parses to the empty selection instead of throwing: a
+            // short subnegotiation must not fail the read.
+            CharsetProtocol.ParseAccepted([]).Should().BeEmpty();
         }
 
         [Fact]

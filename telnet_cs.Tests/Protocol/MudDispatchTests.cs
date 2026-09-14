@@ -76,13 +76,14 @@ namespace telnet_cs.Tests
             output.Should().BeEmpty();
             // Agreement alone is just the DO — except ZMP and GMCP, whose
             // agreement also sends the reference handshake (zmp.ident /
-            // Core.Hello + Core.Supports.Set; ByteStreamHandler WeAgree path).
+            // Core.Hello + Core.Supports.Set with the default module set;
+            // ByteStreamHandler WeAgree path).
             int[] expected = option switch
             {
                 Zmp => [Iac, Do, option, Iac, Sb, option, .. Text("zmp.ident\0telnet-cs\01.0\0"), Iac, Se],
                 Gmcp => [Iac, Do, option,
                   Iac, Sb, option, .. Text("Core.Hello {\"client\":\"telnet-cs\",\"version\":\"1.0\"}"), Iac, Se,
-                  Iac, Sb, option, .. Text("Core.Supports.Set []"), Iac, Se],
+                  Iac, Sb, option, .. Text("Core.Supports.Set [\"char 1\",\"char.vitals 1\",\"char.items 1\",\"room 1\",\"room.info 1\",\"comm 1\",\"comm.channel 1\",\"group 1\"]"), Iac, Se],
                 _ => [Iac, Do, option],
             };
             Concat(writes).Select(static b => (int)b).Should().Equal(expected);

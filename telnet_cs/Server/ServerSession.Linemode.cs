@@ -233,12 +233,12 @@
             byte[] frame = EnvironmentProtocol.FrameSubnegotiation((int)Options.LineMode, payload);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(
               cancellationToken, InternalCancellation.Token);
-            if (ByteStream.Connected && !linked.Token.IsCancellationRequested)
+            if (WriteStream.Connected && !linked.Token.IsCancellationRequested)
             {
                 await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
                 try
                 {
-                    await ByteStream.WriteAsync(frame, 0, frame.Length, linked.Token).ConfigureAwait(false);
+                    await WriteStream.WriteAsync(frame, 0, frame.Length, linked.Token).ConfigureAwait(false);
                     Context.NoteWritten(frame.Length);
                 }
                 finally

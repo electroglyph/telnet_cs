@@ -11,12 +11,12 @@ using System.IO.Compression;
 /// DEFLATE bytes follow <c>IAC SB 86/87 IAC SE</c> until Z_FINISH, after
 /// which the stream ends and the wire resumes plaintext (any bytes fed past
 /// the footer surface as trailing plaintext).
-/// Format sniffing mirrors the reference autodetect: a leading
-/// <c>0x78</c> byte selects RFC 1950 zlib, <c>0x1F 0x8B</c> selects gzip,
+/// Format sniffing mirrors the reference autodetect: an RFC 1950 CMF byte
+/// (low nibble 8, any window size) selects zlib, <c>0x1F 0x8B</c> selects gzip,
 /// anything else is raw deflate — and a zlib-sniffed stream that fails to
 /// inflate is retried as raw before being called corrupt (the reference
-/// tries zlib first, then raw), since a raw stream may start with
-/// <c>0x78</c>.
+/// tries zlib first, then raw), since a raw stream may start with a
+/// CMF-like byte.
 /// Stream end is confirmed, never guessed: when the inflater stalls with
 /// all input consumed, the footer bytes are prechecked against running
 /// checksums (Adler32 for zlib, CRC32/ISIZE for gzip) and only then is the
@@ -161,9 +161,14 @@ internal sealed class MccpDecompressor : IDisposable
         }
 
         var first = input.GetBuffer()[0];
-        if (first == 0x78)
+        if ((first & 0x0F) == 0x08)
         {
             // RFC 1950 CMF: compression method 8 (deflate), any window size.
+            // The high nibble encodes the window (CINFO); only the default
+            // 32K window yields 0x78, so small-window streams arrive as
+            // 0x08..0x68 and must inflate as zlib too. A raw stream that
+            // happens to start there mis-sniffs, and the zlib-then-raw
+            // retry below recovers it.
             isZlib = true;
             sniffed = true;
         }
@@ -234,8 +239,8 @@ internal sealed class MccpDecompressor : IDisposable
             if (isZlib && !rawRetried)
             {
                 // The reference inflates zlib-first and retries raw deflate
-                // on failure: a raw stream that happens to start with 0x78
-                // mis-sniffs as zlib, so rewind and retry raw before calling
+                // on failure: a raw stream that happens to start with a
+                // CMF-like byte mis-sniffs as zlib, so rewind and retry raw before calling
                 // the stream corrupt. Partial zlib output is discarded — the
                 // raw pass re-inflates the whole slice from byte zero.
                 rawRetried = true;

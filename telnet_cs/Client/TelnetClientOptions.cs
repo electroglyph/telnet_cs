@@ -137,13 +137,44 @@
         public bool EnableMccp { get; set; } = true;
 
         /// <summary>
-        /// Whether the MUD options (MSDP, MSSP, MSP, MXP, ZMP, Aardwolf,
-        /// ATCP, GMCP) may be agreed. False (the default) declines them, like
-        /// the reference client, which only agrees when explicitly opted in:
-        /// agreeing invites subnegotiation frames the application must parse.
-        /// Set <c>true</c> for MUD play. The server side always agrees.
+        /// Whether the MUD options other than GMCP/ZMP (MSDP, MSSP, MSP,
+        /// MXP, Aardwolf, ATCP) may be agreed. False (the default) declines
+        /// them, like the reference client, which only agrees when explicitly
+        /// opted in: agreeing invites subnegotiation frames the application
+        /// must parse. Set <c>true</c> for MUD play. The server side always
+        /// agrees.
         /// </summary>
         public bool EnableMudOptions { get; set; }
+
+        /// <summary>
+        /// Whether GMCP (option 201) may be agreed. True (the default)
+        /// passively agrees like the reference client, answering WILL GMCP
+        /// with <c>Core.Hello</c> plus <c>Core.Supports.Set</c>.
+        /// </summary>
+        public bool EnableGmcp { get; set; } = true;
+
+        /// <summary>
+        /// Whether ZMP (option 93) may be agreed. True (the default)
+        /// passively agrees like the reference client, answering WILL ZMP
+        /// with <c>zmp.ident</c> plus one <c>zmp.support</c> per
+        /// <see cref="ZmpSupportedCommands"/> entry, and auto-answering
+        /// <c>zmp.check</c>/<c>zmp.send-support</c> queries.
+        /// </summary>
+        public bool EnableZmp { get; set; } = true;
+
+        /// <summary>
+        /// ZMP commands this client supports, advertised one
+        /// <c>zmp.support</c> per command after <c>zmp.ident</c>. Empty (the
+        /// default) advertises nothing.
+        /// </summary>
+        public IList<string> ZmpSupportedCommands { get; set; } = [];
+
+        /// <summary>
+        /// Predicate answering <c>zmp.check &lt;cmd&gt;</c> with
+        /// <c>zmp.support</c> (true) or <c>zmp.no-support</c> (false). Null
+        /// (the default) refuses every command, like the reference client.
+        /// </summary>
+        public Func<string, bool>? ZmpCheckHandler { get; set; }
 
         /// <summary>
         /// Whether COM port control (option 44, RFC 2217 framing level) may

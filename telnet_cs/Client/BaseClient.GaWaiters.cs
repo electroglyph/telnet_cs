@@ -52,7 +52,7 @@ namespace telnet_cs.Client
             }
 
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
-            if (!ByteStream.Connected || linked.Token.IsCancellationRequested)
+            if (!WriteStream.Connected || linked.Token.IsCancellationRequested)
             {
                 return false;
             }
@@ -60,7 +60,7 @@ namespace telnet_cs.Client
             await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
             try
             {
-                await ByteStream.WriteAsync([(byte)Commands.InterpretAsCommand, (byte)Commands.GoAhead], 0, 2, linked.Token).ConfigureAwait(false);
+                await WriteStream.WriteAsync([(byte)Commands.InterpretAsCommand, (byte)Commands.GoAhead], 0, 2, linked.Token).ConfigureAwait(false);
             }
             finally
             {

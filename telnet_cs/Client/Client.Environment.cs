@@ -55,12 +55,12 @@
               lines,
               colorTerm);
             var frame = EnvironmentProtocol.FrameSubnegotiation((int)option, info);
-            if (ByteStream.Connected && !InternalCancellation.Token.IsCancellationRequested)
+            if (WriteStream.Connected && !InternalCancellation.Token.IsCancellationRequested)
             {
                 await SendRateLimit.WaitAsync(InternalCancellation.Token).ConfigureAwait(false);
                 try
                 {
-                    await ByteStream.WriteAsync(frame, 0, frame.Length, InternalCancellation.Token).ConfigureAwait(false);
+                    await WriteStream.WriteAsync(frame, 0, frame.Length, InternalCancellation.Token).ConfigureAwait(false);
                 }
                 finally
                 {

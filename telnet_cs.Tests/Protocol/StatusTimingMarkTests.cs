@@ -32,21 +32,21 @@
         {
             // RFC 859 motivation: a status query must not trigger renegotiation —
             // answering SEND emits exactly the IS snapshot, no new WILL/DO/WONT/DONT.
-            // (WILL STATUS itself earns the initiation SEND probe, not a renegotiation.)
+            // (WILL STATUS itself earns the initiation SEND probe, not a DO:
+            // the reference probes instead of acknowledging.)
             var (output, stream) = await ReadHandlerOnceAsync(static _ => { },
                 255, 253, 5,
                 255, 251, 5,
                 255, 250, 5, 1, 255, 240);
             output.Should().BeEmpty();
-            stream.ByteWrites.Should().HaveCount(5);
+            stream.ByteWrites.Should().HaveCount(4);
             stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 5 });
             stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 5, 0, 255, 240 });
-            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 253, 5 });
-            stream.ByteWrites[3].Should().Equal(new byte[] { 255, 250, 5, 1, 255, 240 });
-            stream.ByteWrites[4].Should().HaveCountGreaterThan(4);
-            stream.ByteWrites[4][0].Should().Be((byte)255);
-            stream.ByteWrites[4][1].Should().Be((byte)250);
-            stream.ByteWrites[4][^1].Should().Be((byte)240);
+            stream.ByteWrites[2].Should().Equal(new byte[] { 255, 250, 5, 1, 255, 240 });
+            stream.ByteWrites[3].Should().HaveCountGreaterThan(4);
+            stream.ByteWrites[3][0].Should().Be((byte)255);
+            stream.ByteWrites[3][1].Should().Be((byte)250);
+            stream.ByteWrites[3][^1].Should().Be((byte)240);
         }
 
         [Fact]

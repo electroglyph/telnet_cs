@@ -175,6 +175,20 @@
             {
                 throw new System.IO.EndOfStreamException("The connection failed before any urgent byte arrived.", ex);
             }
+            catch (ObjectDisposedException ex)
+            {
+                throw new System.IO.EndOfStreamException("The connection failed before any urgent byte arrived.", ex);
+            }
+            catch (NullReferenceException ex)
+            {
+                // Close disposes the inner socket handle, after which
+                // Client reads back null. No handle means no urgent byte.
+                throw new System.IO.EndOfStreamException("The connection failed before any urgent byte arrived.", ex);
+            }
+            catch (InvalidOperationException ex)
+            {
+                throw new System.IO.EndOfStreamException("The connection failed before any urgent byte arrived.", ex);
+            }
 
             if (got == 0)
             {
@@ -194,13 +208,29 @@
         {
             try
             {
-                return client.Client.Poll(0, System.Net.Sockets.SelectMode.SelectError);
+                var socket = client.Client;
+                if (socket is null)
+                {
+                    return false;
+                }
+
+                return socket.Poll(0, System.Net.Sockets.SelectMode.SelectError);
             }
             catch (ObjectDisposedException)
             {
                 return false;
             }
             catch (System.Net.Sockets.SocketException)
+            {
+                return false;
+            }
+            catch (NullReferenceException)
+            {
+                // Close releases the inner handle, after which Client reads
+                // back null and the member access faults.
+                return false;
+            }
+            catch (InvalidOperationException)
             {
                 return false;
             }
@@ -227,6 +257,11 @@
                 // to ReceiveTimeout. Restored in finally; SendAsync stays correct
                 // in the microsecond non-blocking window.
                 var socket = client.Client;
+                if (socket is null)
+                {
+                    return null;
+                }
+
                 socket.Blocking = false;
                 try
                 {
@@ -244,6 +279,14 @@
                 return null;
             }
             catch (System.Net.Sockets.SocketException)
+            {
+                return null;
+            }
+            catch (NullReferenceException)
+            {
+                return null;
+            }
+            catch (InvalidOperationException)
             {
                 return null;
             }

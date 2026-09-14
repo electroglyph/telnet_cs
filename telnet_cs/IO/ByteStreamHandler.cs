@@ -635,8 +635,16 @@
         internal Action? Mccp3StartReceived { get; set; }
 
         /// <summary>
-        /// Gets or sets whether the MUD options (MSDP 69, MSSP 70, MSP 90,
-        /// MXP 91, ZMP 93, Aardwolf 102, ATCP 200, GMCP 201) may be agreed.
+        /// Gets or sets the hook invoked after this side sends the empty MCCP3
+        /// start marker (client role agreeing to compress outbound). The
+        /// session installs its compressing write view here: the marker went
+        /// out raw, so everything after it must be compressed.
+        /// </summary>
+        internal Action? Mccp3StartSent { get; set; }
+
+        /// <summary>
+        /// Gets or sets whether the MUD options other than GMCP/ZMP (MSDP 69,
+        /// MSSP 70, MSP 90, MXP 91, Aardwolf 102, ATCP 200) may be agreed.
         /// Defaults to <c>true</c>. The client stack overrides this from its
         /// options (declined by default); the server stack leaves the default
         /// in place and agrees. Subnegotiations dispatch to the typed
@@ -644,6 +652,37 @@
         /// hook); text decoding uses the agreed CHARSET when one resolved.
         /// </summary>
         internal bool EnableMudOptions { get; set; } = true;
+
+        /// <summary>
+        /// Gets or sets whether GMCP (option 201) may be agreed. Defaults to
+        /// <c>true</c>: a client passively agrees and answers with
+        /// <c>Core.Hello</c> plus <c>Core.Supports.Set</c>; other MUD options
+        /// stay behind <see cref="EnableMudOptions"/>.
+        /// </summary>
+        internal bool EnableGmcp { get; set; } = true;
+
+        /// <summary>
+        /// Gets or sets whether ZMP (option 93) may be agreed. Defaults to
+        /// <c>true</c>: a client passively agrees, answers with
+        /// <c>zmp.ident</c> plus one <c>zmp.support</c> per supported command,
+        /// and auto-answers <c>zmp.check</c>/<c>zmp.send-support</c>.
+        /// </summary>
+        internal bool EnableZmp { get; set; } = true;
+
+        /// <summary>
+        /// Gets or sets the ZMP commands this end supports, advertised one
+        /// <c>zmp.support</c> per command after <c>zmp.ident</c> and used to
+        /// answer <c>zmp.send-support</c> queries. Empty (the default)
+        /// advertises nothing.
+        /// </summary>
+        internal IList<string> ZmpSupportedCommands { get; set; } = [];
+
+        /// <summary>
+        /// Gets or sets the predicate answering <c>zmp.check &lt;cmd&gt;</c>
+        /// with <c>zmp.support</c> (true) or <c>zmp.no-support</c> (false).
+        /// Null (the default) refuses every command.
+        /// </summary>
+        internal Func<string, bool>? ZmpCheckHandler { get; set; }
 
         /// <summary>
         /// Gets or sets whether COM port control (option 44, RFC 2217 framing
@@ -662,9 +701,11 @@
 
         /// <summary>
         /// Whether the ZMP <c>zmp.ident</c> handshake was already sent for
-        /// this connection (reference <c>_zmp_ident_sent</c>).
+        /// this connection (reference <c>_zmp_ident_sent</c>). Session-lived:
+        /// the client stack round-trips it across per-read handlers so a
+        /// bare <c>zmp.send-support</c> is only answered before the ident.
         /// </summary>
-        private bool zmpIdentSent;
+        internal bool ZmpIdentSent { get; set; }
 
         /// <summary>
         /// Gets or sets the hook invoked with MUD subnegotiation payloads as
@@ -1667,7 +1708,13 @@
 
             if (IsMudOption(inputOption))
             {
-                DispatchMud(inputOption, [.. payload]);
+                byte[] body = [.. payload];
+                DispatchMud(inputOption, body);
+                if (inputOption == (int)Options.Zmp)
+                {
+                    await AnswerZmpAsync(body).ConfigureAwait(false);
+                }
+
                 return;
             }
 
@@ -1980,6 +2027,63 @@
             }
 
             MudSubnegotiationReceived?.Invoke(inputOption, body);
+        }
+
+        /// <summary>
+        /// Auto-answers ZMP capability queries on the client role (reference
+        /// on_zmp): <c>zmp.check &lt;cmd&gt;</c> earns <c>zmp.support</c> when
+        /// <see cref="ZmpCheckHandler"/> approves (refused by default) and
+        /// <c>zmp.no-support</c> otherwise; <c>zmp.send-support</c> with args
+        /// earns one answer per arg for the advertised
+        /// <see cref="ZmpSupportedCommands"/>, and bare only before our ident
+        /// went out. The store/hook dispatch in <see cref="DispatchMud"/>
+        /// runs first, so answers never precede recording.
+        /// </summary>
+        /// <param name="body">The subnegotiation body without the option byte.</param>
+        private async Task AnswerZmpAsync(byte[] body)
+        {
+            if (IsServerRole || !EnableZmp)
+            {
+                return;
+            }
+
+            var parts = MudProtocol.ZmpDecode(body, MudEncoding());
+            if (parts.Count == 0)
+            {
+                return;
+            }
+
+            if (parts[0] == "zmp.check" && parts.Count > 1)
+            {
+                var approved = ZmpCheckHandler?.Invoke(parts[1]) ?? false;
+                await SendNegotiation((int)Options.Zmp,
+                  MudProtocol.ZmpEncode(approved ? "zmp.support" : "zmp.no-support", parts[1])).ConfigureAwait(false);
+                return;
+            }
+
+            if (parts[0] == "zmp.send-support")
+            {
+                if (parts.Count > 1)
+                {
+                    foreach (var command in parts.Skip(1))
+                    {
+                        var supported = ZmpSupportedCommands.Contains(command);
+                        await SendNegotiation((int)Options.Zmp,
+                          MudProtocol.ZmpEncode(supported ? "zmp.support" : "zmp.no-support", command)).ConfigureAwait(false);
+                    }
+
+                    return;
+                }
+
+                if (!ZmpIdentSent)
+                {
+                    foreach (var command in ZmpSupportedCommands.OrderBy(static c => c, StringComparer.Ordinal))
+                    {
+                        await SendNegotiation((int)Options.Zmp,
+                          MudProtocol.ZmpEncode("zmp.support", command)).ConfigureAwait(false);
+                    }
+                }
+            }
         }
 
         /// <summary>
@@ -2821,13 +2925,24 @@
                 return;
             }
 
-            var outBuffer = new byte[]
+            if (reply is Commands.Do && inputVerb == (int)Commands.Will &&
+                SuppressWillAck(inputOption, IsServerRole))
             {
-        (byte)Commands.InterpretAsCommand,
-        (byte)reply,
-        (byte)inputOption,
-            };
-            await WriteWireAsync(outBuffer, 0, outBuffer.Length, internalCancellation.Token).ConfigureAwait(false);
+                // The agreement above is recorded in the negotiation state,
+                // but no DO goes out: for these options the reply would only
+                // invite a subnegotiation the other side must request first,
+                // and the follow-up SEND probes below run regardless.
+            }
+            else
+            {
+                var outBuffer = new byte[]
+                {
+            (byte)Commands.InterpretAsCommand,
+            (byte)reply,
+            (byte)inputOption,
+                };
+                await WriteWireAsync(outBuffer, 0, outBuffer.Length, internalCancellation.Token).ConfigureAwait(false);
+            }
 
             if (inputOption == (int)Options.WindowSize && inputVerb == (int)Commands.Do && reply is Commands.Will)
             {  // NAWS is volunteered only when we agree to send it (reference
@@ -2898,14 +3013,19 @@
             if (inputOption == (int)Options.Mccp3 && inputVerb == (int)Commands.Will
                 && reply is Commands.Do && !IsServerRole)
             {
-                // Reference handle_will: the client starts MCCP3 with an empty
-                // SB; everything after it is compressed by the peer.
+                // The client starts MCCP3 with an empty SB; inbound inflation
+                // arms only when the peer's SB actually arrives (the
+                // agreement-gated SB path below), never on the WILL itself —
+                // arming here would inflate the peer's still-plain bytes.
+                // Outbound compression starts here too, via the session hook:
+                // the marker above went out raw, so every byte after it is
+                // the session's compressor output.
                 await SendNegotiation((int)Options.Mccp3, []).ConfigureAwait(false);
-                Mccp3Active = true;
+                Mccp3StartSent?.Invoke();
             }
 
             if (inputOption == (int)Options.Gmcp && inputVerb == (int)Commands.Will
-                && reply is Commands.Do && !IsServerRole && EnableMudOptions && !gmcpHelloSent)
+                && reply is Commands.Do && !IsServerRole && EnableGmcp && !gmcpHelloSent)
             {
                 // Reference on_will_gmcp/send_gmcp_hello: Core.Hello plus
                 // Core.Supports.Set go out once GMCP is agreed.
@@ -2917,18 +3037,51 @@
                       ["version"] = "1.0",
                   })).ConfigureAwait(false);
                 await SendNegotiation((int)Options.Gmcp,
-                  MudProtocol.GmcpEncodeData("Core.Supports.Set", Array.Empty<string>())).ConfigureAwait(false);
+                  MudProtocol.GmcpEncodeData("Core.Supports.Set", MudProtocol.DefaultGmcpModules)).ConfigureAwait(false);
             }
 
             if (inputOption == (int)Options.Zmp && inputVerb == (int)Commands.Will
-                && reply is Commands.Do && !IsServerRole && EnableMudOptions && !zmpIdentSent)
+                && reply is Commands.Do && !IsServerRole && EnableZmp && !ZmpIdentSent)
             {
-                // Reference on_will_zmp/send_zmp_ident: zmp.ident goes out
-                // once ZMP is agreed.
-                zmpIdentSent = true;
+                // Reference on_will_zmp/send_zmp_ident: zmp.ident plus one
+                // zmp.support per supported command go out once ZMP is agreed.
+                ZmpIdentSent = true;
                 await SendNegotiation((int)Options.Zmp,
                   MudProtocol.ZmpEncode("zmp.ident", "telnet-cs", "1.0")).ConfigureAwait(false);
+                foreach (var command in ZmpSupportedCommands.OrderBy(static c => c, StringComparer.Ordinal))
+                {
+                    await SendNegotiation((int)Options.Zmp,
+                      MudProtocol.ZmpEncode("zmp.support", command)).ConfigureAwait(false);
+                }
             }
+        }
+
+        /// <summary>
+        /// Whether a WILL agreement is recorded without emitting DO. A server
+        /// never solicits TTYPE/TSPEED/XDISPLOC/NEW_ENVIRON/LFLOW/CHARSET/
+        /// STATUS with DO: it sends the SB SEND probe (or the CHARSET
+        /// reciprocation) once the peer volunteers WILL, and a bare DO would
+        /// only restate an agreement the probe already assumes. A client
+        /// likewise records WILL STATUS without DO and still answers the
+        /// peer's SEND with its snapshot. Every other agreement still emits
+        /// its DO/DONT/WILL/WONT reply above.
+        /// </summary>
+        /// <param name="inputOption">The negotiated option.</param>
+        /// <param name="serverRole">Whether this end acts as server.</param>
+        private static bool SuppressWillAck(int inputOption, bool serverRole)
+        {
+            if (serverRole)
+            {
+                return inputOption is (int)Options.TerminalType
+                    or (int)Options.TerminalSpeed
+                    or (int)Options.XDisplay
+                    or (int)Options.NewEnvironment
+                    or (int)Options.RemoteFlowControl
+                    or (int)Options.CharacterSet
+                    or (int)Options.Status;
+            }
+
+            return inputOption == (int)Options.Status;
         }
 
         private bool WeAgree(int inputOption, bool peerWill)
@@ -2948,10 +3101,16 @@
             if (IsMudOption(inputOption))
             {
                 // Role split, mirroring the reference (client-gated decline):
-                // a client agrees only when opted in (its options default to
-                // decline), while a server agrees. The client stack applies
-                // its setting over the default-true plumbing value.
-                return EnableMudOptions;
+                // GMCP and ZMP are passively agreed by default (each has its
+                // own switch); every other MUD option needs EnableMudOptions
+                // (the client stack declines it by default, the server
+                // agrees).
+                return inputOption switch
+                {
+                    (int)Options.Gmcp => EnableGmcp,
+                    (int)Options.Zmp => EnableZmp,
+                    _ => EnableMudOptions,
+                };
             }
 
             if (IsServerRole)

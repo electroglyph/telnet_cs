@@ -85,26 +85,26 @@
                 await RequestEnableAsync(Options.LineMode, cancellationToken).ConfigureAwait(false);
             }
 
-            // No WILL MCCP2/3 here on purpose: this stack inflates inbound
-            // MCCP but never compresses outbound, so offering compression
-            // would break the stream as soon as the peer accepts (the peer
-            // would send compressed bytes we inflate, while our own replies
-            // stay plaintext). EnableMccp stays the passive-accept gate
-            // (agree + inflate when the peer offers), never an offer.
+            // Outbound MCCP2 is explicit opt-in (never over TLS): the
+            // WILL goes out here, and the SB start marker plus the
+            // compressing write view follow once the peer accepts (see
+            // MaybeStartMccp2Async). EnableMccp alone stays the
+            // passive-accept gate (agree + inflate when the peer offers),
+            // never an offer.
+            if (Settings.OfferMccp2 && !IsTls)
+            {
+                await OfferEnableAsync(Options.Mccp2, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         /// <summary>
         /// Gets whether negotiation advanced far enough for the advanced
-        /// preset: any option enabled on either side, or TTYPE settled
-        /// negatively (a raw client that WONTs TTYPE still gets the rest).
+        /// preset: any option enabled on either side. A refusal alone is
+        /// not an advance — a raw client that WONTs everything gets
+        /// nothing further.
         /// </summary>
         private bool ShouldBeginAdvancedNegotiation()
         {
-            if (Negotiation.WasRefusedByPeer((int)Options.TerminalType))
-            {
-                return true;
-            }
-
             for (int option = 0; option <= 255; option++)
             {
                 var (us, him) = Negotiation.GetStates(option);
@@ -185,13 +185,13 @@
                 return;
             }
 
-            if (ByteStream.Connected && !cancellationToken.IsCancellationRequested)
+            if (WriteStream.Connected && !cancellationToken.IsCancellationRequested)
             {
                 await SendRateLimit.WaitAsync(cancellationToken).ConfigureAwait(false);
                 try
                 {
                     // A command frame has no data bytes, so no IAC escaping is needed.
-                    await ByteStream.WriteAsync([(byte)Commands.InterpretAsCommand, (byte)command], 0, 2, cancellationToken).ConfigureAwait(false);
+                    await WriteStream.WriteAsync([(byte)Commands.InterpretAsCommand, (byte)command], 0, 2, cancellationToken).ConfigureAwait(false);
                     Context.NoteWritten(2);
                 }
                 finally
@@ -540,7 +540,7 @@
                 return;
             }
 
-            if (ByteStream.Connected && !cancellationToken.IsCancellationRequested)
+            if (WriteStream.Connected && !cancellationToken.IsCancellationRequested)
             {
                 // Copy out before the first await: the callee takes a
                 // non-nullable verb, and narrowing a parameter across awaits is
@@ -563,7 +563,7 @@
         private async Task SendNegotiationBytesAsync(Commands verb, Options option, CancellationToken cancellationToken)
         {
             var buffer = new byte[] { (byte)Commands.InterpretAsCommand, (byte)verb, (byte)option };
-            await ByteStream.WriteAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
+            await WriteStream.WriteAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
             Context.NoteWritten(buffer.Length);
         }
 

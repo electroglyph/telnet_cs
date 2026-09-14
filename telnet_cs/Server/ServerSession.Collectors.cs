@@ -2,6 +2,7 @@
 {
     using telnet_cs.IO;
     using telnet_cs.Protocol;
+    using telnet_cs.Transport;
 
     /// <summary>
     /// Server-role subnegotiation requesters (S3): the session asks, the peer
@@ -36,19 +37,37 @@
         private bool terminalTypesCycleComplete;
         // Deferred opening negotiation (mirroring the reference): WILL ECHO
         // and DO NEW_ENVIRON leave with the preset only as intent. The TTYPE
-        // answers (or its refusal, or the collection timeout) arm them via
-        // the pending flags; FlushDeferredNegotiationAsync sends them after a
-        // read. echoNegotiated/environRequested latch so each fires once.
-        // advancedNegotiationSent latches the WILL SGA / WILL BINARY /
-        // DO NAWS / DO CHARSET advanced preset; ttypeProbeSent latches the
-        // SB TTYPE SEND probe on WILL TTYPE (an explicit collection covers
-        // its own probe and latches this too).
+        // answers arm them via the pending flags and release them on the
+        // next flush even before anything is agreed (the reference on_ttype
+        // path, which negotiates echo/environ per answer); the refusal and
+        // collection-timeout arming below only releases once negotiation
+        // advances (the reference check_negotiation gate). echoNegotiated /
+        // environRequested latch so each fires once. advancedNegotiationSent
+        // latches the WILL SGA / WILL BINARY / DO NAWS / DO CHARSET advanced
+        // preset; ttypeProbeSent latches the SB TTYPE SEND probe on WILL
+        // TTYPE (an explicit collection covers its own probe and latches
+        // this too).
         private bool advancedNegotiationSent;
         private bool ttypeProbeSent;
+        // Like the TTYPE probe above, but for the options the session asks
+        // about without a public requester: SB TSPEED SEND on WILL TSPEED and
+        // SB XDISPLOC SEND on WILL XDISPLOC, each latched to fire once.
+        private bool tspeedProbeSent;
+        private bool xdisplayProbeSent;
+        // A non-terminal TTYPE answer owed a follow-up SEND (the reference
+        // request_ttype per answer): set when the answer arrives, sent by
+        // the flush after the read, so background and explicit collection
+        // cycle identically with one SEND per answer.
+        private bool ttypeResendDue;
         private bool echoNegotiated;
         private bool environRequested;
         private bool negotiateEchoPending;
         private bool negotiateEnvironPending;
+        // Answer-driven release for the flags above: set alongside them when
+        // a TTYPE answer arrives, so the flush sends the offer without
+        // waiting for the advanced preset. Cleared once consumed.
+        private bool echoArmedByAnswer;
+        private bool environArmedByAnswer;
         // Set once the deferred DO NEW_ENVIRON is agreed and its default SB
         // SEND went out; the charset auto-REQUEST likewise fires once.
         private bool environSent;
@@ -431,7 +450,8 @@
         /// Asks the peer for its terminal-type list (RFC 1091: <c>SEND</c>,
         /// then one <c>IS</c> per entry): an initial <c>SEND</c>, then another
         /// <c>SEND</c> after every non-terminal answer (the reference
-        /// <c>request_ttype</c> per answer). The returned list ends at the
+        /// <c>request_ttype</c> per answer, sent by the read's flush so the
+        /// background pump cycles identically). The returned list ends at the
         /// first repeat: a reply equal to the first entry (cycle looped) or to
         /// the previous entry terminates the list — both compared
         /// case-sensitively, like the reference — as does an <c>MTTS</c>
@@ -479,16 +499,12 @@
                 }
 
                 replayedAny = true;
-                bool grew;
                 lock (collectorLock)
                 {
-                    grew = AppendTerminalTypeAnswerLocked(snapshot[i]);
-                }
-
-                if (grew && !IsTerminalTypeDone())
-                {
-                    // A replayed non-terminal answer: ask for the next one.
-                    await SendSbAsync(Options.TerminalType, [], cancellationToken).ConfigureAwait(false);
+                    // Replayed answers never re-arm the cycle: each got its
+                    // follow-up SEND when it first arrived (or needs none),
+                    // and the initial SEND above covers continuation.
+                    AppendTerminalTypeAnswerLocked(snapshot[i]);
                 }
             }
 
@@ -506,29 +522,12 @@
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
             while (!IsTerminalTypeDone() && DateTime.UtcNow < end && !linked.Token.IsCancellationRequested)
             {
-                int before;
-                lock (collectorLock)
-                {
-                    before = terminalTypeChain.Count;
-                }
-
+                // A fresh non-terminal answer arms its follow-up SEND in the
+                // read's flush (ttypeResendDue): nothing to send here.
                 var text = await ReadAsync(TimeSpan.FromMilliseconds(MillisecondReadDelay), linked.Token).ConfigureAwait(false);
                 if (!string.IsNullOrEmpty(text))
                 {
                     PendingText += text;
-                }
-
-                bool done = IsTerminalTypeDone();
-                int after;
-                lock (collectorLock)
-                {
-                    after = terminalTypeChain.Count;
-                }
-
-                if (!done && after > before)
-                {
-                    // A fresh non-terminal answer: ask for the next one.
-                    await SendSbAsync(Options.TerminalType, [], cancellationToken).ConfigureAwait(false);
                 }
             }
 
@@ -539,8 +538,8 @@
                 if (timedOut)
                 {
                     // Final wait over with the cycle unresolved (stall): the
-                    // deferred negotiations release now, like the reference
-                    // check_negotiation(final=True).
+                    // deferred negotiations arm now but still need advance
+                    // to go out, like the reference check_negotiation(final=True).
                     negotiateEchoPending = true;
                     negotiateEnvironPending = true;
                 }
@@ -566,6 +565,7 @@
             lock (collectorLock)
             {
                 expectingTerminalType = false;
+                ttypeResendDue = false;
                 // Watermark for the next request's replay; release the
                 // cycle-complete freeze so gap answers are kept.
                 terminalTypesConsumedUpTo = terminalTypeChain.Count;
@@ -587,17 +587,26 @@
 
         /// <summary>
         /// Sends whatever deferred opening negotiation is armed: the TTYPE
-        /// SEND probe once the peer WILLs TTYPE, the advanced preset once
-        /// negotiation advances, WILL ECHO (unless the peer looks like a MUD
-        /// client), DO NEW_ENVIRON, its default SB SEND once agreed, and the
-        /// encoding check (DO BINARY / CHARSET REQUEST). Runs after every
-        /// read — and on every background-pump pass — so answers observed
-        /// without a caller read take effect all the same.
+        /// SEND probe once the peer WILLs TTYPE (likewise TSPEED and
+        /// XDISPLOC), the advanced preset once negotiation advances, WILL
+        /// ECHO (unless the peer looks like a MUD client), DO NEW_ENVIRON
+        /// (skipped when the peer volunteered it), its default SB SEND once
+        /// agreed, the CHARSET WILL reciprocation, the encoding check (DO
+        /// BINARY / CHARSET REQUEST), and the MCCP2 start once the peer
+        /// accepts outbound compression. WILL ECHO and DO NEW_ENVIRON wait
+        /// for the advanced preset: a raw client that agrees to nothing gets
+        /// neither. Runs after every read — and on every background-pump
+        /// pass — so answers observed without a caller read take effect all
+        /// the same.
         /// </summary>
         /// <param name="cancellationToken">A token to cancel the send.</param>
         private async Task FlushDeferredNegotiationAsync(CancellationToken cancellationToken)
         {
             bool sendTtypeProbe = false;
+            bool sendTtypeCycle = false;
+            bool sendTspeedProbe = false;
+            bool sendXDisplayProbe = false;
+            bool reciprocateCharset = false;
             bool sendAdvanced = false;
             string? term;
             List<string> chain;
@@ -607,9 +616,19 @@
             {
                 if (Negotiation.WasRefusedByPeer((int)Options.TerminalType))
                 {
-                    // A raw client that WONTs TTYPE still releases the
-                    // deferred negotiations (reference check_negotiation).
+                    // A raw client that WONTs TTYPE arms the deferred
+                    // negotiations, but they only go out once negotiation
+                    // advances (see the gate below): a refusal alone
+                    // earns no ECHO or NEW_ENVIRON.
                     negotiateEchoPending = true;
+                    negotiateEnvironPending = true;
+                }
+
+                if (Negotiation.IsEnabledByPeer((int)Options.NewEnvironment))
+                {
+                    // The peer volunteered NEW_ENVIRON: no DO goes out for
+                    // it (it is already agreed — the WILL got no DO reply),
+                    // but the default SB SEND below still owes one.
                     negotiateEnvironPending = true;
                 }
 
@@ -624,26 +643,64 @@
                     sendTtypeProbe = true;
                 }
 
+                if (!tspeedProbeSent && Settings.RequestTerminalSpeed &&
+                    Negotiation.IsEnabledByPeer((int)Options.TerminalSpeed))
+                {
+                    // Same WILL-triggered probe for the terminal speed.
+                    tspeedProbeSent = true;
+                    sendTspeedProbe = true;
+                }
+
+                if (!xdisplayProbeSent && Settings.RequestXDisplay &&
+                    Negotiation.IsEnabledByPeer((int)Options.XDisplay))
+                {
+                    // Same WILL-triggered probe for the X display location.
+                    xdisplayProbeSent = true;
+                    sendXDisplayProbe = true;
+                }
+
+                var (charsetUs, _) = Negotiation.GetStates((int)Options.CharacterSet);
+                reciprocateCharset = Settings.RequestCharacterSet &&
+                    Negotiation.IsEnabledByPeer((int)Options.CharacterSet) &&
+                    charsetUs == NegotiationState.SideState.No &&
+                    !Negotiation.WasRefusedByUs((int)Options.CharacterSet);
+
                 if (!advancedNegotiationSent && ShouldBeginAdvancedNegotiation())
                 {
                     advancedNegotiationSent = true;
                     sendAdvanced = true;
                 }
 
-                wantEcho = negotiateEchoPending && !echoNegotiated;
-                wantEnviron = negotiateEnvironPending && !environRequested;
+                if (ttypeResendDue && TtypeCycleSolicitedLocked())
+                {
+                    ttypeResendDue = false;
+                    sendTtypeCycle = true;
+                }
+
+                wantEcho = (advancedNegotiationSent || echoArmedByAnswer) && negotiateEchoPending && !echoNegotiated;
+                wantEnviron = (advancedNegotiationSent || environArmedByAnswer) && negotiateEnvironPending && !environRequested;
                 if (wantEcho)
                 {
                     echoNegotiated = true;
+                    echoArmedByAnswer = false;
                 }
 
                 if (wantEnviron)
                 {
                     environRequested = true;
+                    environArmedByAnswer = false;
                 }
 
-                negotiateEchoPending = false;
-                negotiateEnvironPending = false;
+                if (advancedNegotiationSent)
+                {
+                    // Consumed: a raw client that never advances keeps its
+                    // pending intent armed until something is affirmatively
+                    // agreed, exactly like the deferred ECHO/ENVIRON below.
+                    negotiateEchoPending = false;
+                    negotiateEnvironPending = false;
+                    echoArmedByAnswer = false;
+                    environArmedByAnswer = false;
+                }
                 chain = [.. terminalTypeChain];
                 term = chain.Count >= 3 && chain[2].StartsWith("MTTS ", StringComparison.OrdinalIgnoreCase)
                     ? chain[1]
@@ -653,6 +710,22 @@
             if (sendTtypeProbe)
             {
                 await SendSbAsync(Options.TerminalType, [], cancellationToken).ConfigureAwait(false);
+            }
+            else if (sendTtypeCycle)
+            {
+                // One SEND per answer: when the probe above just went out
+                // it doubles as the follow-up, so the cycle owes nothing.
+                await SendSbAsync(Options.TerminalType, [], cancellationToken).ConfigureAwait(false);
+            }
+
+            if (sendTspeedProbe)
+            {
+                await SendSbAsync(Options.TerminalSpeed, [], cancellationToken).ConfigureAwait(false);
+            }
+
+            if (sendXDisplayProbe)
+            {
+                await SendSbAsync(Options.XDisplay, [], cancellationToken).ConfigureAwait(false);
             }
 
             if (sendAdvanced)
@@ -666,13 +739,75 @@
                 await OfferEnableAsync(Options.Echo, cancellationToken).ConfigureAwait(false);
             }
 
-            if (wantEnviron && Settings.RequestNewEnvironment)
+            if (wantEnviron && Settings.RequestNewEnvironment &&
+                !Negotiation.IsEnabledByPeer((int)Options.NewEnvironment))
             {
+                // A volunteered NEW_ENVIRON needs no DO (see the arming
+                // above); only ask when the peer has not offered.
                 await RequestEnableAsync(Options.NewEnvironment, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (reciprocateCharset)
+            {
+                // The peer WILLed CHARSET (its DO reply doubles as the
+                // state change, so no DO went out for it): answer with our
+                // own WILL, which the encoding check below needs on our
+                // side before it fires the auto-REQUEST.
+                await OfferEnableAsync(Options.CharacterSet, cancellationToken).ConfigureAwait(false);
             }
 
             await MaybeSendEnvironmentRequestAsync(cancellationToken).ConfigureAwait(false);
             await CheckEncodingAsync(cancellationToken).ConfigureAwait(false);
+            await MaybeStartMccp2Async(cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Starts outbound MCCP2 compression once the peer accepts our WILL
+        /// MCCP2: the empty SB start marker goes out raw, and only then is
+        /// the compressing write view published, so every writer is either
+        /// fully before the marker (raw) or fully after it (compressed).
+        /// A peer that later takes compression back drops the view again
+        /// (later writes go out raw; bytes already compressed stay that
+        /// way — the wire cannot un-compress mid-stream).
+        /// </summary>
+        /// <param name="cancellationToken">A token to cancel the send.</param>
+        private async Task MaybeStartMccp2Async(CancellationToken cancellationToken)
+        {
+            if (mccp2Filter is not null && !Negotiation.IsEnabledByUs((int)Options.Mccp2))
+            {
+                mccp2Filter.Dispose();
+                mccp2Filter = null;
+                return;
+            }
+
+            if (mccp2Filter is not null || !Negotiation.IsEnabledByUs((int)Options.Mccp2))
+            {
+                return;
+            }
+
+            var frame = EnvironmentProtocol.FrameSubnegotiation((int)Options.Mccp2, []);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
+            if (!ByteStream.Connected || linked.Token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
+            try
+            {
+                if (!Negotiation.IsEnabledByUs((int)Options.Mccp2))
+                {
+                    return;
+                }
+
+                await ByteStream.WriteAsync(frame, 0, frame.Length, linked.Token).ConfigureAwait(false);
+                Context.NoteWritten(frame.Length);
+                mccp2Filter = new MccpWriteFilter(ByteStream, new MccpCompressor());
+            }
+            finally
+            {
+                SendRateLimit.Release();
+            }
         }
 
         /// <summary>
@@ -1314,7 +1449,14 @@
             {
                 // No expecting gate: the reference stores TTYPE IS even when
                 // unsolicited (server check only, no pending check).
-                AppendTerminalTypeAnswerLocked(answer);
+                bool resendable = AppendTerminalTypeAnswerLocked(answer);
+                if (resendable && TtypeCycleSolicitedLocked())
+                {
+                    // Non-terminal answer to a live solicitation: the flush
+                    // after this read asks for the next one.
+                    ttypeResendDue = true;
+                }
+
                 return true;
             }
         }
@@ -1337,11 +1479,14 @@
             int before = terminalTypeChain.Count;
             // Every answer negotiates echo (deduped at flush time): ECHO
             // waits until TTYPE reveals the client because MUD clients
-            // render WILL ECHO as password mode.
+            // render WILL ECHO as password mode. The answer flag releases
+            // it on the next flush without waiting for advance.
             negotiateEchoPending = true;
+            echoArmedByAnswer = true;
             if (answer.Length == 0)
             {
                 negotiateEnvironPending = true;
+                environArmedByAnswer = true;
                 expectingTerminalType = false;
                 terminalTypesCycleComplete = true;
                 return false;
@@ -1356,6 +1501,7 @@
                     // the environment (exact "ANSI" match, like the
                     // reference — Microsoft telnet crashes on NEW_ENVIRON).
                     negotiateEnvironPending = true;
+                    environArmedByAnswer = true;
                 }
 
                 return terminalTypeChain.Count > before;
@@ -1371,6 +1517,7 @@
                 expectingTerminalType = false;
                 terminalTypesCycleComplete = true;
                 negotiateEnvironPending = true;
+                environArmedByAnswer = true;
                 return false;
             }
 
@@ -1381,6 +1528,7 @@
                 // Second answer: an ANSI first answer is resolved now, so
                 // the deferred environ request goes out (unless already).
                 negotiateEnvironPending = true;
+                environArmedByAnswer = true;
             }
 
             if (string.Equals(answer, terminalTypeChain[0], StringComparison.Ordinal) ||
@@ -1394,9 +1542,23 @@
                 expectingTerminalType = false;
                 terminalTypesCycleComplete = true;
                 negotiateEnvironPending = true;
+                environArmedByAnswer = true;
             }
 
             return terminalTypeChain.Count > before;
+        }
+
+        /// <summary>
+        /// Whether a follow-up TTYPE SEND is owed (caller holds
+        /// <see cref="collectorLock"/>): an explicit collection is always
+        /// live, while background answers only continue a cycle we opened
+        /// (terminal type requested and the peer WILLed it) — an unsolicited
+        /// report with no WILL is stored, never chased.
+        /// </summary>
+        private bool TtypeCycleSolicitedLocked()
+        {
+            return expectingTerminalType ||
+                (Settings.RequestTerminalType && Negotiation.IsEnabledByPeer((int)Options.TerminalType));
         }
 
         private bool TryConsumeTerminalSpeed(List<byte> payload)
@@ -1542,7 +1704,11 @@
                     forceBinaryDecoding = true;
                     try
                     {
-                        charsetEncoding = System.Text.Encoding.GetEncoding(clientCharset);
+                        // Resolve through the shared canonicalizer so spellings
+                        // the registry does not know directly (e.g. "CP936")
+                        // still switch decoding when a numeric code page does.
+                        var canonical = CharsetProtocol.CanonicalName(clientCharset);
+                        charsetEncoding = canonical is null ? null : System.Text.Encoding.GetEncoding(canonical);
                     }
                     catch (ArgumentException)
                     {
@@ -1576,12 +1742,12 @@
         {
             var frame = EnvironmentProtocol.FrameSubnegotiation(option, payload);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
-            if (ByteStream.Connected && !linked.Token.IsCancellationRequested)
+            if (WriteStream.Connected && !linked.Token.IsCancellationRequested)
             {
                 await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
                 try
                 {
-                    await ByteStream.WriteAsync(frame, 0, frame.Length, linked.Token).ConfigureAwait(false);
+                    await WriteStream.WriteAsync(frame, 0, frame.Length, linked.Token).ConfigureAwait(false);
                     Context.NoteWritten(frame.Length);
                 }
                 finally
@@ -1595,12 +1761,12 @@
         {
             var frame = EnvironmentProtocol.FrameSubnegotiation((int)option, [EnvironmentProtocol.Send, .. types]);
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
-            if (ByteStream.Connected && !linked.Token.IsCancellationRequested)
+            if (WriteStream.Connected && !linked.Token.IsCancellationRequested)
             {
                 await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
                 try
                 {
-                    await ByteStream.WriteAsync(frame, 0, frame.Length, linked.Token).ConfigureAwait(false);
+                    await WriteStream.WriteAsync(frame, 0, frame.Length, linked.Token).ConfigureAwait(false);
                     Context.NoteWritten(frame.Length);
                 }
                 finally

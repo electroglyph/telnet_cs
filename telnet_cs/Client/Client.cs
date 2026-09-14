@@ -70,12 +70,12 @@
         private async Task WriteRawAsync(byte[] data, CancellationToken cancellationToken)
         {
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
-            if (ByteStream.Connected && !linked.Token.IsCancellationRequested)
+            if (WriteStream.Connected && !linked.Token.IsCancellationRequested)
             {
                 await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
                 try
                 {
-                    await ByteStream.WriteAsync(data, 0, data.Length, linked.Token).ConfigureAwait(false);
+                    await WriteStream.WriteAsync(data, 0, data.Length, linked.Token).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -87,12 +87,12 @@
         private async Task WriteStringAsync(string value, CancellationToken cancellationToken)
         {
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
-            if (ByteStream.Connected && !linked.Token.IsCancellationRequested)
+            if (WriteStream.Connected && !linked.Token.IsCancellationRequested)
             {
                 await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
                 try
                 {
-                    await ByteStream.WriteAsync(value, linked.Token).ConfigureAwait(false);
+                    await WriteStream.WriteAsync(value, linked.Token).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -124,13 +124,13 @@
             }
 
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
-            if (ByteStream.Connected && !linked.Token.IsCancellationRequested)
+            if (WriteStream.Connected && !linked.Token.IsCancellationRequested)
             {
                 await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
                 try
                 {
                     // A command frame has no data bytes, so no IAC escaping is needed.
-                    await ByteStream.WriteAsync([(byte)Commands.InterpretAsCommand, (byte)command], 0, 2, linked.Token).ConfigureAwait(false);
+                    await WriteStream.WriteAsync([(byte)Commands.InterpretAsCommand, (byte)command], 0, 2, linked.Token).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -198,7 +198,7 @@
             }
 
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
-            if (!ByteStream.Connected || linked.Token.IsCancellationRequested)
+            if (!WriteStream.Connected || linked.Token.IsCancellationRequested)
             {
                 return false;
             }
@@ -206,7 +206,7 @@
             await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
             try
             {
-                await ByteStream.WriteAsync([(byte)Commands.InterpretAsCommand, (byte)Commands.EndOfRecord], 0, 2, linked.Token).ConfigureAwait(false);
+                await WriteStream.WriteAsync([(byte)Commands.InterpretAsCommand, (byte)Commands.EndOfRecord], 0, 2, linked.Token).ConfigureAwait(false);
             }
             finally
             {
@@ -482,7 +482,7 @@
                 // the handler no longer disposes (or cancels) anything it
                 // does not own.
                 using (var linked = CancellationTokenSource.CreateLinkedTokenSource(InternalCancellation.Token, cancellationToken))
-                using (var handler = new ByteStreamHandler(ByteStream, linked, MillisecondReadDelay))
+                using (var handler = new ByteStreamHandler(WriteStream, linked, MillisecondReadDelay))
                 {
                     FeedHandler(handler);
                     await MaybeSendEnvironmentInfoAsync().ConfigureAwait(false);
@@ -507,6 +507,7 @@
                     {
                         sbResumeState = handler.SbResumeState;
                         framingState = handler.FramingState;
+                        zmpIdentSent = handler.ZmpIdentSent;
                     }
                 }
             }

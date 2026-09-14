@@ -41,6 +41,16 @@
         /// </summary>
         internal bool IsTls { get; set; }
 
+        // Outbound MCCP2 compression (see MaybeStartMccp2Async): null while
+        // the wire stays plaintext, otherwise the compressing view every
+        // session and handler write goes through. Published once, under the
+        // send gate, after the SB start marker went out raw; reads, closes
+        // and urgent sends keep using the raw ByteStream.
+        private MccpWriteFilter? mccp2Filter;
+
+        /// <inheritdoc/>
+        protected override IByteStream WriteStream => mccp2Filter ?? ByteStream;
+
         /// <summary>
         /// Initialises a new instance of the <see cref="ServerSession"/> class
         /// with default <see cref="TelnetServerOptions"/>.
@@ -174,7 +184,7 @@
             // Safe to dispose: the handler no longer disposes (or cancels)
             // anything it does not own.
             using (var linked = CancellationTokenSource.CreateLinkedTokenSource(InternalCancellation.Token, callerToken))
-            using (var handler = new ByteStreamHandler(ByteStream, linked, MillisecondReadDelay))
+            using (var handler = new ByteStreamHandler(WriteStream, linked, MillisecondReadDelay))
             {
                 FeedSession(handler);
                 try
@@ -247,12 +257,12 @@
             }
 
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
-            if (ByteStream.Connected && !linked.Token.IsCancellationRequested)
+            if (WriteStream.Connected && !linked.Token.IsCancellationRequested)
             {
                 await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
                 try
                 {
-                    await ByteStream.WriteAsync(command, linked.Token).ConfigureAwait(false);
+                    await WriteStream.WriteAsync(command, linked.Token).ConfigureAwait(false);
                     // The stream encodes exactly like the converter with a
                     // null encoding (its TextEncoding is never set): Latin-1
                     // plus IAC escaping, so this is the on-the-wire length.
@@ -285,12 +295,12 @@
         private async Task WriteRawAsync(byte[] data, CancellationToken cancellationToken)
         {
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
-            if (ByteStream.Connected && !linked.Token.IsCancellationRequested)
+            if (WriteStream.Connected && !linked.Token.IsCancellationRequested)
             {
                 await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
                 try
                 {
-                    await ByteStream.WriteAsync(data, 0, data.Length, linked.Token).ConfigureAwait(false);
+                    await WriteStream.WriteAsync(data, 0, data.Length, linked.Token).ConfigureAwait(false);
                     Context.NoteWritten(data.Length);
                 }
                 finally

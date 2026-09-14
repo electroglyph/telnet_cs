@@ -85,23 +85,24 @@
         }
 
         [Fact]
-        public async Task DoGmcp_DeclinedByDefault()
+        public async Task DoGmcp_AgreedByDefault()
         {
-            // F-M2: a default client declines MUD options like the reference
-            // (opt in via TelnetClientOptions.EnableMudOptions).
+            // A default client accepts GMCP like the reference (which
+            // passively agrees GMCP/ZMP while other MUD options stay
+            // opt-in via TelnetClientOptions.EnableMudOptions).
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
                 using var client = new Client(stream, new CancellationToken());
                 stream.Enqueue(255, 253, 201);
                 (await ReadOnceAsync(client)).Should().BeEmpty();
-                CountWrites(stream, 252, 201).Should().Be(1);
-                CountWrites(stream, 251, 201).Should().Be(0);
+                CountWrites(stream, 251, 201).Should().Be(1);
+                CountWrites(stream, 252, 201).Should().Be(0);
             }
         }
 
         [Fact]
-        public async Task WillGmcp_DeclinedByDefault()
+        public async Task WillGmcp_AgreedByDefault()
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
@@ -109,8 +110,8 @@
                 using var client = new Client(stream, new CancellationToken());
                 stream.Enqueue(255, 251, 201);
                 (await ReadOnceAsync(client)).Should().BeEmpty();
-                CountWrites(stream, 254, 201).Should().Be(1);
-                CountWrites(stream, 253, 201).Should().Be(0);
+                CountWrites(stream, 253, 201).Should().Be(1);
+                CountWrites(stream, 254, 201).Should().Be(0);
             }
         }
 

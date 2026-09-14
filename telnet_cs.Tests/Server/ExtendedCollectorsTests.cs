@@ -152,15 +152,15 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream(Iac, Will, 33);
             using var session = NewSession(stream);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
-            // DO LFLOW + the volunteered RESTART-XON SB, then the advanced
-            // batch the agreement releases (SGA, BINARY, NAWS, CHARSET).
-            stream.ByteWrites.Should().HaveCount(6);
-            stream.ByteWrites[0].Should().Equal(Iac, Do, 33);
-            stream.ByteWrites[1].Should().Equal(Iac, Sb, 33, 3, Iac, Se);
-            stream.ByteWrites[2].Should().Equal(Iac, Will, 3);
-            stream.ByteWrites[3].Should().Equal(Iac, Will, 0);
-            stream.ByteWrites[4].Should().Equal(Iac, Do, 31);
-            stream.ByteWrites[5].Should().Equal(Iac, Do, 42);
+            // The volunteered RESTART-XON SB (no DO reply — the reference
+            // probes instead of acknowledging), then the advanced batch the
+            // agreement releases (SGA, BINARY, NAWS, CHARSET).
+            stream.ByteWrites.Should().HaveCount(5);
+            stream.ByteWrites[0].Should().Equal(Iac, Sb, 33, 3, Iac, Se);
+            stream.ByteWrites[1].Should().Equal(Iac, Will, 3);
+            stream.ByteWrites[2].Should().Equal(Iac, Will, 0);
+            stream.ByteWrites[3].Should().Equal(Iac, Do, 31);
+            stream.ByteWrites[4].Should().Equal(Iac, Do, 42);
         }
 
         [Fact]
@@ -170,13 +170,14 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             (await session.SendLineflowModeAsync(true)).Should().BeTrue();
-            // DO + volunteered SB + advanced batch, then the explicit mode SB.
-            stream.ByteWrites.Should().HaveCount(7);
-            stream.ByteWrites[2].Should().Equal(Iac, Will, 3);
-            stream.ByteWrites[3].Should().Equal(Iac, Will, 0);
-            stream.ByteWrites[4].Should().Equal(Iac, Do, 31);
-            stream.ByteWrites[5].Should().Equal(Iac, Do, 42);
-            stream.ByteWrites[6].Should().Equal(Iac, Sb, 33, 2, Iac, Se);
+            // Volunteered SB + advanced batch, then the explicit mode SB
+            // (no DO reply anywhere — the WILL is recorded, not answered).
+            stream.ByteWrites.Should().HaveCount(6);
+            stream.ByteWrites[1].Should().Equal(Iac, Will, 3);
+            stream.ByteWrites[2].Should().Equal(Iac, Will, 0);
+            stream.ByteWrites[3].Should().Equal(Iac, Do, 31);
+            stream.ByteWrites[4].Should().Equal(Iac, Do, 42);
+            stream.ByteWrites[5].Should().Equal(Iac, Sb, 33, 2, Iac, Se);
         }
 
         [Fact]

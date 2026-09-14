@@ -3,6 +3,7 @@
     using System.Collections.Generic;
     using telnet_cs.IO;
     using telnet_cs.Protocol;
+    using telnet_cs.Transport;
 
     public partial class Client
     {
@@ -89,7 +90,13 @@
                 mccp3Agreed = mccp3;
                 mccpStream = stream;
             };
+            handler.Mccp3StartSent = NoteMccp3StartSent;
             handler.EnableMudOptions = Settings.EnableMudOptions;
+            handler.EnableGmcp = Settings.EnableGmcp;
+            handler.EnableZmp = Settings.EnableZmp;
+            handler.ZmpSupportedCommands = [.. Settings.ZmpSupportedCommands];
+            handler.ZmpCheckHandler = Settings.ZmpCheckHandler;
+            handler.ZmpIdentSent = zmpIdentSent;
             handler.EnableComPort = Settings.EnableComPort;
             handler.Linemode = linemodeState;
             handler.GoAheadReceived = OnGoAheadReceived;
@@ -104,7 +111,68 @@
         private TerminalTypeCycler? terminalTypeCycler;
         private bool mccp2Agreed;
         private bool mccp3Agreed;
+        private bool zmpIdentSent;
         private MccpDecompressor? mccpStream;
+
+        // Outbound MCCP3 compression (client role): null while the wire stays
+        // plaintext, otherwise the compressing view every client and handler
+        // write goes through. Published by NoteMccp3StartSent once our empty
+        // SB start marker went out raw; reads, closes and urgent sends keep
+        // using the raw ByteStream.
+        private MccpWriteFilter? mccp3Filter;
+        private readonly Lock mccp3Gate = new();
+
+        /// <inheritdoc/>
+        protected override IByteStream WriteStream => SelectWriteStream();
+
+        private IByteStream SelectWriteStream()
+        {
+            lock (mccp3Gate)
+            {
+                if (mccp3Filter is not null && !Negotiation.IsEnabledByPeer((int)Options.Mccp3))
+                {
+                    // The peer took compression back: later writes go out
+                    // raw; bytes already compressed stay that way — the wire
+                    // cannot un-compress mid-stream.
+                    mccp3Filter.Dispose();
+                    mccp3Filter = null;
+                }
+
+                return mccp3Filter ?? ByteStream;
+            }
+        }
+
+        private void NoteMccp3StartSent()
+        {
+            lock (mccp3Gate)
+            {
+                if (mccp3Filter is not null || !Negotiation.IsEnabledByPeer((int)Options.Mccp3))
+                {
+                    return;
+                }
+
+                mccp3Filter = new MccpWriteFilter(ByteStream, new MccpCompressor());
+            }
+        }
+
+        /// <summary>
+        /// Releases the outbound MCCP3 filter (if any) before the base
+        /// session teardown closes the raw stream.
+        /// </summary>
+        /// <param name="disposing"><c>true</c> to release managed resources.</param>
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                lock (mccp3Gate)
+                {
+                    mccp3Filter?.Dispose();
+                    mccp3Filter = null;
+                }
+            }
+
+            base.Dispose(disposing);
+        }
 
         /// <summary>
         /// Subnegotiation continuation stashed by the last read, fed into the

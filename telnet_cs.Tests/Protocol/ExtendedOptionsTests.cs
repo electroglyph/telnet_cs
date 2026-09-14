@@ -164,13 +164,13 @@ namespace telnet_cs.Tests
         public async Task WillLineflow_AsServer_SendsRestartXonByDefault()
         {
             // Server role required: the SendLineflowAsServer flag alone no
-            // longer suffices — a client refuses WILL LFLOW with DONT.
+            // longer suffices — a client refuses WILL LFLOW with DONT. The
+            // server records the WILL without a DO reply (the reference
+            // probes instead of acknowledging) and only the mode SB goes out.
             var (output, writes, _) = await ReadOnceAsync(
               h => { h.SendLineflowAsServer = true; h.IsServerRole = true; }, Iac, Will, 33);
             output.Should().BeEmpty();
-            writes.Should().HaveCount(2);
-            writes[0].Should().Equal(Iac, Do, 33);
-            writes[1].Should().Equal(Iac, Sb, 33, 3, Iac, Se);
+            writes.Should().ContainSingle().Which.Should().Equal(Iac, Sb, 33, 3, Iac, Se);
         }
 
         [Fact]
@@ -610,7 +610,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task DoGmcp_DeclinedWhenMudDisabled()
         {
-            var (output, writes, _) = await ReadOnceAsync(h => h.EnableMudOptions = false, Iac, Do, 201);
+            var (output, writes, _) = await ReadOnceAsync(
+              h => { h.EnableMudOptions = false; h.EnableGmcp = false; }, Iac, Do, 201);
             output.Should().BeEmpty();
             Concat(writes).Should().Equal(Iac, Wont, 201);
         }
@@ -624,9 +625,10 @@ namespace telnet_cs.Tests
               Iac, Will, 201, Iac, Sb, 201, (byte)'h', (byte)'i', Iac, Se);
             output.Should().BeEmpty();
             // Agreement also sends the reference handshake (Core.Hello +
-            // Core.Supports.Set) ahead of nothing else here.
+            // Core.Supports.Set with the default module set) ahead of
+            // nothing else here.
             var hello = System.Text.Encoding.ASCII.GetBytes("Core.Hello {\"client\":\"telnet-cs\",\"version\":\"1.0\"}");
-            var supports = System.Text.Encoding.ASCII.GetBytes("Core.Supports.Set []");
+            var supports = System.Text.Encoding.ASCII.GetBytes("Core.Supports.Set [\"char 1\",\"char.vitals 1\",\"char.items 1\",\"room 1\",\"room.info 1\",\"comm 1\",\"comm.channel 1\",\"group 1\"]");
             var expected = new[] { Iac, Do, 201, Iac, Sb, 201 }
               .Concat(hello.Select(static b => (int)b)).Concat([Iac, Se])
               .Concat(new[] { Iac, Sb, 201 }).Concat(supports.Select(static b => (int)b)).Concat([Iac, Se])

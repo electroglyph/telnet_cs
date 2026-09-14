@@ -86,6 +86,17 @@
         }
 
         /// <summary>
+        /// Gets the stream outbound bytes are written to. The base
+        /// implementation is the raw connection stream; the server session
+        /// overrides it with its MCCP2 compressing view once the peer
+        /// accepts outbound compression, so every writer (session methods,
+        /// per-read handlers, go-ahead) compresses without knowing about it.
+        /// Reads, connection checks and closes always use
+        /// <see cref="ByteStream"/> directly.
+        /// </summary>
+        protected virtual IByteStream WriteStream => ByteStream;
+
+        /// <summary>
         /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
         /// </summary>
         public void Dispose()

@@ -92,10 +92,13 @@
 
         /// <summary>
         /// Gets or sets whether sessions request new-form environment reports
-        /// (<c>DO NewEnvironment</c>, RFC 1572) in the opening preset.
-        /// Defaults to <c>false</c> so default opening-preset bytes are unchanged.
+        /// (<c>DO NewEnvironment</c>, RFC 1572) once the terminal type
+        /// resolves. Defaults to <c>true</c>: the deferred request goes out
+        /// after TTYPE (never in the opening preset), except against
+        /// Microsoft telnet (an <c>"ANSI"</c> first answer defers it past
+        /// the second report, which crashes on NEW_ENVIRON).
         /// </summary>
-        public bool RequestNewEnvironment { get; set; }
+        public bool RequestNewEnvironment { get; set; } = true;
 
         /// <summary>
         /// Gets or sets whether sessions request the peer location
@@ -127,6 +130,17 @@
         /// stays refused over TLS in any case.
         /// </summary>
         public bool EnableMccp { get; set; } = true;
+
+        /// <summary>
+        /// Gets or sets whether sessions offer outbound MCCP2 compression
+        /// (<c>WILL MCCP2</c>, option 86) in the advanced preset. Defaults to
+        /// <c>false</c>: offering is explicit opt-in (like the reference
+        /// compression flag), while <see cref="EnableMccp"/> alone only
+        /// passively accepts the peer's offer. When the peer accepts, the
+        /// session sends the empty SB start marker and compresses everything
+        /// after it; stays unoffered over TLS in any case.
+        /// </summary>
+        public bool OfferMccp2 { get; set; }
 
         /// <summary>
         /// Gets or sets the prompt sent before reading the login name in
