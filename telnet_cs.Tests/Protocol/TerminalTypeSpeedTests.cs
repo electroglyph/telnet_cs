@@ -279,6 +279,17 @@
             stream.ByteWrites.Should().BeEmpty();
         }
 
+        [Theory]
+        [InlineData("+9600,9600")]
+        [InlineData("-1,0")]
+        public void SpeedValidate_SignedRates_Rejected(string speed)
+        {
+            // RFC 1079 section 4 rates are unsigned digits: a sign prefix
+            // is not a rate, so validation fails instead of coercing the
+            // text through signed integer parsing.
+            TerminalSpeedProtocol.Validate(speed).Should().BeNull();
+        }
+
         [Fact]
         public async Task SpeedSend_ExtraTailIgnored()
         {

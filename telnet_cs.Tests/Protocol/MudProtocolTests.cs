@@ -127,6 +127,15 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public void MsdpEncode_ValueTuple_UsesDisplayForm()
+        {
+            // A tuple has no MSDP structured form: non-collection scalars
+            // fall back to their display string on the wire.
+            var values = new Dictionary<string, object?>(StringComparer.Ordinal) { ["PAIR"] = ("a", "b") };
+            MudProtocol.MsdpDecode(MudProtocol.MsdpEncode(values))["PAIR"].Should().Be("(a, b)");
+        }
+
+        [Fact]
         public void MsdpDecode_SkipsGarbageBytes()
         {
             var decoded = MudProtocol.MsdpDecode([0x42, 1, (byte)'K', (byte)'E', (byte)'Y', 2, (byte)'v', (byte)'a', (byte)'l']);

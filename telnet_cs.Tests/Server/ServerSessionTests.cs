@@ -1619,6 +1619,46 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task InboundImportRequest_AckFlaggedLevel_SendsFullTable()
+        {
+            // The level bits are masked before comparing: an ACK-flagged
+            // DEFAULT level (0x83) still resets and answers the full table.
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            stream.Enqueue([255, 251, 34, 255, 250, 34, 3, 0, 0x83, 0, 255, 240]);
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
+            OutboundBytes(stream).Should().Equal(
+              255, 253, 34,
+              255, 250, 34, 1, 16, 255, 240,
+              255, 250, 34, 3,
+              1, 3, 0, 2, 3, 0, 3, 98, 3, 4, 34, 15, 5, 2, 20, 6, 3, 0,
+              7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
+              13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
+              255, 240,
+              255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42);
+        }
+
+        [Fact]
+        public async Task InboundImportRequest_NonzeroValueOctet_SendsFullTable()
+        {
+            // Func 0 is an import request, not a table row: the trailing
+            // value octet is ignored, so (0,VALUE,1) answers the table.
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            stream.Enqueue([255, 251, 34, 255, 250, 34, 3, 0, 2, 1, 255, 240]);
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
+            OutboundBytes(stream).Should().Equal(
+              255, 253, 34,
+              255, 250, 34, 1, 16, 255, 240,
+              255, 250, 34, 3,
+              1, 3, 0, 2, 3, 0, 3, 98, 3, 4, 34, 15, 5, 2, 20, 6, 3, 0,
+              7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
+              13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
+              255, 240,
+              255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42);
+        }
+
+        [Fact]
         public async Task InboundSendCurrentRequest_ReturnsConfiguredTable()
         {
             // (0,VALUE,0) asks for current settings: BSD default rows with the

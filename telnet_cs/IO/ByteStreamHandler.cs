@@ -681,16 +681,19 @@
 
         /// <summary>
         /// Gets or sets the ZMP commands this end supports, advertised one
-        /// <c>zmp.support</c> per command after <c>zmp.ident</c> and used to
-        /// answer <c>zmp.send-support</c> queries. Empty (the default)
-        /// advertises nothing.
+        /// <c>zmp.support</c> per command after <c>zmp.ident</c> and consulted
+        /// (together with <see cref="ZmpCheckHandler"/>) when answering
+        /// <c>zmp.check</c>/<c>zmp.send-support</c> queries. Empty (the
+        /// default) advertises nothing.
         /// </summary>
         internal IList<string> ZmpSupportedCommands { get; set; } = [];
 
         /// <summary>
         /// Gets or sets the predicate answering <c>zmp.check &lt;cmd&gt;</c>
-        /// with <c>zmp.support</c> (true) or <c>zmp.no-support</c> (false).
-        /// Null (the default) refuses every command.
+        /// and <c>zmp.send-support</c> queries with <c>zmp.support</c> (true)
+        /// or <c>zmp.no-support</c> (false), disjunctively with
+        /// <see cref="ZmpSupportedCommands"/>. Null (the default) leaves the
+        /// decision to the command list alone.
         /// </summary>
         internal Func<string, bool>? ZmpCheckHandler { get; set; }
 
@@ -1367,16 +1370,12 @@
                     return;
                 case (int)Commands.EndOfRecord:
                     // RFC 885: IAC EOR marks a prompt boundary with no
-                    // subnegotiation. Surfaced through the hook like GA, but
-                    // only when EOR is in effect on the peer's transmit path
-                    // (peer's WILL + our DO); otherwise it is a NOP and the
-                    // boundary never enters the data stream either way.
-                    if (!Negotiation.IsEnabledByPeer((int)Options.EndOfRecord))
-                    {
-                        WriteLog("EOR received without agreement; treating as NOP.");
-                        return;
-                    }
-
+                    // subnegotiation. Surfaced through the hook like GA, with
+                    // no agreement gate: peers commonly send the marker
+                    // without negotiating the option first, and delivering it
+                    // is harmless — no reply is emitted, no data is produced,
+                    // and a caller that needs gating can check the
+                    // negotiation state itself.
                     WriteLog("End of record (EOR) received.");
                     EorReceived?.Invoke();
                     return;
@@ -2118,13 +2117,14 @@
 
         /// <summary>
         /// Auto-answers ZMP capability queries on the client role (reference
-        /// on_zmp): <c>zmp.check &lt;cmd&gt;</c> earns <c>zmp.support</c> when
-        /// <see cref="ZmpCheckHandler"/> approves (refused by default) and
-        /// <c>zmp.no-support</c> otherwise; <c>zmp.send-support</c> with args
-        /// earns one answer per arg for the advertised
-        /// <see cref="ZmpSupportedCommands"/>, and bare only before our ident
-        /// went out. The store/hook dispatch in <see cref="DispatchMud"/>
-        /// runs first, so answers never precede recording.
+        /// on_zmp): <c>zmp.check &lt;cmd&gt;</c> and <c>zmp.send-support</c>
+        /// with args each earn <c>zmp.support</c> when either the
+        /// <see cref="ZmpCheckHandler"/> approves or the command is in the
+        /// advertised <see cref="ZmpSupportedCommands"/> (refused by default
+        /// when neither source approves); a bare <c>zmp.send-support</c> is
+        /// only answered before our ident went out. The store/hook dispatch
+        /// in <see cref="DispatchMud"/> runs first, so answers never precede
+        /// recording.
         /// </summary>
         /// <param name="body">The subnegotiation body without the option byte.</param>
         private async Task AnswerZmpAsync(byte[] body)
@@ -2142,7 +2142,8 @@
 
             if (parts[0] == "zmp.check" && parts.Count > 1)
             {
-                var approved = ZmpCheckHandler?.Invoke(parts[1]) ?? false;
+                var approved = ZmpCheckHandler?.Invoke(parts[1]) == true
+                    || ZmpSupportedCommands.Contains(parts[1]);
                 await SendNegotiation((int)Options.Zmp,
                   MudProtocol.ZmpEncode(approved ? "zmp.support" : "zmp.no-support", parts[1])).ConfigureAwait(false);
                 return;
@@ -2154,7 +2155,8 @@
                 {
                     foreach (var command in parts.Skip(1))
                     {
-                        var supported = ZmpSupportedCommands.Contains(command);
+                        var supported = ZmpCheckHandler?.Invoke(command) == true
+                            || ZmpSupportedCommands.Contains(command);
                         await SendNegotiation((int)Options.Zmp,
                           MudProtocol.ZmpEncode(supported ? "zmp.support" : "zmp.no-support", command)).ConfigureAwait(false);
                     }
@@ -2407,6 +2409,8 @@
         /// and fires <see cref="CharsetAccepted"/>; REJECTED leaves the charset
         /// null (TextEncoding stays unset, so bytes keep passing through as
         /// (char)byte; no bytes are dropped)
+        /// and fires <see cref="CharsetRejected"/>. An ACCEPTED with an empty
+        /// name takes the rejection path (it matches no requested name).
         /// and fires <see cref="CharsetRejected"/>. Inbound table-transfer
         /// verbs (<c>TTABLE-IS/ACK/NAK</c>) are logged and ignored: table
         /// transfer is not implemented, and answering would only invite a
@@ -2420,6 +2424,18 @@
             if (payload[0] == CharsetProtocol.Accepted)
             {
                 var charset = CharsetProtocol.ParseAccepted(payload);
+                if (charset.Length == 0)
+                {
+                    // RFC 2066 section 2: ACCEPTED carries a charset identical
+                    // to one of the requested names, so an empty name matches
+                    // nothing and takes the rejection path (no binary latch,
+                    // no encoding switch).
+                    WriteLog("CHARSET ACCEPTED an empty name; treating as rejected.");
+                    CharsetRequestPending = false;
+                    CharsetRejected?.Invoke();
+                    return Task.CompletedTask;
+                }
+
                 WriteLog("CHARSET accepted: " + charset);
                 AdoptCharset(charset);
                 CharsetRequestPending = false;

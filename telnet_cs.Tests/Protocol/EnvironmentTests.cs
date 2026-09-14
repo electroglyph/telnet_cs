@@ -208,6 +208,17 @@
         }
 
         [Fact]
+        public void ParseEntries_EscapedValue_StaysLiteral()
+        {
+            // RFC 1408 section 4.3: ESC VALUE is an escaped literal 0x01,
+            // not a delimiter — the value keeps the byte instead of
+            // splitting around it.
+            var entries = EnvironmentProtocol.ParseEntries(
+              new byte[] { 0, 3, (byte)'K', 1, (byte)'a', 2, 1, (byte)'b' });
+            entries.Should().ContainSingle().Which.Should().Be((true, "K", "a\u0001b"));
+        }
+
+        [Fact]
         public void ParseEntries_BareDelimiters_SkipsEmptyName()
         {
             // Port of test_decode_env_buf_bare_delimiters (DIVERGENCE): bare

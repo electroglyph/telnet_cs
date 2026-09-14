@@ -95,15 +95,30 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task IacEor_WithoutAgreement_IsNop()
+        public async Task SendLocationPayload_Blank_Throws()
         {
-            // RFC 885: EOR not in effect means received IAC EOR is a NOP —
-            // no hook, no reply, no data.
+            // An explicit send of a blank location is caller misuse, not an
+            // empty frame: it throws instead of emitting a bare SB SNDLOC.
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            var act = async () => await sut.SendLocationPayloadAsync("  ");
+            await act.Should().ThrowAsync<ArgumentException>();
+        }
+
+        [Fact]
+        public async Task IacEor_WithoutAgreement_SurfacesEvent()
+        {
+            // IAC EOR is surfaced through the hook even when the option was
+            // never negotiated: peers commonly send the marker with no prior
+            // WILL/DO exchange, and delivering it costs nothing — no reply is
+            // emitted and no data is produced, matching the reference's
+            // unconditional EOR callback.
             var fired = 0;
             var (output, writes, _) = await ReadOnceAsync(h => h.EorReceived += () => fired++, Iac, 239);
             output.Should().BeEmpty();
             writes.Should().BeEmpty();
-            fired.Should().Be(0);
+            fired.Should().Be(1);
         }
 
         [Fact]
@@ -374,6 +389,54 @@ namespace telnet_cs.Tests
             accepted.Should().BeNull();
             rejected.Should().Be(1);
             sut.NegotiatedCharset.Should().BeNull();
+        }
+
+        [Fact]
+        public async Task SbCharsetRequest_EmptyOffers_AnswersRejected()
+        {
+            // A REQUEST carrying no offers selects nothing: REJECTED goes
+            // out and CharsetRejected fires, with nothing recorded.
+            string? accepted = null;
+            var rejected = 0;
+            var (output, writes, sut) = await ReadOnceAsync(
+              h =>
+              {
+                  h.CharsetAccepted += name => accepted = name;
+                  h.CharsetRejected += () => rejected++;
+              },
+              Iac, Sb, 42, 1, Iac, Se);
+            output.Should().BeEmpty();
+            writes.Should().HaveCount(1);
+            writes[0].Should().Equal(Iac, Sb, 42, 3, Iac, Se);
+            accepted.Should().BeNull();
+            rejected.Should().Be(1);
+            sut.NegotiatedCharset.Should().BeNull();
+        }
+
+        [Fact]
+        public async Task SbCharsetAccepted_EmptyName_TakesRejectionPath()
+        {
+            // An ACCEPTED with no charset name matches nothing requested
+            // (RFC 2066 section 2: ACCEPTED echoes a requested name), so it
+            // clears a pending request and fires CharsetRejected without
+            // latching binary decoding or recording a charset.
+            string? accepted = null;
+            var rejected = 0;
+            var (output, writes, sut) = await ReadOnceAsync(
+              h =>
+              {
+                  h.CharsetRequestPending = true;
+                  h.CharsetAccepted += name => accepted = name;
+                  h.CharsetRejected += () => rejected++;
+              },
+              Iac, Sb, 42, 2, Iac, Se);
+            output.Should().BeEmpty();
+            writes.Should().BeEmpty();
+            accepted.Should().BeNull();
+            rejected.Should().Be(1);
+            sut.CharsetRequestPending.Should().BeFalse();
+            sut.NegotiatedCharset.Should().BeNull();
+            sut.ForceBinaryDecoding.Should().BeFalse();
         }
 
         [Fact]

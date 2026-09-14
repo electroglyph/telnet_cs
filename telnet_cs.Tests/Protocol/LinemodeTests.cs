@@ -163,6 +163,27 @@
         }
 
         [Fact]
+        public async Task ModeWithoutAgreement_Ignored()
+        {
+            // MODE with no LINEMODE agreement (neither side enabled) is
+            // ignored: a complete [MODE, mask] still earns no ACK reply.
+            var (output, stream) = await ReadWithStreamAsync(255, 250, 34, 1, 3, 255, 240);
+            output.Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task UnknownSubcommand_Ignored()
+        {
+            // A LINEMODE subcommand outside MODE/SLC/FORWARDMASK is logged
+            // and ignored: no reply, no state change, the read loop survives
+            // the malformed peer input.
+            var (output, stream) = await ReadWithStreamAsync(255, 250, 34, 9, 0, 255, 240);
+            output.Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+        }
+
+        [Fact]
         public async Task ForwardMaskProposal_RefusedWithWont()
         {
             var (output, stream) = await ReadWithStreamAsync(255, 250, 34, 253, 2, 0, 0, 255, 240);

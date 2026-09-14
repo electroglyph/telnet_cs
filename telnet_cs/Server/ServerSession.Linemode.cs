@@ -151,8 +151,11 @@
         /// <c>[func, DEFAULT, 0]</c> so the peer may use its own values (never
         /// silent: the RFC says "send all those special characters"). Func 0
         /// with VALUE ("send current settings") is answered with the normal
-        /// configured-rows export, silent when nothing is configured. Anything
-        /// else is left for the normal SLC path.
+        /// configured-rows export, silent when nothing is configured. Only
+        /// the low two level bits are compared (the ACK and flush modifier
+        /// bits ride along on replies), and the value octet is ignored — func
+        /// 0 is a request, not a table row. Anything else is left for the
+        /// normal SLC path.
         /// </summary>
         /// <param name="payload">The LINEMODE payload.</param>
         /// <returns>True when the payload was an import request (consumed).</returns>
@@ -160,9 +163,13 @@
         {
             if (payload.Count != 4
               || payload[0] != LinemodeProtocol.SetLocalCharacters
-              || payload[1] != 0
-              || payload[3] != 0
-              || (payload[2] != LinemodeProtocol.LevelDefault && payload[2] != LinemodeProtocol.LevelValue))
+              || payload[1] != 0)
+            {
+                return false;
+            }
+
+            byte level = (byte)(payload[2] & LinemodeProtocol.LevelBits);
+            if (level != LinemodeProtocol.LevelDefault && level != LinemodeProtocol.LevelValue)
             {
                 return false;
             }

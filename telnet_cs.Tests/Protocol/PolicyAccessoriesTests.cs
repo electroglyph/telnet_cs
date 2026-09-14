@@ -119,6 +119,19 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public void SyncTermFont_DetectEncoding_SkipsOversizedId()
+        {
+            // Font ids are capped at four digits: a five-digit id is
+            // skipped, so a later well-formed sequence still resolves.
+            var data = new byte[]
+            {
+                0x1B, (byte)'[', (byte)'0', (byte)';', (byte)'1', (byte)'0', (byte)'0', (byte)'0', (byte)'0', 0x20, (byte)'D',
+                0x1B, (byte)'[', (byte)'0', (byte)';', (byte)'3', (byte)'2', 0x20, (byte)'D',
+            };
+            SyncTermFont.DetectEncoding(data).Should().Be("petscii");
+        }
+
+        [Fact]
         public void SyncTermFont_ResolveEncoding_Unknown_ReturnsNull()
         {
             SyncTermFont.ResolveEncoding("no-such-codec-xyz").Should().BeNull();

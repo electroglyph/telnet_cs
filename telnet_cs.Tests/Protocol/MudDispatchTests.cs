@@ -295,6 +295,125 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task SbZmpCheck_HandlerApproved_SendsSupport()
+        {
+            // Either approval source earns zmp.support: the check hook
+            // approves zmp.ping while the advertised list stays empty.
+            int[] body = [.. Text("zmp.check\0zmp.ping\0")];
+            int[] reads = [Iac, Will, Zmp, .. SbBody(Zmp, body)];
+            var (output, writes, _) = await ReadOnceAsync(
+              h => h.ZmpCheckHandler = static command => command == "zmp.ping",
+              reads);
+            output.Should().BeEmpty();
+            int[] expected =
+            [
+              Iac, Do, Zmp,
+              .. SbBody(Zmp, [.. Text("zmp.ident\0telnet-cs\01.0\0")]),
+              .. SbBody(Zmp, [.. Text("zmp.support\0zmp.ping\0")]),
+            ];
+            Concat(writes).Select(static b => (int)b).Should().Equal(expected);
+        }
+
+        [Fact]
+        public async Task SbZmpCheck_ListedWithoutHandler_SendsSupport()
+        {
+            // The advertised list is the other approval source: a listed
+            // command earns zmp.support with no check hook configured.
+            int[] body = [.. Text("zmp.check\0zmp.ping\0")];
+            int[] reads = [Iac, Will, Zmp, .. SbBody(Zmp, body)];
+            var (output, writes, _) = await ReadOnceAsync(
+              h => h.ZmpSupportedCommands = ["zmp.ping"],
+              reads);
+            output.Should().BeEmpty();
+            int[] expected =
+            [
+              Iac, Do, Zmp,
+              .. SbBody(Zmp, [.. Text("zmp.ident\0telnet-cs\01.0\0")]),
+              .. SbBody(Zmp, [.. Text("zmp.support\0zmp.ping\0")]),
+              .. SbBody(Zmp, [.. Text("zmp.support\0zmp.ping\0")]),
+            ];
+            Concat(writes).Select(static b => (int)b).Should().Equal(expected);
+        }
+
+        [Fact]
+        public async Task SbZmpCheck_Unapproved_SendsNoSupport()
+        {
+            // With neither the hook nor the list approving, the query is
+            // refused with zmp.no-support instead of staying silent.
+            int[] body = [.. Text("zmp.check\0zmp.ping\0")];
+            int[] reads = [Iac, Will, Zmp, .. SbBody(Zmp, body)];
+            var (output, writes, _) = await ReadOnceAsync(_ => { }, reads);
+            output.Should().BeEmpty();
+            int[] expected =
+            [
+              Iac, Do, Zmp,
+              .. SbBody(Zmp, [.. Text("zmp.ident\0telnet-cs\01.0\0")]),
+              .. SbBody(Zmp, [.. Text("zmp.no-support\0zmp.ping\0")]),
+            ];
+            Concat(writes).Select(static b => (int)b).Should().Equal(expected);
+        }
+
+        [Fact]
+        public async Task SbZmpSendSupport_HandlerApproved_SendsSupport()
+        {
+            // zmp.send-support consults the same two sources: the hook
+            // approves zmp.ping while the advertised list stays empty.
+            int[] body = [.. Text("zmp.send-support\0zmp.ping\0")];
+            int[] reads = [Iac, Will, Zmp, .. SbBody(Zmp, body)];
+            var (output, writes, _) = await ReadOnceAsync(
+              h => h.ZmpCheckHandler = static command => command == "zmp.ping",
+              reads);
+            output.Should().BeEmpty();
+            int[] expected =
+            [
+              Iac, Do, Zmp,
+              .. SbBody(Zmp, [.. Text("zmp.ident\0telnet-cs\01.0\0")]),
+              .. SbBody(Zmp, [.. Text("zmp.support\0zmp.ping\0")]),
+            ];
+            Concat(writes).Select(static b => (int)b).Should().Equal(expected);
+        }
+
+        [Fact]
+        public async Task SbZmpSendSupport_ListedWithoutHandler_SendsSupport()
+        {
+            // A listed command earns zmp.support on send-support with no
+            // hook configured (one advertisement frame from agreement,
+            // one answer frame for the query).
+            int[] body = [.. Text("zmp.send-support\0zmp.ping\0")];
+            int[] reads = [Iac, Will, Zmp, .. SbBody(Zmp, body)];
+            var (output, writes, _) = await ReadOnceAsync(
+              h => h.ZmpSupportedCommands = ["zmp.ping"],
+              reads);
+            output.Should().BeEmpty();
+            int[] expected =
+            [
+              Iac, Do, Zmp,
+              .. SbBody(Zmp, [.. Text("zmp.ident\0telnet-cs\01.0\0")]),
+              .. SbBody(Zmp, [.. Text("zmp.support\0zmp.ping\0")]),
+              .. SbBody(Zmp, [.. Text("zmp.support\0zmp.ping\0")]),
+            ];
+            Concat(writes).Select(static b => (int)b).Should().Equal(expected);
+        }
+
+        [Fact]
+        public async Task SbZmpSendSupport_UnlistedWithoutHandler_SendsNoSupport()
+        {
+            // An unlisted command with no hook earns zmp.no-support on
+            // send-support, one answer frame per queried command.
+            int[] body = [.. Text("zmp.send-support\0zmp.ping\0")];
+            int[] reads = [Iac, Will, Zmp, .. SbBody(Zmp, body)];
+            var (output, writes, _) = await ReadOnceAsync(_ => { }, reads);
+            output.Should().BeEmpty();
+            int[] expected =
+            [
+              Iac, Do, Zmp,
+              .. SbBody(Zmp, [.. Text("zmp.ident\0telnet-cs\01.0\0")]),
+              .. SbBody(Zmp, [.. Text("zmp.no-support\0zmp.ping\0")]),
+            ];
+            Concat(writes).Select(static b => (int)b).Should().Equal(expected);
+        }
+
+        [Fact]
         public async Task SbAtcp_DispatchesPackageAndValue()
         {
             (string? Package, string? Value) received = (null, null);
