@@ -10,7 +10,7 @@ The client lives in the `telnet_cs.Client` namespace. The main type is
 using telnet_cs.Client;
 
 // Plain TCP, 30 s default timeout.
-await using var client = await Client.ConnectAsync("mud.example.com", 4000);
+using var client = await Client.ConnectAsync("mud.example.com", 4000);
 
 // With options and cancellation.
 var options = new TelnetClientOptions
@@ -21,7 +21,7 @@ var options = new TelnetClientOptions
     WindowWidth = 100,
     WindowHeight = 40,
 };
-await using var client2 = await Client.ConnectAsync(
+using var client2 = await Client.ConnectAsync(
     "mud.example.com", 4000, options, cancellationToken, TimeSpan.FromSeconds(10));
 ```
 
@@ -44,21 +44,24 @@ start reading:
 
 | Setting | Answers |
 |---|---|
-| `TerminalType` / `TerminalTypes` | TTYPE `IS`, cycling the list per `SEND` (default `"vt100"`) |
-| `TerminalSpeed` | TSPEED `IS`, sent verbatim (default `"19200,19200"`) |
-| `WindowWidth` / `WindowHeight` | NAWS size; `0` = auto-detect from console |
-| `EnvironmentUser`, `EnvironmentDisplay`, `EnvironmentUserVars` | ENVIRON `USER`/`DISPLAY`/custom vars, plus auto `TERM`/`LANG`/`COLUMNS`/`LINES` |
-| `CharsetOffers` | CHARSET preference order (default `["UTF-8"]`; empty answers `REJECTED`) |
+| `TerminalType` / `TerminalTypes` | TTYPE `IS`, cycling the list per `SEND` (default `"unknown"`) |
+| `TerminalSpeed` | TSPEED `IS` `"<tx>,<rx>"`, validated not verbatim (trimmed, leading zeros stripped, two ASCII-digit parts required; malformed `SEND` gets no reply). Default `"38400,38400"` |
+| `WindowWidth` / `WindowHeight` | NAWS size, clamped to 0–65535; `0` is sent as-is (RFC 1073 "unspecified"), never probed from the console |
+| `EnvironmentUser`, `EnvironmentDisplay`, `EnvironmentUserVars` | ENVIRON `USER`/custom vars, plus auto `TERM`/`LANG`/`COLUMNS`/`LINES`/`COLORTERM` (`LANG` is `en_US.<WebName minus "-">`, `C` when `TextEncoding` is null). `DISPLAY` is never volunteered in `SB` answers (only spontaneous `INFO` carries it) |
+| `CharsetOffers` | CHARSET preference order (default `["UTF-8", "LATIN1", "US-ASCII"]`); an empty inbound offer list answers `REJECTED` (an empty own list only blocks outbound `REQUEST`s we send) |
 | `XDisplayLocation`, `SendLocation` | X-DISPLAY / SNDLOC answers |
-| `TextEncoding` | Non-null switches both directions off legacy Latin-1 and advertises `LANG=en_US.<WebName>` |
+| `TextEncoding` | Decode charset plus BINARY-path encode charset (default UTF-8; null = legacy Latin-1; non-BINARY writes stay strict ASCII) and advertises `LANG=en_US.<WebName minus "-">` (`C` when null) |
 | `AllowRemoteEcho` | `true` accepts the server's `DO ECHO` (default refuses) |
-| `EnableMccp` | Agree MCCP2/3 framing (you do the zlib yourself); always refused over TLS |
+| `EnableMccp` | Passively accept MCCP2/3 (default on; the stack inflates inbound and compresses outbound); always refused over TLS |
 | `EnableMudOptions` / `EnableComPort` | Agree MUD options (default off) / RFC 2217 framing (default on) |
-| `Log`, `IsWriteConsole`, `EnableBell` | Diagnostics, console echo, BEL handling |
+| `Log`, `IsWriteConsole`, `EnableBell` | Diagnostics, console echo, BEL setting (currently no effect — BEL arrives as data) |
 
 Global process-wide defaults (`Client.TerminalType`, `Client.TerminalSpeed`,
-`Client.Trace`, `Client.IsWriteConsole`) apply when the per-instance setting
+`Client.IsWriteConsole`) apply when the per-instance setting
 is left at its default; prefer `TelnetClientOptions`.
+`Client.Trace` is additive, not a fallback: client writes invoke both
+`Settings.Log` and `Client.Trace`, and per-read handler logs use
+`Settings.Log` only.
 
 ## Reading and writing
 
@@ -111,7 +114,8 @@ await client.RefreshWindowSizeAsync();
 (RFC 858 turn-taking). `SendGaAsync` sends `IAC GA` unless our own `WILL`
 Suppress-GA holds (local side only; then it sends nothing and returns `false`).
 `SendTimingMarkAsync` does an RFC 860 round-trip. `Dispose()` (or
-`await using`) is the only close.
+`using`) is the only close (`Client` is `IDisposable`, not
+`IAsyncDisposable`).
 
 ## Linemode and retro input
 
@@ -131,8 +135,11 @@ after the ~350 ms ESC delay to release a held lone `ESC`.
 
 ## Gotchas
 
-- Text is Latin-1 unless `Settings.TextEncoding` is set; `WriteLineAsync`
+- Text is UTF-8 by default; Latin-1 applies only when
+  `Settings.TextEncoding` is explicitly null. `WriteLineAsync`
   sends `"\r\n"` per RFC 854 (pass `Client.LegacyLineFeed` for bare `"\n"`).
+  Without agreed `BINARY`, non-ASCII writes throw
+  `EncoderFallbackException`.
 - Reads serialize; `MillisecondReadDelay` (default 16 ms) tunes the idle poll.
 - `SendSynchAsync` / `ReceiveUrgentAsync` need a real `TcpByteStream` and
   throw `NotSupportedException` on fakes.
