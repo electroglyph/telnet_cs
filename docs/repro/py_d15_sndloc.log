@@ -1,0 +1,2 @@
+Location requested, sending empty response.
+handle_send_sndloc() -> ''

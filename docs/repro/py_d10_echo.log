@@ -1,0 +1,3 @@
+server WILL ECHO -> RAISED ValueError cannot recv WILL ECHO on server end
+client DO ECHO #1 writes= ['fffc01']
+client DO ECHO #2 writes= ['fffc01', 'fffc01']

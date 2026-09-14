@@ -1,0 +1,8 @@
+LINEMODE-unknown-sub -> RAISED ValueError Illegal IAC SB LINEMODE option b'\t' writes= []
+LINEMODE-empty-MODE -> RAISED ValueError IAC SB LINEMODE LINEMODE-MODE: missing mode byte writes= []
+LINEMODE-badbyte-after-DO -> RAISED ValueError Illegal byte follows IAC SB LINEMODE DO: b'\t', expected LMODE_FORWARDMASK. writes= []
+LFLOW-trailing-unnegotiated -> RAISED ValueError received IAC SB LFLOW without first receiving IAC DO LFLOW. writes= []
+LFLOW-trailing-agreed -> no-raise writes= []
+LFLOW-badmode-agreed -> RAISED ValueError Unknown IAC SB LFLOW option received: deque([]) writes= []
+CHARSET-TTABLE-IS -> RAISED NotImplementedError Translation table command received but not supported: b'\x04' writes= []
+CHARSET-TTABLE-REJECTED -> RAISED NotImplementedError Translation table command received but not supported: b'\x05' writes= []

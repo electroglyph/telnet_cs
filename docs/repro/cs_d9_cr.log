@@ -1,0 +1,15 @@
+--- 41 0D 00 42
+data=410D0042
+writes=
+--- 41 0D 0A 42
+data=410D0A42
+writes=
+--- 41 0D 42
+data=410D42
+writes=
+--- 41 0A 42
+data=410A42
+writes=
+--- 41 00 42
+data=410042
+writes=

@@ -1,0 +1,3 @@
+after DO100: ['fffc64']
+after repeat DO100: ['fffc64', 'fffc64']
+['        cols: int = 80,', '        rows: int = 25,', '                "cols": cols,', '                "rows": rows,']

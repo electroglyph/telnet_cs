@@ -1,0 +1,3 @@
+REQUEST USASCII -> writes= ['fffa2a02fff0']
+accepted cb: ''
+empty ACCEPTED -> no-raise environ= '' force_binary= True writes= []

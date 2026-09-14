@@ -1,0 +1,91 @@
+--- d8-linemode-unknown
+data=
+writes=
+LastLocation=null
+LineflowEnabled=True
+NegotiatedCharset=null
+ForceBinaryDecoding=False
+--- d8-linemode-emptymode
+data=
+writes=
+LastLocation=null
+LineflowEnabled=True
+NegotiatedCharset=null
+ForceBinaryDecoding=False
+--- d8-linemode-badbyte
+data=
+writes=
+LastLocation=null
+LineflowEnabled=True
+NegotiatedCharset=null
+ForceBinaryDecoding=False
+--- d8-lflow-trailing
+data=
+writes=
+LastLocation=null
+LineflowEnabled=True
+NegotiatedCharset=null
+ForceBinaryDecoding=False
+--- d8-charset-ttable
+data=
+writes=
+LastLocation=null
+LineflowEnabled=True
+NegotiatedCharset=null
+ForceBinaryDecoding=False
+--- d8-status-send
+data=
+writes=
+LastLocation=null
+LineflowEnabled=True
+NegotiatedCharset=null
+ForceBinaryDecoding=False
+--- d9-willtm
+data=
+writes=
+LastLocation=null
+LineflowEnabled=True
+NegotiatedCharset=null
+ForceBinaryDecoding=False
+--- d10-willecho-server
+data=
+writes=
+LastLocation=null
+LineflowEnabled=True
+NegotiatedCharset=null
+ForceBinaryDecoding=False
+--- d10-doecho-twice
+data=
+writes=FFFC01FFFC01
+LastLocation=null
+LineflowEnabled=True
+NegotiatedCharset=null
+ForceBinaryDecoding=False
+--- d11-willlogout-server
+data=
+writes=FFFE12
+LastLocation=null
+LineflowEnabled=True
+NegotiatedCharset=null
+ForceBinaryDecoding=False
+--- d12-mccp2
+data=
+writes=
+LastLocation=null
+LineflowEnabled=True
+NegotiatedCharset=null
+ForceBinaryDecoding=False
+--- d13-naws5
+data=
+writes=
+LastLocation=null
+LineflowEnabled=True
+NegotiatedCharset=null
+ForceBinaryDecoding=False
+--- d21-request-usascii
+data=
+writes=FFFA2A0255534153434949FFF0
+LastLocation=null
+LineflowEnabled=True
+NegotiatedCharset=USASCII
+ForceBinaryDecoding=True

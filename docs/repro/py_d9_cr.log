@@ -1,0 +1,5 @@
+CR NUL: data=410d0042 writes=[]
+CR LF: data=410d0a42 writes=[]
+bare CR: data=410d42 writes=[]
+bare LF: data=410a42 writes=[]
+bare NUL: data=410042 writes=[]

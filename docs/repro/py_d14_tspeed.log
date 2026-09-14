@@ -1,0 +1,3 @@
+signed-plus -> no-raise callback= [(9600, 9600)]
+signed-minus -> no-raise callback= [(-1, 0)]
+plain -> no-raise callback= [(9600, 9600)]

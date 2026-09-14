@@ -1,0 +1,4 @@
+WILL-TM-no-pending -> RAISED ValueError cannot recv WILL TM, must first send DO TM. writes= []
+STATUS-SEND-no-will -> RAISED ValueError Only sender of IAC WILL STATUS may reply by IAC SB STATUS IS. writes= []
+CHARSET-badverb -> RAISED ValueError Illegal option follows IAC SB CHARSET: b'\t'. writes= []
+client-DO-LOGOUT -> RAISED ValueError cannot recv DO LOGOUT on client end (ignored). writes= []

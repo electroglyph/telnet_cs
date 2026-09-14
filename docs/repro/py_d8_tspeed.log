@@ -1,0 +1,2 @@
+SEND -> writes= ['fffa20003131312c323232fff0']
+IS "111,222" -> callback(rx, tx)= [(111, 222)] writes= []

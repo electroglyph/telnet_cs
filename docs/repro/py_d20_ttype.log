@@ -1,0 +1,4 @@
+fresh answer stored -> {'ttype1': 'XTERM', 'TERM': 'XTERM'} sends= 1
+empty ttype1 stored -> {'ttype1': ''} sends= 0
+dup cycle stored -> {'ttype1': 'XTERM', 'TERM': 'XTERM', 'ttype2': 'XTERM'} sends= 0
+past-loopmax stored -> {'ttype8': 'A', 'ttype9': 'B', 'TERM': 'B'} sends= 0

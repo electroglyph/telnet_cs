@@ -1,0 +1,5 @@
+ESC VALUE value -> {'K': 'a\x02\x01b'}
+trailing ESC -> {'K': 'v\x02'}
+escape(VALUE) -> 01
+escape(ESC) -> 02
+escape(VAR) -> 0200

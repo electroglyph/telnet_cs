@@ -1,0 +1,3 @@
+check listed, no handler -> [('zmp.no-support', 'look')]
+send-support listed, no handler -> [('zmp.no-support', 'look')]
+check handler-true, unlisted -> [('zmp.support', 'look')]

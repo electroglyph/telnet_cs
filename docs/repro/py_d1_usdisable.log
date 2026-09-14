@@ -1,0 +1,4 @@
+iac WILL SGA -> True
+iac WONT SGA -> True
+writes= ['fffb03', 'fffc03']
+local SGA = False
