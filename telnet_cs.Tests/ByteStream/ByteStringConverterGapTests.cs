@@ -1,6 +1,7 @@
 ﻿namespace telnet_cs.Tests
 {
     using System;
+    using System.Text;
     using FluentAssertions;
     using Xunit;
     using telnet_cs.IO;
@@ -86,6 +87,39 @@
         {
             var act = () => ByteStringConverter.ToString(new byte[] { 65, 66, 67 }, offset, count);
             act.Should().Throw<ArgumentOutOfRangeException>();
+        }
+
+        [Fact]
+        public void ConvertStringToByteArray_UnmappableWithDefaultFallback_Throws()
+        {
+            // Strict wire encoding: "é" under US-ASCII (default "?"
+            // fallback) must fail loudly instead of emitting 0x3F.
+            Action act = () => ByteStringConverter.ConvertStringToByteArray("é", Encoding.ASCII);
+            act.Should().Throw<EncoderFallbackException>();
+        }
+
+        [Fact]
+        public void ConvertStringToByteArray_UnmappableWithExplicitReplacementFallback_Throws()
+        {
+            // The wire gate is always strict, even when the caller installed
+            // a replacement fallback: callers that want "?" encode beforehand
+            // and pass bytes via the byte-level write paths.
+            var replacement = Encoding.GetEncoding(
+                "us-ascii",
+                new EncoderReplacementFallback("?"),
+                DecoderFallback.ReplacementFallback);
+            Action act = () => ByteStringConverter.ConvertStringToByteArray("é", replacement);
+            act.Should().Throw<EncoderFallbackException>();
+        }
+
+        [Fact]
+        public void ConvertStringToByteArray_StrictClone_DoesNotMutateInputEncoding()
+        {
+            var ascii = Encoding.ASCII;
+            Action act = () => ByteStringConverter.ConvertStringToByteArray("é", ascii);
+            act.Should().Throw<EncoderFallbackException>();
+            ascii.EncoderFallback.Should().BeOfType<EncoderReplacementFallback>();
+            ascii.GetBytes("é").Should().Equal(new byte[] { (byte)'?' });
         }
     }
 }

@@ -28,10 +28,24 @@
         /// (<c>No</c>) are omitted — except explicitly refused ones, which the
         /// reference still reports (its option tables only contain touched
         /// options, every entry rendering as WILL/WONT or DO/DONT): a side at
-        /// <c>No</c> with a remembered refusal renders WONT/DONT. Outstanding
-        /// states render by intent: <c>WantYes</c> as WILL/DO, <c>WantNo</c> as
-        /// WONT/DONT. STATUS itself is never listed (the reference skips it in
-        /// both halves).
+        /// <c>No</c> with a remembered refusal renders WONT/DONT.
+        /// Outstanding states render by intent: <c>WantYes</c> as WILL/DO,
+        /// <c>WantNo</c> as WONT/DONT. STATUS itself is never listed (the
+        /// reference skips it in both halves).
+        /// <remarks>
+        /// Intent-rendering of in-flight offers is deliberate. RFC 859 predates
+        /// the RFC 1143 WANT states and defines no rendering for unacknowledged
+        /// offers, so either projection is conformant. Reporting intent keeps a
+        /// STATUS observer aligned with where negotiation is heading: omitting a
+        /// pending want would read as the default (WONT/DONT) and could prompt
+        /// the observer to refuse an option we are actively requesting, while an
+        /// advertised WILL invites the DO that completes it. (The
+        /// <c>WantNo</c> half is harmless either way: WONT/DONT is the default,
+        /// so both readings converge at the observer.) The choice is
+        /// self-contained: this payload is a read-only snapshot that is never
+        /// fed back into negotiation, and arriving STATUS IS reports are
+        /// recorded for display only.
+        /// </remarks>
         /// </summary>
         /// <param name="negotiation">The persistent negotiation state.</param>
         internal static byte[] BuildIsPayload(NegotiationState negotiation)

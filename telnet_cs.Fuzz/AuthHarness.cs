@@ -21,6 +21,10 @@ internal static class AuthHarness
             IdleTimeout = Timeout.InfiniteTimeSpan,
             StatusInterval = null,
             IsWriteConsole = false,
+            // No inter-attempt throttle: rejecting inputs burn all three
+            // attempts, and the 1 s default delay would blow the
+            // per-iteration hang guard on every one of them.
+            LoginAttemptDelay = TimeSpan.Zero,
         };
         using var stream = new FuzzStream();
         stream.Enqueue(input.Bytes);

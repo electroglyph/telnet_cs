@@ -23,10 +23,17 @@
         /// <summary>
         /// Converts a string to bytes, escaping IAC (0xFF) at the byte level
         /// after encoding so every wire 0xFF is doubled (RFC 854), whatever
-        /// source character produced it.
+        /// source character produced it. Encoding is strict: a character the
+        /// encoding cannot represent throws instead of silently emitting "?",
+        /// so a mangled payload can never reach the wire unnoticed.
         /// </summary>
         /// <param name="value">The string to convert.</param>
         /// <param name="encoding">The encoding to use. When null (default), the legacy Latin-1 mapping is used.</param>
+        /// <exception cref="EncoderFallbackException">
+        /// Thrown when <paramref name="value"/> holds a character
+        /// <paramref name="encoding"/> cannot represent. Nothing is sent in
+        /// that case — the failure is loud instead of silently emitting "?".
+        /// </exception>
         public static byte[] ConvertStringToByteArray(string value, Encoding? encoding)
         {
             if (encoding == null)
@@ -43,7 +50,22 @@
                 return EscapeIacBytes(buffer);
             }
 
-            return EscapeIacBytes(encoding.GetBytes(value));
+            return EscapeIacBytes(StrictGetBytes(encoding, value));
+        }
+
+        /// <summary>
+        /// Encodes <paramref name="value"/> with <paramref name="encoding"/>,
+        /// upgrading any replacement fallback to a throwing one so
+        /// unrepresentable characters fail loudly instead of emitting "?" onto
+        /// the wire. The input encoding is never mutated (a clone takes the
+        /// strict fallback). Callers that genuinely want replacement semantics
+        /// encode beforehand and pass bytes via the byte-level write paths.
+        /// </summary>
+        private static byte[] StrictGetBytes(Encoding encoding, string value)
+        {
+            var strict = (Encoding)encoding.Clone();
+            strict.EncoderFallback = EncoderFallback.ExceptionFallback;
+            return strict.GetBytes(value);
         }
 
         /// <summary>
