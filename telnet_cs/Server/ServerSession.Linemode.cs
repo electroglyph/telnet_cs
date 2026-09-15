@@ -144,45 +144,77 @@
         }
 
         /// <summary>
-        /// Answers peer SLC import requests (RFC 1184 §2.4 func 0). Func 0 with
-        /// DEFAULT ("send your table") resets the working table to the
-        /// configured defaults (telnetlib3 <c>_slc_process</c>) and is answered
-        /// with the full table, every NOSUPPORT row rendered as
+        /// Answers peer SLC import requests (RFC 1184 §2.4 func 0), single or
+        /// batched with other triplets (telnetlib3 <c>_slc_set</c> loops the
+        /// whole list, so a func 0 rides along with per-triplet replies in one
+        /// SLC frame). Triplets are processed in order into a single reply
+        /// frame: a func 0 with DEFAULT ("send your table", level compared on
+        /// the low two level bits per RFC 1184 §2.4 — ACK and flush bits ride
+        /// along) resets the working table to the configured defaults and
+        /// appends the full table, every NOSUPPORT row rendered as
         /// <c>[func, DEFAULT, 0]</c> so the peer may use its own values (never
-        /// silent: the RFC says "send all those special characters"). Func 0
-        /// with VALUE ("send current settings") is answered with the normal
-        /// configured-rows export, silent when nothing is configured. Only
-        /// the low two level bits are compared (the ACK and flush modifier
-        /// bits ride along on replies), and the value octet is ignored — func
-        /// 0 is a request, not a table row. Anything else is left for the
-        /// normal SLC path.
+        /// silent: the RFC says "send all those special characters"); a func 0
+        /// with VALUE ("send current settings") appends the normal
+        /// configured-rows export, silent when nothing is configured; other
+        /// triplets go through the server SLC rules with their replies
+        /// appended. The value octet of a func 0 is ignored — it is a request,
+        /// not a table row. A DO FORWARDMASK trailer follows every answered
+        /// block once LINEMODE is agreed on either side (reference
+        /// <c>request_forwardmask</c>). Anything without a DEFAULT/VALUE func 0
+        /// is left for the normal SLC path.
         /// </summary>
         /// <param name="payload">The LINEMODE payload.</param>
         /// <returns>True when the payload was an import request (consumed).</returns>
         private bool TryConsumeLinemodeImport(List<byte> payload)
         {
-            if (payload.Count != 4
+            if (payload.Count < 4
               || payload[0] != LinemodeProtocol.SetLocalCharacters
-              || payload[1] != 0)
+              || (payload.Count - 1) % 3 != 0
+              || !ContainsImportRequest(payload))
             {
                 return false;
             }
 
-            byte level = (byte)(payload[2] & LinemodeProtocol.LevelBits);
-            if (level != LinemodeProtocol.LevelDefault && level != LinemodeProtocol.LevelValue)
+            List<byte> replies = [];
+            for (int i = 1; i < payload.Count; i += 3)
             {
-                return false;
+                byte function = payload[i];
+                byte modifier = payload[i + 1];
+                byte level = (byte)(modifier & LinemodeProtocol.LevelBits);
+                bool isImport = function == 0
+                  && (level == LinemodeProtocol.LevelDefault || level == LinemodeProtocol.LevelValue);
+                if (isImport)
+                {
+                    bool defaults = level == LinemodeProtocol.LevelDefault;
+                    if (defaults)
+                    {
+                        linemodeState.ResetToDefaults();
+                    }
+
+                    byte[]? triplets = linemodeState.ExportTriplets(forImport: defaults);
+                    if (triplets is not null)
+                    {
+                        replies.AddRange(triplets);
+                    }
+                }
+                else if (function != 0)
+                {
+                    (byte Modifier, byte Value)? reply =
+                      linemodeState.ApplySlcAsServer(function, modifier, payload[i + 2]);
+                    if (reply is not null)
+                    {
+                        replies.Add(function);
+                        replies.Add(reply.Value.Modifier);
+                        replies.Add(reply.Value.Value);
+                    }
+                }
+                // A func 0 at any other level is not an import request:
+                // dropped silently, like the normal SLC path does.
             }
 
-            bool defaults = payload[2] == LinemodeProtocol.LevelDefault;
-            if (defaults)
+            if (replies.Count == 0)
             {
-                linemodeState.ResetToDefaults();
-            }
-            byte[]? triplets = linemodeState.ExportTriplets(forImport: defaults);
-            if (triplets is null)
-            {
-                WriteLog("Linemode current settings requested with no special characters configured; nothing sent.");
+                WriteLog("Linemode import request answered with no rows; nothing sent.");
                 return true;
             }
 
@@ -190,8 +222,45 @@
             // Fire-and-forget: the reply rides SendRateLimit, so wire order
             // against other sends is still safe; a send failure here is
             // unobserved by design (the import was already consumed).
-            _ = SendLinemodeFrameAsync([LinemodeProtocol.SetLocalCharacters, .. triplets], CancellationToken.None);
+            _ = SendLinemodeFrameAsync([LinemodeProtocol.SetLocalCharacters, .. replies], CancellationToken.None);
+            if (Negotiation.IsEnabledByUs((int)Options.LineMode) || Negotiation.IsEnabledByPeer((int)Options.LineMode))
+            {
+                byte[] mask = LinemodeProtocol.BuildForwardMask(Negotiation.IsEnabledByUs((int)Options.TransmitBinary));
+                WriteLog("Sending: " + nameof(Options.LineMode) + " DO FORWARDMASK.");
+                _ = SendLinemodeFrameAsync([(byte)Commands.Do, LinemodeProtocol.ForwardMask, .. mask], CancellationToken.None);
+            }
+            else
+            {
+                WriteLog("Skipping LINEMODE DO FORWARDMASK without LINEMODE agreement.");
+            }
+
             return true;
+        }
+
+        /// <summary>
+        /// Scans an SLC payload for a func 0 triplet at DEFAULT or VALUE level
+        /// (level compared on the low two level bits — ACK and flush bits ride
+        /// along). Caller guarantees an aligned triplet tail.
+        /// </summary>
+        /// <param name="payload">The LINEMODE payload.</param>
+        /// <returns>True when the payload carries an import request.</returns>
+        private static bool ContainsImportRequest(List<byte> payload)
+        {
+            for (int i = 1; i < payload.Count; i += 3)
+            {
+                if (payload[i] != 0)
+                {
+                    continue;
+                }
+
+                byte level = (byte)(payload[i + 1] & LinemodeProtocol.LevelBits);
+                if (level == LinemodeProtocol.LevelDefault || level == LinemodeProtocol.LevelValue)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>

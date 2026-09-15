@@ -1616,6 +1616,7 @@ namespace telnet_cs.Tests
               [255, 253, 34,
                255, 250, 34, 1, 16, 255, 240,
                255, 250, 34, 3, .. bsd, 255, 240,
+               .. ForwardMaskFrame(),
                255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42]);
         }
 
@@ -1639,6 +1640,7 @@ namespace telnet_cs.Tests
               [255, 253, 34,
                255, 250, 34, 1, 16, 255, 240,
                255, 250, 34, 3, .. bsd, 255, 240,
+               .. ForwardMaskFrame(),
                255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42]);
         }
 
@@ -1659,6 +1661,9 @@ namespace telnet_cs.Tests
               7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
               13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
               255, 240,
+              255, 250, 34, 253, 2,
+              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+              255, 240,
               255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42);
         }
 
@@ -1678,6 +1683,9 @@ namespace telnet_cs.Tests
               1, 3, 0, 2, 3, 0, 3, 98, 3, 4, 34, 15, 5, 2, 20, 6, 3, 0,
               7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
               13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
+              255, 240,
+              255, 250, 34, 253, 2,
+              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
               255, 240,
               255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42);
         }
@@ -1700,6 +1708,9 @@ namespace telnet_cs.Tests
               7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
               13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
               255, 240,
+              255, 250, 34, 253, 2,
+              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+              255, 240,
               255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42);
         }
 
@@ -1718,6 +1729,9 @@ namespace telnet_cs.Tests
               1, 3, 0, 2, 3, 0, 3, 98, 3, 4, 34, 15, 5, 2, 20, 6, 3, 0,
               7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
               13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
+              255, 240,
+              255, 250, 34, 253, 2,
+              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
               255, 240,
               255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42);
         }
@@ -1752,7 +1766,7 @@ namespace telnet_cs.Tests
             // (0,VALUE,0) exports the restored value. The advanced batch lands
             // after the forwardmask but before the IMPORT/SENDCURRENT answers:
             // the batch is awaited inline, while import answers are
-            // fire-and-forget (verified ServerSession.Linemode.cs:183-186).
+            // fire-and-forget.
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             session.SetLinemodeEntry(3, 2, 3);
@@ -1775,7 +1789,194 @@ namespace telnet_cs.Tests
                .. ForwardMaskFrame(),
                255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42,
                255, 250, 34, 3, .. bsd, 255, 240,
-               255, 250, 34, 3, .. bsd, 255, 240]);
+               .. ForwardMaskFrame(),
+               255, 250, 34, 3, .. bsd, 255, 240,
+               .. ForwardMaskFrame()]);
+        }
+
+        [Fact]
+        public async Task InboundImportRequest_AckFlaggedDefault_WithModifiedTable_ResetsToConfigured()
+        {
+            // The DEFAULT decision uses the masked level bits (RFC 1184
+            // §2.4): (0,DEFAULT|ACK,0) resets even though the raw modifier
+            // (0x83) differs from LevelDefault. IP is negotiated away to 5,
+            // so a VALUE-branch misread would answer (3,2,5); the reset
+            // answers the configured (3,2,3) — plus the forwardmask trailer.
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            session.SetLinemodeEntry(3, 2, 3);
+            stream.Enqueue([255, 251, 34, 255, 250, 34, 3, 3, 2, 5, 255, 240]);
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
+            stream.Enqueue([255, 250, 34, 3, 0, 0x83, 0, 255, 240]);
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
+            var bsd = new byte[]
+            {
+              1, 3, 0, 2, 3, 0, 3, 2, 3, 4, 34, 15, 5, 2, 20, 6, 3, 0,
+              7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
+              13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
+            };
+            OutboundBytes(stream).Should().Equal(
+              [255, 253, 34,
+               255, 250, 34, 1, 16, 255, 240,
+               255, 250, 34, 3, 3, 130, 5, 255, 240,
+               .. ForwardMaskFrame(),
+               255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42,
+               255, 250, 34, 3, .. bsd, 255, 240,
+               .. ForwardMaskFrame()]);
+        }
+
+        [Fact]
+        public async Task InboundImportRequest_FlushFlaggedDefault_ResetsToConfigured()
+        {
+            // FLUSH bits ride along like ACK: (0,DEFAULT|FLUSHIN,0) resets
+            // (same distinguishing setup as the ACK case above).
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            session.SetLinemodeEntry(3, 2, 3);
+            stream.Enqueue([255, 251, 34, 255, 250, 34, 3, 3, 2, 5, 255, 240]);
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
+            stream.Enqueue([255, 250, 34, 3, 0, 0x43, 0, 255, 240]);
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
+            var bsd = new byte[]
+            {
+              1, 3, 0, 2, 3, 0, 3, 2, 3, 4, 34, 15, 5, 2, 20, 6, 3, 0,
+              7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
+              13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
+            };
+            OutboundBytes(stream).Should().Equal(
+              [255, 253, 34,
+               255, 250, 34, 1, 16, 255, 240,
+               255, 250, 34, 3, 3, 130, 5, 255, 240,
+               .. ForwardMaskFrame(),
+               255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42,
+               255, 250, 34, 3, .. bsd, 255, 240,
+               .. ForwardMaskFrame()]);
+        }
+
+        [Fact]
+        public async Task InboundImportRequest_AckFlaggedValue_DoesNotReset()
+        {
+            // (0,VALUE|ACK,0) is "send current settings", not a reset: the
+            // negotiated-away IP value (5) is exported, not the configured
+            // one (3). Same setup as the reset cases, opposite expectation.
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            session.SetLinemodeEntry(3, 2, 3);
+            stream.Enqueue([255, 251, 34, 255, 250, 34, 3, 3, 2, 5, 255, 240]);
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
+            stream.Enqueue([255, 250, 34, 3, 0, 0x82, 0, 255, 240]);
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
+            var current = new byte[]
+            {
+              1, 3, 0, 2, 3, 0, 3, 2, 5, 4, 34, 15, 5, 2, 20, 6, 3, 0,
+              7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
+              13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
+            };
+            OutboundBytes(stream).Should().Equal(
+              [255, 253, 34,
+               255, 250, 34, 1, 16, 255, 240,
+               255, 250, 34, 3, 3, 130, 5, 255, 240,
+               .. ForwardMaskFrame(),
+               255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42,
+               255, 250, 34, 3, .. current, 255, 240,
+               .. ForwardMaskFrame()]);
+        }
+
+        [Fact]
+        public async Task InboundImportRequest_BatchedFunc0First_ResetsAndAppendsReplies()
+        {
+            // A batched import is processed in order into one SLC frame
+            // (reference _slc_set loops the whole list): func 0 DEFAULT
+            // resets and appends the full table, then the IP triplet is
+            // applied with its ACK appended after the table. A follow-up
+            // VALUE import shows the applied IP value stuck.
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            stream.Enqueue([255, 251, 34, 255, 250, 34, 3, 0, 3, 0, 3, 2, 7, 255, 240]);
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
+            stream.Enqueue([255, 250, 34, 3, 0, 2, 0, 255, 240]);
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
+            var bsd = new byte[]
+            {
+              1, 3, 0, 2, 3, 0, 3, 98, 3, 4, 34, 15, 5, 2, 20, 6, 3, 0,
+              7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
+              13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
+            };
+            var applied = new byte[]
+            {
+              1, 3, 0, 2, 3, 0, 3, 2, 7, 4, 34, 15, 5, 2, 20, 6, 3, 0,
+              7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
+              13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
+            };
+            OutboundBytes(stream).Should().Equal(
+              [255, 253, 34,
+               255, 250, 34, 1, 16, 255, 240,
+               255, 250, 34, 3, .. bsd, 3, 130, 7, 255, 240,
+               .. ForwardMaskFrame(),
+               255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42,
+               255, 250, 34, 3, .. applied, 255, 240,
+               .. ForwardMaskFrame()]);
+        }
+
+        [Fact]
+        public async Task InboundImportRequest_BatchedFunc0NotFirst_ProcessesInOrder()
+        {
+            // Order matters: the IP triplet applies first (its ACK leads the
+            // reply frame), then func 0 DEFAULT resets — wiping the just
+            // applied value — and appends the table. The follow-up VALUE
+            // import proves the reset won (BSD IP row, not the applied 7).
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            stream.Enqueue([255, 251, 34, 255, 250, 34, 3, 3, 2, 7, 0, 3, 0, 255, 240]);
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
+            stream.Enqueue([255, 250, 34, 3, 0, 2, 0, 255, 240]);
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
+            var bsd = new byte[]
+            {
+              1, 3, 0, 2, 3, 0, 3, 98, 3, 4, 34, 15, 5, 2, 20, 6, 3, 0,
+              7, 98, 28, 8, 2, 4, 9, 66, 26, 10, 2, 127, 11, 2, 21, 12, 2, 23,
+              13, 2, 18, 14, 2, 22, 15, 2, 17, 16, 2, 19,
+            };
+            OutboundBytes(stream).Should().Equal(
+              [255, 253, 34,
+               255, 250, 34, 1, 16, 255, 240,
+               255, 250, 34, 3, 3, 130, 7, .. bsd, 255, 240,
+               .. ForwardMaskFrame(),
+               255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42,
+               255, 250, 34, 3, .. bsd, 255, 240,
+               .. ForwardMaskFrame()]);
+        }
+
+        [Fact]
+        public async Task InboundImportRequest_NosupportLevelFunc0_FallsThroughToNormalPath()
+        {
+            // A func 0 at NOSUPPORT level is not an import request: the hook
+            // leaves it for the normal SLC path, which drops func 0 silently
+            // and still sends the forwardmask (LINEMODE is agreed).
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            stream.Enqueue([255, 251, 34, 255, 250, 34, 3, 0, 0, 0, 255, 240]);
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
+            OutboundBytes(stream).Should().Equal(
+              [255, 253, 34,
+               255, 250, 34, 1, 16, 255, 240,
+               .. ForwardMaskFrame(),
+               255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42]);
+        }
+
+        [Fact]
+        public async Task InboundImportRequest_MisalignedTailWithFunc0_IgnoredWhole()
+        {
+            // A misaligned triplet tail is ignored as a whole even when it
+            // opens with a func 0: no SLC frame and no forwardmask for it.
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            stream.Enqueue([255, 251, 34, 255, 250, 34, 3, 0, 3, 0, 3, 255, 240]);
+            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
+            OutboundBytes(stream).Should().Equal(
+              [255, 253, 34,
+               255, 250, 34, 1, 16, 255, 240,
+               255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42]);
         }
 
         [Fact]

@@ -136,7 +136,37 @@ switch (mode)
         Console.WriteLine("payload=" + Hex((byte[])mm.Invoke(null, new object[] { ns2 })!));
         break;
     }
-    default: Console.WriteLine("modes: negqueue read readS charsetSim clientSim synch slcdefaults nawsdefault negseq tspeed status"); break;
+    case "snoop":
+    {
+        // Dumps Snoop() over all 256 byte values for two tables:
+        // A = BSD defaults, B = modified (dup 0x41 on funcs 3+8, zeroed
+        // func 10, VARIABLE 0x42 on func 20, VARIABLE 0xFF on func 1).
+        var asm2 = typeof(NegotiationState).Assembly;
+        var lt2 = asm2.GetType("telnet_cs.Protocol.LinemodeState")!;
+        var sm = lt2.GetMethod("Snoop", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!;
+        var se = lt2.GetMethod("SetEntry", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!;
+        string Dump(object st)
+        {
+            var toks = new string[256];
+            for (int b = 0; b < 256; b++)
+            {
+                var r = (byte?)sm.Invoke(st, new object[] { (byte)b });
+                toks[b] = r is null ? "-" : r.Value.ToString();
+            }
+            return string.Join(" ", toks);
+        }
+        var a = Activator.CreateInstance(lt2, true)!;
+        Console.WriteLine("A " + Dump(a));
+        var c = Activator.CreateInstance(lt2, true)!;
+        se.Invoke(c, new object[] { (byte)3, (byte)2, (byte)0x41, (byte)0 });
+        se.Invoke(c, new object[] { (byte)8, (byte)2, (byte)0x41, (byte)0 });
+        se.Invoke(c, new object[] { (byte)10, (byte)2, (byte)0x00, (byte)0 });
+        se.Invoke(c, new object[] { (byte)20, (byte)2, (byte)0x42, (byte)0 });
+        se.Invoke(c, new object[] { (byte)1, (byte)2, (byte)0xFF, (byte)0 });
+        Console.WriteLine("B " + Dump(c));
+        break;
+    }
+    default: Console.WriteLine("modes: negqueue read readS charsetSim clientSim synch slcdefaults nawsdefault negseq tspeed status snoop"); break;
 }
 
 sealed class MemStream : telnet_cs.Transport.IByteStream
