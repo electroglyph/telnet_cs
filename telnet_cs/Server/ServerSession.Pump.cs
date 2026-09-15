@@ -113,6 +113,21 @@ namespace telnet_cs.Server
                 bool firstPass = true;
                 while (!pumpShutdown && !InternalCancellation.IsCancellationRequested && ByteStream.Connected)
                 {
+                    if (authPumpStanddown)
+                    {
+                        idleIterations = 0;
+                        try
+                        {
+                            await Task.Delay(PumpQuietRecheck, InternalCancellation.Token).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            return;
+                        }
+
+                        continue;
+                    }
+
                     var idleFor = DateTime.UtcNow - new DateTime(Interlocked.Read(ref lastExplicitReadTicks), DateTimeKind.Utc);
                     if (!firstPass && idleFor < PumpQuietThreshold)
                     {
@@ -157,6 +172,7 @@ namespace telnet_cs.Server
                                     pumpBufferedText += text;
                                 }
 
+                                CheckBufferedTextCap();
                                 idleIterations = 0;
                             }
                             else

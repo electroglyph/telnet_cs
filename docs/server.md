@@ -45,8 +45,10 @@ Task<bool> ValidateAsync(string user, string password) =>
 sessions, and clears the bound port (`Start()` re-arms afterwards);
 `Dispose()` does all that, latches disposed (further `Start()` throws),
 and additionally completes the accept queue. `Settings` is kept by reference,
-so mutating it affects live sessions too (read per-read), not just
-subsequently accepted ones.
+so most scalar options are read live (per read/accept), but a few are
+snapshotted per session — the table below marks which is which. Mutating
+`Settings` after `Start()` is supported; only the snapshotted rows apply
+to subsequently accepted sessions.
 
 The opening preset is just `DO TTYPE` (when `RequestTerminalType`, on by
 default). It is sent by `AcceptSessionAsync` before it returns.
@@ -87,9 +89,46 @@ await session.SendGaAsync();    // sends nothing, returns false while SGA agreed
 `AuthenticateAsync` prompts with `LoginUserPrompt`/`LoginPasswordPrompt`,
 retries up to `MaxLoginAttempts`, and always suppresses echo-back of the
 password line (negotiation untouched; the username line echoes normally). It returns `false` on exhausted attempts or a
-timed-out credential line — the session stays open, you decide whether to
-disconnect. A credential buffer past the 64 KiB `TerminatedReadLimit` throws
+timed-out credential line — the session stays open unless
+`DisconnectOnExhaustion` is set (writes `\r\nLogin failed.\r\n`, then
+closes; default `false`). Between attempts it waits `LoginAttemptDelay`
+(default 1 s; zero disables) so online guessing is throttled, and each
+failed attempt is logged as `auth-exhausted: <endpoint> attempt <n> <reason>`
+(`bad-credentials` / `timeout` / `exhausted`; never the secrets).
+The background pump stands down for the whole exchange, so typed input is
+never double-consumed. A credential buffer past the 64 KiB `TerminatedReadLimit` throws
 `InvalidOperationException` and cancel throws `OperationCanceledException` instead of returning `false`.
+
+## Resource limits
+
+Unauthenticated input is bounded; defaults preserve existing wire
+behavior and new limits only close or refuse, never alter framing:
+
+| Option | Default | Snapshot / live | Effect on breach |
+|---|---|---|---|
+| `MaxConcurrentSessions` | 256 (0 = unlimited) | live, per accept | TCP close before the preset; `RejectedCapacityCount++`, `over-capacity` log |
+| `MaxConnectionsPerIp` | 16 (0 = unlimited) | live, per accept | TCP close before the preset; `RejectedPerIpCount++` |
+| `AcceptFilter` | null (allow all) | live, per accept | TCP close; `RejectedFilterCount++` (a throwing filter also refuses) |
+| `HandshakeTimeout` | 10 s (Infinite/`<= 0` disables) | snapshot per accept | `\r\nHandshake timeout.\r\n`, then close; `handshake-timeout` log |
+| `IdleTimeout` | 300 s (Infinite/`<= 0` disables) | snapshot per session | `\r\nTimeout.\r\n`, then close |
+| `MaxBufferedTextChars` | 65536 (0 = unlimited) | live, per read | close; `buffer-cap:` log (pump + pending text combined) |
+| `MaxReplLineLength` | 4096 (0 = unlimited) | live, per line | `\r\nLine too long.\r\n`, then close; `buffer-cap:` log |
+| `MaxEnvironVars` / `MaxEnvironValueChars` / `MaxEnvironKeyChars` | 128 / 4096 / 256 (0 = unlimited) | live, per frame | extras dropped, first-N-wins; `environ-cap:` log (rate-limited) |
+| `MaxTtypeChars` | 256 (0 = unlimited) | live, per frame | overlong TTYPE answer dropped; `environ-cap:` log |
+| `MaxMudListItems` / `MaxMudListBytes` / `MaxMudKeys` | 128 / 256 KiB / 128 (0 = unlimited) | live, per frame | over-cap MSDP/GMCP ignored pre-decode, lists trimmed oldest-first; `mud-cap:` log |
+| `MaxDecompressedBytes` | 256 KiB (0 = unlimited) | live, per inflate | MCCP stream failed; `mccp-output-cap:` log |
+| `MaxDecompressionRatio` | 100 (0 = unlimited) | live, per inflate | fails past the 64 KiB out / 1 KiB in floors |
+| `MaxCompressedBytes` | 8 MiB (0 = unlimited) | live, per feed | MCCP stream failed |
+| `LoginAttemptDelay` | 1 s (zero disables) | live, per attempt | delay between auth attempts (cancellable) |
+| `DisconnectOnExhaustion` | false | live, per auth | close with `\r\nLogin failed.\r\n` when attempts exhaust |
+
+The negotiation storm guard is fixed at 100 inbound negotiation
+frames/second: past that, duplicate/refused replies are dropped
+(`storm-guard:` log) while agreements and TTYPE replies are never
+suppressed. The `WaitForClientAsync` queue is bounded (1000,
+`DropWrite`); overflows count in `QueueDroppedCount`. `StatusInterval`
+logs per-session `rx/tx/idle/tls` lines only when counters changed, plus
+aggregate `sessions=` / `rejected` counts.
 
 ## Querying the client
 

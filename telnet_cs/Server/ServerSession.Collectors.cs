@@ -19,6 +19,10 @@
         // Request*Async calls would overwrite each other's expecting-flags and
         // mix the chains (no reentrancy protection by design).
         private readonly Lock collectorLock = new();
+        // Session-owned negotiation storm guard (fixed 100 inbound neg
+        // frames/s window): one instance shared by every per-read handler
+        // so the count survives across reads.
+        private readonly NegotiationStormGuard stormGuard = new();
         private bool expectingTerminalType;
         private bool expectingTerminalSpeed;
         private bool expectingEnvironment;
@@ -564,6 +568,28 @@
                 if (!string.IsNullOrEmpty(text))
                 {
                     PendingText += text;
+                    if (CheckBufferedTextCap())
+                    {
+                        // Inbound buffer cap tripped (session closing): stop
+                        // polling and return what arrived, with the same
+                        // cleanup and duplicate trim as the normal epilogue.
+                        lock (collectorLock)
+                        {
+                            expectingTerminalType = false;
+                            ttypeResendsOwed = 0;
+                            terminalTypesConsumedUpTo = terminalTypeChain.Count;
+                            terminalTypesCycleComplete = false;
+                            var capped = new List<string>(terminalTypeChain);
+                            if (capped.Count >= 2 &&
+                                (string.Equals(capped[^1], capped[^2], StringComparison.Ordinal) ||
+                                  string.Equals(capped[^1], capped[0], StringComparison.Ordinal)))
+                            {
+                                capped.RemoveAt(capped.Count - 1);
+                            }
+
+                            return capped;
+                        }
+                    }
                 }
             }
 
@@ -1513,6 +1539,13 @@
             var text = new byte[payload.Count - 1];
             payload.CopyTo(1, text, 0, text.Length);
             var answer = System.Text.Encoding.Latin1.GetString(text);
+            int ttypeCap = TtypeMaxChars();
+            if (ttypeCap > 0 && answer.Length > ttypeCap)
+            {
+                LogSingleValueCap("TTYPE", answer.Length, ttypeCap);
+                return true;
+            }
+
             lock (collectorLock)
             {
                 // No expecting gate: the reference stores TTYPE IS even when
@@ -1633,28 +1666,40 @@
 
         private bool TryConsumeTerminalSpeed(List<byte> payload)
         {
+            var rawText = System.Text.Encoding.Latin1.GetString(payload.Skip(1).ToArray());
+            int speedCap = EnvironMaxValueChars();
+            if (speedCap > 0 && rawText.Length > speedCap)
+            {
+                LogSingleValueCap("TSPEED", rawText.Length, speedCap);
+                return true;
+            }
+
             lock (collectorLock)
             {
                 // No expecting gate: the reference stores TSPEED answers
                 // even when unsolicited.
                 expectingTerminalSpeed = false;
-                var text = new byte[payload.Count - 1];
-                payload.CopyTo(1, text, 0, text.Length);
-                clientTerminalSpeed = TerminalSpeedProtocol.Validate(System.Text.Encoding.Latin1.GetString(text));
+                clientTerminalSpeed = TerminalSpeedProtocol.Validate(rawText);
                 return true;
             }
         }
 
         private bool TryConsumeXDisplay(List<byte> payload)
         {
+            var rawText = System.Text.Encoding.Latin1.GetString(payload.Skip(1).ToArray());
+            int valueCap = EnvironMaxValueChars();
+            if (valueCap > 0 && rawText.Length > valueCap)
+            {
+                LogSingleValueCap("XDisplay", rawText.Length, valueCap);
+                return true;
+            }
+
             lock (collectorLock)
             {
                 // No expecting gate: the reference stores XDISPLOC answers
                 // even when unsolicited.
                 expectingXDisplay = false;
-                var text = new byte[payload.Count - 1];
-                payload.CopyTo(1, text, 0, text.Length);
-                clientXDisplay = System.Text.Encoding.Latin1.GetString(text);
+                clientXDisplay = rawText;
                 xdisplaySeq = ++displayArrivalSeq;
                 return true;
             }
@@ -1692,7 +1737,15 @@
 
                 var store = isNew ? clientNewEnvironment : clientEnvironment;
                 Dictionary<string, string>? batch = null;
-                foreach (var entry in EnvironmentProtocol.ParseEntries(payload))
+                int maxVars = EnvironMaxVars();
+                int maxValue = EnvironMaxValueChars();
+                int maxKey = EnvironMaxKeyChars();
+                int parseMax = maxVars > 0 ? maxVars + 16 : int.MaxValue;
+                int ignoredVars = 0;
+                int ignoredValues = 0;
+                int ignoredKeys = 0;
+                string firstIgnoredKey = string.Empty;
+                foreach (var entry in EnvironmentProtocol.ParseEntries(payload, parseMax))
                 {
                     // Untrusted input: keys are upper-cased so a client cannot
                     // override trusted mixed-case values, and empty values
@@ -1701,6 +1754,27 @@
                     if (entry.Value is { Length: > 0 })
                     {
                         var key = entry.Name.ToUpperInvariant();
+                        if (maxKey > 0 && key.Length > maxKey)
+                        {
+                            ignoredKeys++;
+                            firstIgnoredKey = firstIgnoredKey.Length == 0 ? key : firstIgnoredKey;
+                            continue;
+                        }
+
+                        if (maxValue > 0 && entry.Value.Length > maxValue)
+                        {
+                            ignoredValues++;
+                            firstIgnoredKey = firstIgnoredKey.Length == 0 ? key : firstIgnoredKey;
+                            continue;
+                        }
+
+                        if (!store.ContainsKey(key) && maxVars > 0 && store.Count >= maxVars)
+                        {
+                            ignoredVars++;
+                            firstIgnoredKey = firstIgnoredKey.Length == 0 ? key : firstIgnoredKey;
+                            continue;
+                        }
+
                         store[key] = entry.Value;
                         (batch ??= new Dictionary<string, string>(StringComparer.Ordinal))[key] = entry.Value;
                         if (key == EnvironmentProtocol.DisplayVariableName)
@@ -1708,6 +1782,11 @@
                             environDisplaySeq = ++displayArrivalSeq;
                         }
                     }
+                }
+
+                if (ignoredVars + ignoredValues + ignoredKeys > 0)
+                {
+                    LogEnvironCap($"vars={store.Count} ignoredVars={ignoredVars} ignoredValues={ignoredValues} ignoredKeys={ignoredKeys} key={SanitizeKeyForLog(firstIgnoredKey)}");
                 }
 
                 // A CHARSET entry, or a LANG entry carrying an encoding
@@ -1728,10 +1807,18 @@
         /// </summary>
         private bool TryConsumeSendLocation(List<byte> payload)
         {
+            var rawText = System.Text.Encoding.Latin1.GetString([.. payload]);
+            int valueCap = EnvironMaxValueChars();
+            if (valueCap > 0 && rawText.Length > valueCap)
+            {
+                LogSingleValueCap("Location", rawText.Length, valueCap);
+                return true;
+            }
+
             lock (collectorLock)
             {
                 expectingLocation = false;
-                clientLocation = System.Text.Encoding.Latin1.GetString([.. payload]);
+                clientLocation = rawText;
                 return true;
             }
         }
@@ -1767,6 +1854,13 @@
                         // identical to one of the requested names, so an empty
                         // name matches nothing and takes the rejection path.
                         clientCharset = null;
+                        return true;
+                    }
+
+                    int charsetCap = EnvironMaxValueChars();
+                    if (charsetCap > 0 && name.Length > charsetCap)
+                    {
+                        LogSingleValueCap("Charset", name.Length, charsetCap);
                         return true;
                     }
 
@@ -1838,6 +1932,10 @@
                 if (!string.IsNullOrEmpty(text))
                 {
                     PendingText += text;
+                    if (CheckBufferedTextCap())
+                    {
+                        return;
+                    }
                 }
             }
         }

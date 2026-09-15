@@ -240,6 +240,9 @@ namespace telnet_cs.Tests
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
             using var session = await acceptTask;
             session.Settings.MaxLoginAttempts = 1;
+            // No inter-attempt delay: this test asserts the wire shape of a
+            // single rejection, not the guessing throttle.
+            session.Settings.LoginAttemptDelay = TimeSpan.Zero;
 
             var authTask = session.AuthenticateAsync(
               (u, p) => Task.FromResult(p == "s3cret"),
@@ -320,7 +323,13 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task AuthenticateAsync_RejectsUntilAttemptsExhausted()
         {
-            var options = new TelnetServerOptions { MaxLoginAttempts = 2 };
+            var options = new TelnetServerOptions
+            {
+                MaxLoginAttempts = 2,
+                // No inter-attempt delay: this test asserts credential
+                // values per attempt, not the guessing throttle.
+                LoginAttemptDelay = TimeSpan.Zero,
+            };
             using var server = new TelnetServer(0, options);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);

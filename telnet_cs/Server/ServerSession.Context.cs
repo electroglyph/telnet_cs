@@ -116,6 +116,7 @@ namespace telnet_cs.Server
             if (disposing)
             {
                 ShutdownPump();
+                StopHandshakeTimer();
                 StopIdleTimer();
                 mccp2Filter?.Dispose();
                 mccp2Filter = null;

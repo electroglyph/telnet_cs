@@ -336,6 +336,9 @@ namespace telnet_cs.Tests
             {
                 ServerCertificate = cert,
                 TlsAutoDetect = TimeSpan.FromSeconds(10),
+                // The plaintext leg parks in the peek window for the full
+                // 10 s, so the accept-side handshake budget must exceed it.
+                HandshakeTimeout = TimeSpan.FromSeconds(30),
             });
             server.Start();
             var firstAccept = server.AcceptSessionAsync(CancellationToken.None);

@@ -89,7 +89,53 @@ namespace telnet_cs.Server
         /// </summary>
         private static async Task<string?> ReadLineAsync(ServerSession session, System.Text.StringBuilder pending, CancellationToken cancellationToken)
         {
+            int cap;
+            try
+            {
+                cap = session.Settings.MaxReplLineLength;
+            }
+            catch
+            {
+                cap = 4096;
+            }
+
+            if (cap > 0 && pending.Length > cap)
+            {
+                pending.Clear();
+                try
+                {
+                    await session.WriteAsync("\r\nLine too long.\r\n", cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+#pragma warning disable CA1031 // Defensive close path: never throw out of hardening.
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(ex.Message);
+                }
+#pragma warning restore CA1031
+                try
+                {
+                    session.Settings.Log?.Invoke($"buffer-cap: endpoint={session.RemoteEndPoint ?? "unknown"} repl-pending={pending.Length} cap={cap}");
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    session.Close();
+                }
+                catch
+                {
+                }
+
+                return null;
+            }
+
             var line = new System.Text.StringBuilder();
+            int echoBudget = cap > 0 ? cap * 3 : int.MaxValue;
             while (!cancellationToken.IsCancellationRequested && session.IsConnected)
             {
                 string chunk;
@@ -105,6 +151,7 @@ namespace telnet_cs.Server
                 pending.Append(chunk);
                 string accumulated = pending.ToString();
                 pending.Clear();
+                bool sawNewline = false;
                 for (int i = 0; i < accumulated.Length; i++)
                 {
                     char c = accumulated[i];
@@ -113,13 +160,17 @@ namespace telnet_cs.Server
                         if (line.Length > 0)
                         {
                             line.Length--;
-                            try
+                            if (echoBudget >= 3)
                             {
-                                await session.WriteAsync("\b \b", cancellationToken).ConfigureAwait(false);
-                            }
-                            catch (OperationCanceledException)
-                            {
-                                return null;
+                                echoBudget -= 3;
+                                try
+                                {
+                                    await session.WriteAsync("\b \b", cancellationToken).ConfigureAwait(false);
+                                }
+                                catch (OperationCanceledException)
+                                {
+                                    return null;
+                                }
                             }
                         }
 
@@ -130,10 +181,68 @@ namespace telnet_cs.Server
                     {
                         // Stash anything past the newline for the next line.
                         pending.Append(accumulated.Substring(i + 1));
-                        return line.ToString().TrimEnd('\r');
+                        sawNewline = true;
+                        break;
                     }
 
                     line.Append(c);
+                }
+
+                if (cap > 0 && line.Length > cap)
+                {
+                    pending.Clear();
+                    try
+                    {
+                        await session.WriteAsync("\r\nLine too long.\r\n", cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return null;
+                    }
+#pragma warning disable CA1031 // Defensive close path: never throw out of hardening.
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine(ex.Message);
+                    }
+#pragma warning restore CA1031
+                    try
+                    {
+                        session.Settings.Log?.Invoke($"buffer-cap: endpoint={session.RemoteEndPoint ?? "unknown"} repl-line={line.Length} cap={cap}");
+                    }
+                    catch
+                    {
+                    }
+
+                    try
+                    {
+                        session.Close();
+                    }
+                    catch
+                    {
+                    }
+
+                    return null;
+                }
+
+                if (sawNewline)
+                {
+                    return line.ToString().TrimEnd('\r');
+                }
+
+                if (cap > 0 && pending.Length > cap)
+                {
+                    // No newline in this chunk but pending grew (should be
+                    // empty here unless future logic stashes): fail closed.
+                    pending.Clear();
+                    try
+                    {
+                        session.Close();
+                    }
+                    catch
+                    {
+                    }
+
+                    return null;
                 }
             }
 

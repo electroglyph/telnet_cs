@@ -210,12 +210,18 @@
         /// Entries with empty names are skipped (no usable key).
         /// </summary>
         /// <param name="payload">The received payload including the verb byte.</param>
-        internal static List<(bool IsUserVar, string Name, string? Value)> ParseEntries(IReadOnlyList<byte> payload)
+        /// <param name="maxEntries">Maximum entries to parse (CPU bound; extra input is left unparsed).</param>
+        internal static List<(bool IsUserVar, string Name, string? Value)> ParseEntries(IReadOnlyList<byte> payload, int maxEntries = int.MaxValue)
         {
             var entries = new List<(bool IsUserVar, string Name, string? Value)>();
             var index = 1; // Skip the verb.
             while (index < payload.Count)
             {
+                if (entries.Count >= maxEntries)
+                {
+                    break;
+                }
+
                 var type = payload[index];
                 if (type != Var && type != UserVar)
                 {

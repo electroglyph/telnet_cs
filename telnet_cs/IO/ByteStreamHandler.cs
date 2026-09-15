@@ -810,6 +810,50 @@
         internal List<(string Package, string Value)> AtcpData { get; } = [];
 
         /// <summary>
+        /// Gets or sets the per-read MUD list cap (items, 0 = unlimited).
+        /// Mirrors <c>TelnetServerOptions.MaxMudListItems</c> when driven by
+        /// a server session; defaults to unlimited for standalone use.
+        /// </summary>
+        internal int MaxMudListItems { get; set; }
+
+        /// <summary>
+        /// Gets or sets the per-read MUD list byte cap (0 = unlimited).
+        /// </summary>
+        internal int MaxMudListBytes { get; set; }
+
+        /// <summary>
+        /// Gets or sets the per-read MUD distinct-key cap for ZMP/MSSP
+        /// (0 = unlimited).
+        /// </summary>
+        internal int MaxMudKeys { get; set; }
+
+        /// <summary>
+        /// Gets or sets the per-value char cap reused for ZMP args, ATCP
+        /// fields, and MSSP string values (0 = unlimited).
+        /// </summary>
+        internal int MaxMudValueChars { get; set; }
+
+        /// <summary>
+        /// Gets or sets the MCCP outstanding decompressed cap (0 = unlimited).
+        /// </summary>
+        internal int MaxDecompressedBytes { get; set; }
+
+        /// <summary>
+        /// Gets or sets the MCCP decompression ratio cap (0 = unlimited).
+        /// </summary>
+        internal int MaxDecompressionRatio { get; set; }
+
+        /// <summary>
+        /// Gets or sets the MCCP compressed input cap (0 = unlimited).
+        /// </summary>
+        internal int MaxCompressedBytes { get; set; }
+
+        /// <summary>
+        /// Gets or sets the MCCP cap log hook.
+        /// </summary>
+        internal Action<string>? MccpCapLog { get; set; }
+
+        /// <summary>
         /// Gets or sets the hook invoked with COM port control payloads
         /// (without the option byte).
         /// </summary>
@@ -1723,8 +1767,13 @@
 
             if (overCap)
             {
+                StormGuard?.NoteFrame();
                 return;
             }
+
+            // A full subnegotiation frame arrived: count it toward the
+            // storm window before any dispatch below.
+            StormGuard?.NoteFrame();
 
             if (payload.Count == 0)
             {
@@ -1861,6 +1910,14 @@
         /// <param name="payload">The full received subnegotiation payload, SEND first.</param>
         private async Task ReplySendAsync(int inputOption, List<byte> payload)
         {
+            if (ShouldSuppressStormSbReply(inputOption))
+            {
+                WriteLog("storm-guard: suppressed SB reply for " +
+                    (Enum.GetName(typeof(Options), inputOption) ?? inputOption.ToString()) +
+                    " (negotiation storm).");
+                return;
+            }
+
             switch (inputOption)
             {
                 case (int)Options.TerminalType:
@@ -2064,6 +2121,13 @@
         /// <param name="body">The subnegotiation body without the option byte.</param>
         private void DispatchMud(int inputOption, byte[] body)
         {
+            if (MaxMudListBytes > 0 && body.Length > MaxMudListBytes
+                && (inputOption == (int)Options.Gmcp || inputOption == (int)Options.Msdp))
+            {
+                WriteLog($"mud-cap: option={inputOption} len={body.Length} cap={MaxMudListBytes}");
+                return;
+            }
+
             var encoding = MudEncoding();
             switch (inputOption)
             {
@@ -2091,35 +2155,94 @@
                     break;
                 case (int)Options.Mssp:
                     var status = MudProtocol.MsspDecode(body, encoding);
+                    if (MaxMudKeys > 0 && status.Count > MaxMudKeys)
+                    {
+                        WriteLog($"mud-cap: option=mssp vars={status.Count} cap={MaxMudKeys}");
+                        status = status.Take(MaxMudKeys).ToDictionary(kv => kv.Key, kv => kv.Value);
+                    }
+
+                    if (MaxMudValueChars > 0)
+                    {
+                        bool dropped = false;
+                        var filtered = new Dictionary<string, object>(status.Count);
+                        foreach (var kv in status)
+                        {
+                            if (kv.Value is string s && s.Length > MaxMudValueChars)
+                            {
+                                dropped = true;
+                                continue;
+                            }
+
+                            filtered[kv.Key] = kv.Value;
+                        }
+
+                        if (dropped)
+                        {
+                            WriteLog($"mud-cap: option=mssp value-cap={MaxMudValueChars}");
+                        }
+
+                        status = filtered;
+                    }
+
                     MsspData = new Dictionary<string, object>(status);
                     MsspReceived?.Invoke(status);
                     break;
                 case (int)Options.Msp:
                     MspData.Add(body);
+                    TrimMudByteList(MspData, static b => b.Length);
                     MspReceived?.Invoke(body);
                     break;
                 case (int)Options.Mxp:
                     MxpData.Add(body);
+                    TrimMudByteList(MxpData, static b => b.Length);
                     MxpReceived?.Invoke(body);
                     break;
                 case (int)Options.Zmp:
                     var parts = MudProtocol.ZmpDecode(body, encoding);
                     if (parts.Count > 0)
                     {
-                        IReadOnlyList<string> args = [.. parts.Skip(1)];
-                        ZmpData[parts[0]] = args;
-                        ZmpReceived?.Invoke(parts[0], args);
+                        string command = parts[0];
+                        List<string> args = [.. parts.Skip(1)];
+                        if (MaxMudValueChars > 0 && (command.Length > MaxMudValueChars || args.Any(a => a.Length > MaxMudValueChars) || args.Count > MaxMudKeys))
+                        {
+                            WriteLog($"mud-cap: option=zmp cmd-len={command.Length} args={args.Count} cap={MaxMudValueChars}");
+                            break;
+                        }
+
+                        if (MaxMudKeys > 0 && !ZmpData.ContainsKey(command) && ZmpData.Count >= MaxMudKeys)
+                        {
+                            WriteLog($"mud-cap: option=zmp keys={ZmpData.Count} cap={MaxMudKeys}");
+                            break;
+                        }
+
+                        IReadOnlyList<string> argView = args;
+                        ZmpData[command] = argView;
+                        ZmpReceived?.Invoke(command, argView);
                     }
 
                     break;
                 case (int)Options.Aardwolf:
                     var message = MudProtocol.AardwolfDecode(body);
+                    if (MaxMudValueChars > 0 && message.DataBytes.Length + message.Channel.Length > MaxMudValueChars)
+                    {
+                        WriteLog($"mud-cap: option=aardwolf len={message.DataBytes.Length} cap={MaxMudValueChars}");
+                        break;
+                    }
+
                     AardwolfData.Add(message);
+                    TrimMudByteList(AardwolfData, static m => m.DataBytes.Length + m.Channel.Length);
                     AardwolfReceived?.Invoke(message);
                     break;
                 case (int)Options.Atcp:
                     var (atcpPackage, atcpValue) = MudProtocol.AtcpDecode(body, encoding);
+                    if (MaxMudValueChars > 0 && (atcpPackage.Length > MaxMudValueChars || atcpValue.Length > MaxMudValueChars))
+                    {
+                        WriteLog($"mud-cap: option=atcp len={atcpPackage.Length + atcpValue.Length} cap={MaxMudValueChars}");
+                        break;
+                    }
+
                     AtcpData.Add((atcpPackage, atcpValue));
+                    TrimMudByteList(AtcpData, static t => t.Package.Length + t.Value.Length);
                     AtcpReceived?.Invoke(atcpPackage, atcpValue);
                     break;
                 default:
@@ -2127,6 +2250,32 @@
             }
 
             MudSubnegotiationReceived?.Invoke(inputOption, body);
+        }
+
+        private void TrimMudByteList<T>(List<T> list, Func<T, int> sizeOf)
+        {
+            if (MaxMudListItems > 0)
+            {
+                while (list.Count > MaxMudListItems)
+                {
+                    list.RemoveAt(0);
+                }
+            }
+
+            if (MaxMudListBytes > 0)
+            {
+                long total = 0;
+                foreach (var item in list)
+                {
+                    total += sizeOf(item);
+                }
+
+                while (list.Count > 0 && total > MaxMudListBytes)
+                {
+                    total -= sizeOf(list[0]);
+                    list.RemoveAt(0);
+                }
+            }
         }
 
         /// <summary>
@@ -2145,6 +2294,12 @@
         {
             if (IsServerRole || !EnableZmp)
             {
+                return;
+            }
+
+            if (ShouldSuppressStormSbReply((int)Options.Zmp))
+            {
+                WriteLog("storm-guard: suppressed SB reply for ZMP (negotiation storm).");
                 return;
             }
 
@@ -2268,6 +2423,26 @@
             }
 
             MccpStream.StrictZlib = IsServerRole && inputOption == (int)Options.Mccp3;
+            if (MaxDecompressedBytes > 0)
+            {
+                MccpStream.MaxDecompressedBytes = MaxDecompressedBytes;
+            }
+
+            if (MaxDecompressionRatio > 0)
+            {
+                MccpStream.MaxDecompressionRatio = MaxDecompressionRatio;
+            }
+
+            if (MaxCompressedBytes > 0)
+            {
+                MccpStream.MaxCompressedBytes = MaxCompressedBytes;
+            }
+
+            if (MccpCapLog is not null)
+            {
+                MccpStream.CapLog = MccpCapLog;
+            }
+
             mccpShutdownPending = false;
             mccpShutdownWont = false;
             mccpShutdownOption = inputOption;
@@ -2316,6 +2491,12 @@
         /// <param name="payload">The received payload (mode byte).</param>
         private Task ReplyLineflowAsync(List<byte> payload)
         {
+            if (ShouldSuppressStormSbReply((int)Options.RemoteFlowControl))
+            {
+                WriteLog("storm-guard: suppressed SB reply for LFLOW (negotiation storm).");
+                return Task.CompletedTask;
+            }
+
             if (payload.Count != 1 || !LineflowProtocol.IsDefined(payload[0]))
             {
                 WriteLog("Ignoring malformed LFLOW subnegotiation (want one mode byte 0-3).");
@@ -2436,6 +2617,12 @@
         /// <param name="payload">The received payload, verb first.</param>
         private Task ReplyCharsetAnswerAsync(List<byte> payload)
         {
+            if (ShouldSuppressStormSbReply((int)Options.CharacterSet))
+            {
+                WriteLog("storm-guard: suppressed SB reply for CHARSET (negotiation storm).");
+                return Task.CompletedTask;
+            }
+
             if (payload[0] == CharsetProtocol.Accepted)
             {
                 var charset = CharsetProtocol.ParseAccepted(payload);
@@ -2649,6 +2836,12 @@
         /// <param name="payload">The full received subnegotiation payload, subcommand first.</param>
         private Task ReplyLinemodeAsync(List<byte> payload)
         {
+            if (ShouldSuppressStormSbReply((int)Options.LineMode))
+            {
+                WriteLog("storm-guard: suppressed SB reply for LINEMODE (negotiation storm).");
+                return Task.CompletedTask;
+            }
+
             switch (payload[0])
             {
                 case LinemodeProtocol.Mode:
@@ -3013,6 +3206,9 @@
         private async Task ReplyToCommandWithOption(int inputVerb, int inputOption)
         {
             WriteLog(Enum.GetName(typeof(Options), inputOption) ?? inputOption.ToString());
+            // Every inbound WILL/WONT/DO/DONT counts toward the storm
+            // window, even duplicates that already stay silent below.
+            StormGuard?.NoteFrame();
             if (inputOption == (int)Options.TimingMark)
             {
                 if (inputVerb == (int)Commands.Do)
@@ -3114,6 +3310,13 @@
                 // but no DO goes out: for these options the reply would only
                 // invite a subnegotiation the other side must request first,
                 // and the follow-up SEND probes below run regardless.
+            }
+            else if ((reply is Commands.Wont || reply is Commands.Dont) && ShouldSuppressStormRefusal())
+            {
+                // Storm shed: the refusal state is still recorded above, so
+                // only the repeat reply bytes are dropped. Agreements
+                // (WILL/DO) are never suppressed.
+                WriteLog($"storm-guard: suppressed {reply} {inputOption} (negotiation storm).");
             }
             else
             {

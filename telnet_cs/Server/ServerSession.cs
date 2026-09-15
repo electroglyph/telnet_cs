@@ -96,6 +96,7 @@
             Settings = options;
             Timeout = options.IdleTimeout;
             StartIdleTimer();
+            StartHandshakeTimer();
             // Background inbound processing (reference data_received): the
             // pump answers negotiation and buffers text even when the caller
             // never reads (see ServerSession.Pump.cs).
@@ -226,6 +227,7 @@
                     if (result.Length != 0)
                     {
                         Context.NoteRead(result);
+                        MarkHandshakeComplete();
                     }
 
                     // Deferred opening negotiation (WILL ECHO, DO
@@ -379,6 +381,7 @@
         private void FeedSession(ByteStreamHandler handler)
         {
             handler.Negotiation = Negotiation;
+            handler.StormGuard = stormGuard;
             handler.TextEncoding = Settings.TextEncoding;
             handler.Log = Settings.Log;
             // The accepted socket's TLS flag gates MCCP (refused over TLS).
@@ -389,6 +392,24 @@
             handler.Mccp2Active = mccp2Agreed;
             handler.Mccp3Active = mccp3Agreed;
             handler.MccpStream = mccpStream;
+            try
+            {
+                handler.MaxDecompressedBytes = Settings.MaxDecompressedBytes;
+                handler.MaxDecompressionRatio = Settings.MaxDecompressionRatio;
+                handler.MaxCompressedBytes = Settings.MaxCompressedBytes;
+                handler.MccpCapLog = msg => WriteLog(msg);
+                if (mccpStream is not null)
+                {
+                    mccpStream.MaxDecompressedBytes = Settings.MaxDecompressedBytes;
+                    mccpStream.MaxDecompressionRatio = Settings.MaxDecompressionRatio;
+                    mccpStream.MaxCompressedBytes = Settings.MaxCompressedBytes;
+                    mccpStream.CapLog = msg => WriteLog(msg);
+                }
+            }
+            catch
+            {
+            }
+
             handler.MccpStateChanged = (mccp2, mccp3, stream) =>
             {
                 mccp2Agreed = mccp2;
@@ -456,31 +477,63 @@
             handler.SuppressEchoBack = echoBackSuppressed;
             // MUD stores are session-lived (handlers are per-read): the
             // append/replace reports come back through the typed hooks.
+            // Per-read handler lists are capped from the same options so a
+            // pipelined burst cannot spike within one pass.
+            try
+            {
+                handler.MaxMudListItems = Settings.MaxMudListItems;
+                handler.MaxMudListBytes = Settings.MaxMudListBytes;
+                handler.MaxMudKeys = Settings.MaxMudKeys;
+                handler.MaxMudValueChars = Settings.MaxEnvironValueChars;
+            }
+            catch
+            {
+            }
+
             handler.MsspReceived = vars =>
             {
                 lock (collectorLock)
                 {
-                    mudMsspData = new Dictionary<string, object>(vars);
+                    mudMsspData = CapMsspVars(vars);
                 }
             };
             handler.MxpReceived = body =>
             {
                 lock (collectorLock)
                 {
+                    if (IsMudValueOverCap(body.Length))
+                    {
+                        LogMudCap("mxp", body.Length);
+                        return;
+                    }
+
                     mudMxpData.Add(body);
+                    TrimMudSessionBytes(mudMxpData, static b => b.Length);
                 }
             };
             handler.MspReceived = body =>
             {
                 lock (collectorLock)
                 {
+                    if (IsMudValueOverCap(body.Length))
+                    {
+                        LogMudCap("msp", body.Length);
+                        return;
+                    }
+
                     mudMspData.Add(body);
+                    TrimMudSessionBytes(mudMspData, static b => b.Length);
                 }
             };
             handler.ZmpReceived = (command, args) =>
             {
                 lock (collectorLock)
                 {
+                    if (!TryCapZmp(command, args))
+                    {
+                        return;
+                    }
+
                     mudZmpData[command] = args;
                 }
             };
@@ -488,14 +541,29 @@
             {
                 lock (collectorLock)
                 {
+                    int size = message.Channel.Length + message.DataBytes.Length;
+                    if (IsMudValueOverCap(size))
+                    {
+                        LogMudCap("aardwolf", size);
+                        return;
+                    }
+
                     mudAardwolfData.Add(message);
+                    TrimMudSessionBytes(mudAardwolfData, static m => m.Channel.Length + m.DataBytes.Length);
                 }
             };
             handler.AtcpReceived = (package, value) =>
             {
                 lock (collectorLock)
                 {
+                    if (IsMudValueOverCap(package.Length + value.Length))
+                    {
+                        LogMudCap("atcp", package.Length + value.Length);
+                        return;
+                    }
+
                     mudAtcpData.Add((package, value));
+                    TrimMudSessionBytes(mudAtcpData, static t => t.Package.Length + t.Value.Length);
                 }
             };
             // Subnegotiation continuation is session-lived (handlers are

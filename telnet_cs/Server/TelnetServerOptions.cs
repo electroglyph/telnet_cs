@@ -255,5 +255,183 @@
         /// <c>SendGaAsync</c> still suppresses while SGA is in effect).
         /// </summary>
         public bool NeverSendGa { get; set; }
+
+        /// <summary>
+        /// Gets or sets the maximum concurrently tracked sessions
+        /// (reservations plus live sessions after pruning dead weak refs and
+        /// disconnected records). Over budget accepts are refused before any
+        /// TLS handshake or preset bytes: the socket is disposed, a rejected
+        /// counter bumps, and <c>over-capacity:</c> is logged. Defaults to
+        /// 256; <c>0</c> means unlimited. Negative values are rejected.
+        /// Snapshotted per accept only for counting; the live value is read
+        /// under the server lock.
+        /// </summary>
+        public int MaxConcurrentSessions { get; set; } = 256;
+
+        /// <summary>
+        /// Gets or sets the maximum concurrent sessions per remote IP
+        /// address (parsed <c>IPEndPoint.Address</c> normalized with
+        /// <c>MapToIPv4()</c>; null or unparsable endpoints share a single
+        /// unknown bucket). Counted with the same prune as
+        /// <see cref="MaxConcurrentSessions"/> and refused the same way
+        /// before any TLS handshake or preset bytes. Many legitimate clients
+        /// behind one NAT address share this budget. Defaults to 16;
+        /// <c>0</c> means unlimited. Negative values are rejected.
+        /// </summary>
+        public int MaxConnectionsPerIp { get; set; } = 16;
+
+        /// <summary>
+        /// Gets or sets an optional accept filter evaluated after accept and
+        /// before any TLS handshake or preset bytes, with the raw remote
+        /// endpoint. Null (the default) allows everything. A <c>false</c>
+        /// return or a thrown exception disposes the accepted socket with no
+        /// bytes sent; exceptions never propagate out of the accept path and
+        /// are logged as <c>over-capacity:</c> filter rejects.
+        /// </summary>
+        public Func<System.Net.EndPoint?, bool>? AcceptFilter { get; set; }
+
+        /// <summary>
+        /// Gets or sets the pre-auth handshake deadline: the clock starts at
+        /// accept-loop entry (bounding TLS sniff and handshake) and the
+        /// session construction snapshots the remaining deadline. Completes
+        /// on the first successful <c>AuthenticateAsync</c> or the first
+        /// inbound decoded text byte; negotiation-only frames neither satisfy
+        /// nor reset it. On fire a short bounded notice is best-effort
+        /// written, then the stream closes (same close shape as the idle
+        /// timeout) and <c>handshake-timeout:</c> is logged. Human think time
+        /// before the first keystroke can exceed this; anonymous REPL shells
+        /// rely on the first keystroke arriving in time. Defaults to 10
+        /// seconds; <c>Timeout.InfiniteTimeSpan</c> or any non-positive span
+        /// disables. Snapshotted per accept: later mutations affect
+        /// subsequently accepted sessions only.
+        /// </summary>
+        public TimeSpan HandshakeTimeout { get; set; } = TimeSpan.FromSeconds(10);
+
+        /// <summary>
+        /// Gets or sets the maximum buffered inbound text chars
+        /// (<c>pumpBufferedText + PendingText</c> combined, checked atomically
+        /// under the pump lock after each append). On exceed the session is
+        /// closed fail-closed (never silently drop authenticated data) and
+        /// <c>buffer-cap:</c> is logged. Defaults to 65536; <c>0</c> means
+        /// unlimited. Negative values are rejected. Read live per append.
+        /// </summary>
+        public int MaxBufferedTextChars { get; set; } = 65536;
+
+        /// <summary>
+        /// Gets or sets the maximum REPL line length in chars (see
+        /// <see cref="ServerShells"/>). Pipelined bytes stashed for future
+        /// lines are not charged against the current line. Checked after
+        /// backspace handling on every appended chunk without a newline. On
+        /// exceed a pinned notice is sent, the session closes, and pending
+        /// bytes are cleared so no over-cap bytes leak into the next line.
+        /// Defaults to 4096; <c>0</c> means unlimited. Read live per line.
+        /// </summary>
+        public int MaxReplLineLength { get; set; } = 4096;
+
+        /// <summary>
+        /// Gets or sets the maximum distinct ENVIRON variables stored per
+        /// dictionary (old and new forms counted separately). Duplicates
+        /// within budget update in place last-wins without consuming budget;
+        /// the first N distinct keys win and extras are ignored plus counted
+        /// and logged (truncated, sanitized key names only, never values).
+        /// Defaults to 128; <c>0</c> means unlimited.
+        /// </summary>
+        public int MaxEnvironVars { get; set; } = 128;
+
+        /// <summary>
+        /// Gets or sets the maximum ENVIRON value length in chars. Overlong
+        /// values leave the stored entry untouched and are ignored plus
+        /// logged. Defaults to 4096; <c>0</c> means unlimited.
+        /// </summary>
+        public int MaxEnvironValueChars { get; set; } = 4096;
+
+        /// <summary>
+        /// Gets or sets the maximum ENVIRON key length in chars. Overlong
+        /// keys are ignored leaving stored entries untouched, plus logged
+        /// with truncated sanitized names. Defaults to 256; <c>0</c> means
+        /// unlimited.
+        /// </summary>
+        public int MaxEnvironKeyChars { get; set; } = 256;
+
+        /// <summary>
+        /// Gets or sets the maximum single TTYPE answer length in chars.
+        /// Overlong answers are ignored (chain untouched) plus logged.
+        /// Defaults to 256; <c>0</c> means unlimited.
+        /// </summary>
+        public int MaxTtypeChars { get; set; } = 256;
+
+        /// <summary>
+        /// Gets or sets the maximum items kept per MUD append list
+        /// (MSP, MXP, Aardwolf, ATCP). Keeps last-N with drop-oldest plus a
+        /// counter, logged once per window with counts only. Defaults to
+        /// 128; <c>0</c> means unlimited.
+        /// </summary>
+        public int MaxMudListItems { get; set; } = 128;
+
+        /// <summary>
+        /// Gets or sets the maximum total bytes kept per MUD append list
+        /// (same lists as <see cref="MaxMudListItems"/>). Keeps last-N bytes
+        /// with drop-oldest. Defaults to 256 KiB; <c>0</c> means unlimited.
+        /// </summary>
+        public int MaxMudListBytes { get; set; } = 256 * 1024;
+
+        /// <summary>
+        /// Gets or sets the maximum distinct ZMP commands stored (the ZMP
+        /// map replaces per command and would otherwise grow across frames).
+        /// Over-cap commands are ignored plus logged. MSSP is replaced
+        /// wholesale per frame so it cannot grow across frames, but its
+        /// per-frame var count is still capped for parse cost. Defaults to
+        /// 128; <c>0</c> means unlimited.
+        /// </summary>
+        public int MaxMudKeys { get; set; } = 128;
+
+        /// <summary>
+        /// Gets or sets the maximum outstanding decompressed bytes queued in
+        /// the MCCP decompressor. A continuous MCCP stream legitimately
+        /// exceeds any lifetime total over hours, so this bounds queued
+        /// output, not lifetime output. On exceed the queue clears, the
+        /// stream marks failed, and the existing corrupt path runs
+        /// (DONT/WONT plus resume plaintext) with <c>mccp-output-cap:</c>
+        /// logged. Defaults to 256 KiB; <c>0</c> means unlimited.
+        /// </summary>
+        public int MaxDecompressedBytes { get; set; } = 256 * 1024;
+
+        /// <summary>
+        /// Gets or sets the maximum decompression ratio (decompressed per
+        /// compressed byte) enforced only after floors (64 KiB decompressed
+        /// and 1 KiB compressed) so tiny legit streams never false-positive.
+        /// Defaults to 100; <c>0</c> means unlimited.
+        /// </summary>
+        public int MaxDecompressionRatio { get; set; } = 100;
+
+        /// <summary>
+        /// Gets or sets the maximum compressed input bytes retained by the
+        /// MCCP decompressor (prefix-compacted sliding window, so long
+        /// sessions stay bounded instead of disconnecting). Defaults to 8
+        /// MiB; <c>0</c> means unlimited.
+        /// </summary>
+        public int MaxCompressedBytes { get; set; } = 8 * 1024 * 1024;
+
+        /// <summary>
+        /// Gets or sets the delay awaited between failed login attempts and
+        /// after the final failure (so looping <c>AuthenticateAsync</c>
+        /// cannot skip the rate limit), including the credential-timeout
+        /// path. Linked with the caller token plus session cancellation so
+        /// shutdown never hangs; cancellation during the delay throws rather
+        /// than returning <c>false</c>. Validate exceptions propagate with
+        /// no delay and are not logged here. Defaults to 1 second;
+        /// <c>TimeSpan.Zero</c> (or any non-positive span) disables.
+        /// </summary>
+        public TimeSpan LoginAttemptDelay { get; set; } = TimeSpan.FromSeconds(1);
+
+        /// <summary>
+        /// Gets or sets whether exhausted login attempts (and
+        /// credential-timeout fail-closed paths) close the session. When
+        /// false (the default) the session stays open and the caller decides
+        /// disconnect policy. When true the close uses the same shape as the
+        /// idle timeout with a pinned notice that never distinguishes
+        /// user-vs-password failure.
+        /// </summary>
+        public bool DisconnectOnExhaustion { get; set; }
     }
 }

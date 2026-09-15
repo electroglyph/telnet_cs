@@ -51,6 +51,27 @@ internal sealed class MccpDecompressor : IDisposable
     private readonly RawEndLocator rawEnd = new();
 
     /// <summary>
+    /// Gets or sets the outstanding decompressed byte cap (0 = unlimited).
+    /// </summary>
+    public int MaxDecompressedBytes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the max decompression ratio (0 = unlimited), enforced
+    /// only past 64KiB decompressed / 1KiB compressed floors.
+    /// </summary>
+    public int MaxDecompressionRatio { get; set; }
+
+    /// <summary>
+    /// Gets or sets the max compressed input cap (0 = unlimited).
+    /// </summary>
+    public int MaxCompressedBytes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the cap log hook.
+    /// </summary>
+    public Action<string>? CapLog { get; set; }
+
+    /// <summary>
     /// Gets whether decompressed output is queued for reading.
     /// </summary>
     public bool HasOutput => ready.Count > 0;
@@ -90,7 +111,39 @@ internal sealed class MccpDecompressor : IDisposable
 
         if (StreamEnded)
         {
+            if (MaxCompressedBytes > 0 && trailing.Count >= MaxCompressedBytes)
+            {
+                try
+                {
+                    CapLog?.Invoke($"mccp-output-cap: trailing={trailing.Count} cap={MaxCompressedBytes}");
+                }
+                catch
+                {
+                }
+
+                return;
+            }
+
             trailing.Enqueue(value);
+            return;
+        }
+
+        // The input buffer is deliberately never compacted: the inflater
+        // reads it live and end-confirmation re-examines consumed bytes,
+        // so discarding them would break stream-end detection. Growth is
+        // bounded by the cap below instead.
+        if (MaxCompressedBytes > 0 && input.Length >= MaxCompressedBytes)
+        {
+            try
+            {
+                CapLog?.Invoke($"mccp-output-cap: compressed={input.Length} cap={MaxCompressedBytes}");
+            }
+            catch
+            {
+            }
+
+            Failed = true;
+            ready.Clear();
             return;
         }
 
@@ -251,6 +304,11 @@ internal sealed class MccpDecompressor : IDisposable
                     runningCheck = isGzip
                       ? CrcUpdate(runningCheck, new ReadOnlySpan<byte>(scratch, 0, read))
                       : AdlerUpdate(runningCheck, new ReadOnlySpan<byte>(scratch, 0, read));
+                    if (CheckOutputCap())
+                    {
+                        return;
+                    }
+
                     continue;
                 }
 
@@ -301,8 +359,59 @@ internal sealed class MccpDecompressor : IDisposable
         var buffer = input.GetBuffer();
         for (var i = consumed; i < input.Length; i++)
         {
+            if (MaxCompressedBytes > 0 && trailing.Count >= MaxCompressedBytes)
+            {
+                try
+                {
+                    CapLog?.Invoke($"mccp-output-cap: trailing={trailing.Count} cap={MaxCompressedBytes}");
+                }
+                catch
+                {
+                }
+
+                break;
+            }
+
             trailing.Enqueue(buffer[i]);
         }
+    }
+
+    private bool CheckOutputCap()
+    {
+        if (MaxDecompressedBytes > 0 && ready.Count > MaxDecompressedBytes)
+        {
+            try
+            {
+                CapLog?.Invoke($"mccp-output-cap: outstanding={ready.Count} cap={MaxDecompressedBytes}");
+            }
+            catch
+            {
+            }
+
+            Failed = true;
+            ready.Clear();
+            return true;
+        }
+
+        const long decompressedFloor = 64 * 1024;
+        const long compressedFloor = 1024;
+        if (MaxDecompressionRatio > 0 && totalOut >= decompressedFloor && consumed >= compressedFloor
+            && totalOut > consumed * (long)MaxDecompressionRatio)
+        {
+            try
+            {
+                CapLog?.Invoke($"mccp-output-cap: ratio out={totalOut} in={consumed} cap={MaxDecompressionRatio}:1");
+            }
+            catch
+            {
+            }
+
+            Failed = true;
+            ready.Clear();
+            return true;
+        }
+
+        return false;
     }
 
     private bool TryConfirmEnd()

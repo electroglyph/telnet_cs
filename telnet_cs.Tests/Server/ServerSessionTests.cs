@@ -498,7 +498,9 @@ namespace telnet_cs.Tests
         public async Task AuthenticateAsync_TimeoutWithoutLineEnding_ReturnsFalse()
         {
             using var stream = new ScriptedStream("partial");
-            using var session = NewSession(stream);
+            // No inter-attempt delay: this test asserts the timeout shape,
+            // not the guessing throttle.
+            using var session = NewSession(stream, new TelnetServerOptions { LoginAttemptDelay = TimeSpan.Zero });
             bool ok = await session.AuthenticateAsync(
               (u, p) => Task.FromResult(true),
               TimeSpan.FromMilliseconds(300));
@@ -1839,7 +1841,14 @@ namespace telnet_cs.Tests
             // client auto-WILL, server MODE proposal + client auto-ACK, server
             // SLC publish folded into the client table, client export folded
             // into the server table. Hermetic: loopback only, every wait bounded.
-            using var server = new TelnetServer(0, new TelnetServerOptions { RequestLinemode = true });
+            // Negotiation-only (no text ever flows), so the accept-side
+            // handshake timer is disabled: it would otherwise fire
+            // mid-exchange by design.
+            using var server = new TelnetServer(0, new TelnetServerOptions
+            {
+                RequestLinemode = true,
+                HandshakeTimeout = Timeout.InfiniteTimeSpan,
+            });
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);

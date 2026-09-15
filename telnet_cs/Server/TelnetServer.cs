@@ -23,11 +23,17 @@
             System.Threading.Channels.Channel.CreateBounded<ServerSession>(
                 new System.Threading.Channels.BoundedChannelOptions(1000)
                 {
-                    FullMode = System.Threading.Channels.BoundedChannelFullMode.DropOldest,
+                    FullMode = System.Threading.Channels.BoundedChannelFullMode.DropWrite,
                 });
         private System.Threading.Timer? statusTimer;
         private int boundPort;
         private bool disposed;
+        private int reservations;
+        private readonly Dictionary<string, int> reservationsPerIp = new(StringComparer.Ordinal);
+        private long rejectedCapacity;
+        private long rejectedPerIp;
+        private long rejectedFilter;
+        private long queueDropped;
 
         /// <summary>
         /// One tracked session for the status logger: a weak reference (the
@@ -36,11 +42,12 @@
         /// </summary>
         private sealed class SessionRecord
         {
-            public SessionRecord(ServerSession session, string endpoint, bool isTls)
+            public SessionRecord(ServerSession session, string endpoint, bool isTls, string ipKey)
             {
                 Session = new WeakReference<ServerSession>(session);
                 Endpoint = endpoint;
                 IsTls = isTls;
+                IpKey = ipKey;
             }
 
             public WeakReference<ServerSession> Session { get; }
@@ -48,6 +55,8 @@
             public string Endpoint { get; }
 
             public bool IsTls { get; }
+
+            public string IpKey { get; }
 
             public long LastReceived { get; set; }
 
@@ -70,8 +79,10 @@
         /// </summary>
         /// <param name="port">The port to listen on. Use 0 for an OS-assigned
         /// (ephemeral) port, then read <see cref="Port"/> after <see cref="Start"/>.</param>
-        /// <param name="options">The server settings. The reference is kept: later
-        /// mutations apply to subsequently accepted sessions.</param>
+        /// <param name="options">The server settings. The reference is kept.
+        /// Snapshotted options (for example <c>HandshakeTimeout</c>) apply to
+        /// subsequently accepted sessions only; explicitly live options are
+        /// read per-read. See <c>docs/server.md</c> for the per-option table.</param>
         public TelnetServer(int port, TelnetServerOptions options)
         {
             ArgumentOutOfRangeException.ThrowIfNegative(port);
@@ -96,12 +107,50 @@
         public int Port => boundPort;
 
         /// <summary>
+        /// Gets the count of refused accepts due to
+        /// <see cref="TelnetServerOptions.MaxConcurrentSessions"/>.
+        /// </summary>
+        public long RejectedCapacityCount => Interlocked.Read(ref rejectedCapacity);
+
+        /// <summary>
+        /// Gets the count of refused accepts due to
+        /// <see cref="TelnetServerOptions.MaxConnectionsPerIp"/>.
+        /// </summary>
+        public long RejectedPerIpCount => Interlocked.Read(ref rejectedPerIp);
+
+        /// <summary>
+        /// Gets the count of refused accepts due to
+        /// <see cref="TelnetServerOptions.AcceptFilter"/>.
+        /// </summary>
+        public long RejectedFilterCount => Interlocked.Read(ref rejectedFilter);
+
+        /// <summary>
+        /// Gets the count of dropped <c>WaitForClientAsync</c> notifications
+        /// (bounded queue full under <c>DropWrite</c>).
+        /// </summary>
+        public long QueueDroppedCount => Interlocked.Read(ref queueDropped);
+
+        /// <summary>
         /// Starts listening with <see cref="TelnetServerOptions.Backlog"/>.
         /// </summary>
         public void Start()
         {
             ObjectDisposedException.ThrowIf(disposed, this);
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.Backlog);
+            ArgumentOutOfRangeException.ThrowIfNegative(options.MaxConcurrentSessions);
+            ArgumentOutOfRangeException.ThrowIfNegative(options.MaxConnectionsPerIp);
+            ArgumentOutOfRangeException.ThrowIfNegative(options.MaxBufferedTextChars);
+            ArgumentOutOfRangeException.ThrowIfNegative(options.MaxReplLineLength);
+            ArgumentOutOfRangeException.ThrowIfNegative(options.MaxEnvironVars);
+            ArgumentOutOfRangeException.ThrowIfNegative(options.MaxEnvironValueChars);
+            ArgumentOutOfRangeException.ThrowIfNegative(options.MaxEnvironKeyChars);
+            ArgumentOutOfRangeException.ThrowIfNegative(options.MaxTtypeChars);
+            ArgumentOutOfRangeException.ThrowIfNegative(options.MaxMudListItems);
+            ArgumentOutOfRangeException.ThrowIfNegative(options.MaxMudListBytes);
+            ArgumentOutOfRangeException.ThrowIfNegative(options.MaxMudKeys);
+            ArgumentOutOfRangeException.ThrowIfNegative(options.MaxDecompressedBytes);
+            ArgumentOutOfRangeException.ThrowIfNegative(options.MaxDecompressionRatio);
+            ArgumentOutOfRangeException.ThrowIfNegative(options.MaxCompressedBytes);
             listener.Start(options.Backlog);
             boundPort = ((IPEndPoint)listener.LocalEndpoint).Port;
             if (options.StatusInterval is { } interval && interval > TimeSpan.Zero && statusTimer is null)
@@ -166,8 +215,14 @@
         /// <summary>
         /// Waits for the next accepted client (the reference
         /// <c>wait_for_client</c>): every <see cref="AcceptSessionAsync"/>
-        /// enqueues its session on a bounded (1000, oldest-dropped) queue
-        /// that this drains in accept order.
+        /// enqueues its session on a bounded (1000, newest-dropped) queue
+        /// that this drains in accept order (oldest-first FIFO).
+        /// Ownership: <see cref="AcceptSessionAsync"/> returns ownership and
+        /// additionally offers a notification to this queue. An accept-loop
+        /// that discards the return value and transfers ownership via this
+        /// method loses the session when its notification is dropped, so the
+        /// two patterns must not be mixed on one server. The accept-returned
+        /// session stays connected even when its notification is dropped.
         /// </summary>
         /// <param name="cancellationToken">A token to cancel the wait.</param>
         /// <returns>The next accepted session.</returns>
@@ -182,6 +237,10 @@
         /// session releases the accepted socket. The session emits the server
         /// opening preset (see <see cref="ServerSession.SendOpeningPresetAsync"/>)
         /// before this returns; a fully toggled-off preset sends nothing.
+        /// Admission control (<c>MaxConcurrentSessions</c>,
+        /// <c>MaxConnectionsPerIp</c>, <c>AcceptFilter</c>) runs before any
+        /// TLS handshake or preset bytes: refused accepts dispose the socket
+        /// with no bytes sent and throw <see cref="InvalidOperationException"/>.
         /// Throws <see cref="InvalidOperationException"/> if the listener was
         /// never started.
         /// </summary>
@@ -191,6 +250,107 @@
         {
             ObjectDisposedException.ThrowIf(disposed, this);
             var accepted = await listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
+            DateTime acceptEntryUtc = DateTime.UtcNow;
+            TimeSpan handshakeTimeout = options.HandshakeTimeout;
+            bool handshakeEnabled = handshakeTimeout != System.Threading.Timeout.InfiniteTimeSpan && handshakeTimeout > TimeSpan.Zero;
+            DateTime handshakeDeadlineUtc = handshakeEnabled ? acceptEntryUtc.Add(handshakeTimeout) : DateTime.MaxValue;
+            System.Net.EndPoint? remoteEndPoint = null;
+            string endpoint = "unknown";
+            string ipKey = "unknown";
+            try
+            {
+                remoteEndPoint = accepted.Client.RemoteEndPoint;
+                endpoint = remoteEndPoint?.ToString() ?? "unknown";
+                ipKey = NormalizeIpKey(remoteEndPoint);
+            }
+            catch (Exception ex) when (ex is System.Net.Sockets.SocketException or ObjectDisposedException)
+            {
+                endpoint = "unknown";
+                ipKey = "unknown";
+            }
+
+            var filter = options.AcceptFilter;
+            if (filter is not null)
+            {
+                bool allowed;
+                try
+                {
+                    allowed = filter(remoteEndPoint);
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref rejectedFilter);
+                    LogOutsideLock($"over-capacity: filter-reject endpoint={endpoint} reason=filter-threw");
+                    System.Diagnostics.Debug.WriteLine(ex.Message);
+                    accepted.Dispose();
+                    throw new InvalidOperationException($"over-capacity: filter rejected endpoint {endpoint}.", ex);
+                }
+
+                if (!allowed)
+                {
+                    Interlocked.Increment(ref rejectedFilter);
+                    LogOutsideLock($"over-capacity: filter-reject endpoint={endpoint}");
+                    accepted.Dispose();
+                    throw new InvalidOperationException($"over-capacity: filter rejected endpoint {endpoint}.");
+                }
+            }
+
+            string? reservationIpKey = null;
+            string? rejectReason = null;
+            bool reserved = false;
+            lock (statusLock)
+            {
+                PruneLocked();
+                int maxSessions = options.MaxConcurrentSessions;
+                int maxPerIp = options.MaxConnectionsPerIp;
+                int liveTotal = sessions.Count + reservations;
+                if (maxSessions > 0 && liveTotal >= maxSessions)
+                {
+                    rejectReason = "capacity";
+                }
+                else if (maxPerIp > 0)
+                {
+                    int livePerIp = 0;
+                    foreach (var record in sessions)
+                    {
+                        if (string.Equals(record.IpKey, ipKey, StringComparison.Ordinal))
+                        {
+                            livePerIp++;
+                        }
+                    }
+
+                    reservationsPerIp.TryGetValue(ipKey, out int reservedPerIp);
+                    if (livePerIp + reservedPerIp >= maxPerIp)
+                    {
+                        rejectReason = "per-ip";
+                    }
+                }
+
+                if (rejectReason is null)
+                {
+                    reservations++;
+                    reservationsPerIp[ipKey] = reservationsPerIp.TryGetValue(ipKey, out int current) ? current + 1 : 1;
+                    reservationIpKey = ipKey;
+                    reserved = true;
+                }
+            }
+
+            if (!reserved)
+            {
+                if (rejectReason == "per-ip")
+                {
+                    Interlocked.Increment(ref rejectedPerIp);
+                }
+                else
+                {
+                    Interlocked.Increment(ref rejectedCapacity);
+                }
+
+                LogOutsideLock($"over-capacity: {rejectReason} endpoint={endpoint}");
+                accepted.Dispose();
+                throw new InvalidOperationException($"over-capacity: {rejectReason} endpoint {endpoint}.");
+            }
+
 #pragma warning disable CA2000 // Ownership of the socket transfers to the session on success; the catch releases it otherwise (including the half-built TLS wrapper: its factory releases the SslStream on handshake failure, and the raw accept is always disposed below).
             ServerSession? session = null;
             try
@@ -200,45 +360,131 @@
                 bool isTls = false;
                 if (options.ServerCertificate is not null)
                 {
+                    TimeSpan remaining = handshakeDeadlineUtc - DateTime.UtcNow;
+                    using var deadlineCts = handshakeEnabled ? new CancellationTokenSource(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero) : null;
+                    using var handshakeLinked = deadlineCts is null
+                        ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
+                        : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadlineCts.Token);
                     bool handshake = true;
                     if (options.TlsAutoDetect != System.Threading.Timeout.InfiniteTimeSpan &&
                         options.TlsAutoDetect > TimeSpan.Zero)
                     {
-                        // Opt-in TLS sniffing (the reference --tls-auto): peek
-                        // at the first inbound byte — 0x16 ClientHello means
-                        // TLS, anything else (or a quiet peer) stays plaintext.
-                        handshake = await PeekTlsClientHelloAsync(accepted, options.TlsAutoDetect, cancellationToken).ConfigureAwait(false);
+                        TimeSpan peekWait = options.TlsAutoDetect;
+                        if (handshakeEnabled)
+                        {
+                            TimeSpan left = handshakeDeadlineUtc - DateTime.UtcNow;
+                            if (left <= TimeSpan.Zero)
+                            {
+                                ReleaseReservation(reservationIpKey!);
+                                LogOutsideLock($"handshake-timeout: endpoint={endpoint}");
+                                accepted.Dispose();
+                                throw new TimeoutException($"handshake-timeout: endpoint {endpoint}.");
+                            }
+
+                            if (left < peekWait)
+                            {
+                                peekWait = left;
+                            }
+                        }
+
+                        try
+                        {
+                            handshake = await PeekTlsClientHelloAsync(accepted, peekWait, handshakeLinked.Token).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && handshakeEnabled && DateTime.UtcNow >= handshakeDeadlineUtc)
+                        {
+                            ReleaseReservation(reservationIpKey!);
+                            LogOutsideLock($"handshake-timeout: endpoint={endpoint}");
+                            accepted.Dispose();
+                            throw new TimeoutException($"handshake-timeout: endpoint {endpoint}.");
+                        }
                     }
 
                     if (handshake)
                     {
-                        socket = await TlsSocket.AuthenticateAsServerAsync(
-                            tcpSocket,
-                            new SslServerAuthenticationOptions
-                            {
-                                ServerCertificate = options.ServerCertificate,
-                                ClientCertificateRequired = false,
-                                EnabledSslProtocols = options.TlsProtocols,
-                            },
-                            cancellationToken).ConfigureAwait(false);
-                        isTls = true;
+                        try
+                        {
+                            socket = await TlsSocket.AuthenticateAsServerAsync(
+                                tcpSocket,
+                                new SslServerAuthenticationOptions
+                                {
+                                    ServerCertificate = options.ServerCertificate,
+                                    ClientCertificateRequired = false,
+                                    EnabledSslProtocols = options.TlsProtocols,
+                                },
+                                handshakeLinked.Token).ConfigureAwait(false);
+                            isTls = true;
+                        }
+                        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && handshakeEnabled && DateTime.UtcNow >= handshakeDeadlineUtc)
+                        {
+                            ReleaseReservation(reservationIpKey!);
+                            LogOutsideLock($"handshake-timeout: endpoint={endpoint}");
+                            accepted.Dispose();
+                            throw new TimeoutException($"handshake-timeout: endpoint {endpoint}.");
+                        }
                     }
                 }
 
                 session = new ServerSession(new TcpByteStream(socket, takeOwnership: true), options, CancellationToken.None);
                 session.IsTls = isTls;
-                session.RemoteEndPoint = accepted.Client.RemoteEndPoint?.ToString();
+                session.RemoteEndPoint = endpoint;
+                session.ResetHandshakeDeadline(handshakeDeadlineUtc, endpoint);
                 // The session emits the server opening preset before the accept
                 // completes; a fully toggled-off preset sends nothing.
-                await session.SendOpeningPresetAsync(cancellationToken).ConfigureAwait(false);
-                TrackSession(session, accepted.Client.RemoteEndPoint?.ToString() ?? "unknown", isTls);
-                newClients.Writer.TryWrite(session);
+                try
+                {
+                    if (handshakeEnabled)
+                    {
+                        TimeSpan left = handshakeDeadlineUtc - DateTime.UtcNow;
+                        if (left <= TimeSpan.Zero)
+                        {
+                            throw new TimeoutException($"handshake-timeout: endpoint {endpoint}.");
+                        }
+
+                        using var presetCts = new CancellationTokenSource(left);
+                        using var presetLinked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, presetCts.Token);
+                        await session.SendOpeningPresetAsync(presetLinked.Token).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await session.SendOpeningPresetAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && handshakeEnabled && DateTime.UtcNow >= handshakeDeadlineUtc)
+                {
+                    LogOutsideLock($"handshake-timeout: endpoint={endpoint}");
+                    throw new TimeoutException($"handshake-timeout: endpoint {endpoint}.");
+                }
+
+                ConvertReservation(reservationIpKey!, session, endpoint, isTls);
+                if (!newClients.Writer.TryWrite(session))
+                {
+                    Interlocked.Increment(ref queueDropped);
+                    LogOutsideLock($"over-capacity: queue-drop endpoint={endpoint}");
+                }
+
                 return session;
             }
             catch
             {
+                if (reservationIpKey is not null && session is null)
+                {
+                    ReleaseReservation(reservationIpKey);
+                }
+                else if (reservationIpKey is not null && session is not null)
+                {
+                    // Preset failed after session construction: the session
+                    // was never tracked, so release the reservation and
+                    // dispose the half-built session (which owns the socket).
+                    ReleaseReservation(reservationIpKey);
+                }
+
                 session?.Dispose();
-                accepted.Dispose();
+                if (session is null)
+                {
+                    try { accepted.Dispose(); } catch { }
+                }
+
                 throw;
             }
 #pragma warning restore CA2000
@@ -269,20 +515,96 @@
             }
         }
 
-        private void TrackSession(ServerSession session, string endpoint, bool isTls)
+        private static string NormalizeIpKey(System.Net.EndPoint? endPoint)
+        {
+            if (endPoint is IPEndPoint ip)
+            {
+                try
+                {
+                    return ip.Address.MapToIPv4().ToString();
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(ex.Message);
+                    return "unknown";
+                }
+            }
+
+            return "unknown";
+        }
+
+        private void PruneLocked()
+        {
+            for (int i = sessions.Count - 1; i >= 0; i--)
+            {
+                if (!sessions[i].Session.TryGetTarget(out var session) || !session.IsConnected)
+                {
+                    sessions.RemoveAt(i);
+                }
+            }
+        }
+
+        private void ReleaseReservation(string ipKey)
         {
             lock (statusLock)
             {
-                for (int i = sessions.Count - 1; i >= 0; i--)
+                if (reservations > 0)
                 {
-                    if (!sessions[i].Session.TryGetTarget(out _))
+                    reservations--;
+                }
+
+                if (reservationsPerIp.TryGetValue(ipKey, out int current))
+                {
+                    if (current <= 1)
                     {
-                        sessions.RemoveAt(i);
+                        reservationsPerIp.Remove(ipKey);
+                    }
+                    else
+                    {
+                        reservationsPerIp[ipKey] = current - 1;
+                    }
+                }
+            }
+        }
+
+        private void ConvertReservation(string ipKey, ServerSession session, string endpoint, bool isTls)
+        {
+            lock (statusLock)
+            {
+                if (reservations > 0)
+                {
+                    reservations--;
+                }
+
+                if (reservationsPerIp.TryGetValue(ipKey, out int current))
+                {
+                    if (current <= 1)
+                    {
+                        reservationsPerIp.Remove(ipKey);
+                    }
+                    else
+                    {
+                        reservationsPerIp[ipKey] = current - 1;
                     }
                 }
 
-                sessions.Add(new SessionRecord(session, endpoint, isTls));
+                PruneLocked();
+                sessions.Add(new SessionRecord(session, endpoint, isTls, ipKey));
             }
+        }
+
+        private void LogOutsideLock(string message)
+        {
+            try
+            {
+                options.Log?.Invoke(message);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(ex.Message);
+            }
+
+            System.Diagnostics.Debug.WriteLine(message);
         }
 
         private void ReportStatus()
@@ -290,15 +612,16 @@
 #pragma warning disable CA1031 // Do not catch general exception types
             try
             {
-                var log = options.Log;
+                List<(string Endpoint, long Received, long Sent, double IdleSeconds, bool IsTls)> snapshot;
+                string aggregate;
                 lock (statusLock)
                 {
-                    for (int i = sessions.Count - 1; i >= 0; i--)
+                    PruneLocked();
+                    snapshot = new List<(string, long, long, double, bool)>(sessions.Count);
+                    foreach (var record in sessions)
                     {
-                        var record = sessions[i];
-                        if (!record.Session.TryGetTarget(out var session) || !session.IsConnected)
+                        if (!record.Session.TryGetTarget(out var session))
                         {
-                            sessions.RemoveAt(i);
                             continue;
                         }
 
@@ -311,10 +634,28 @@
 
                         record.LastReceived = received;
                         record.LastSent = sent;
-                        // Reference shape ip:port(rx,tx,idle,tls), in words.
-                        log?.Invoke($"{record.Endpoint} (rx={received},tx={sent},idle={session.Context.Idle.TotalSeconds:F0}s,tls={record.IsTls})");
+                        snapshot.Add((record.Endpoint, received, sent, session.Context.Idle.TotalSeconds, record.IsTls));
                     }
+
+                    long cap = Interlocked.Read(ref rejectedCapacity);
+                    long perIp = Interlocked.Read(ref rejectedPerIp);
+                    long filter = Interlocked.Read(ref rejectedFilter);
+                    long queuedrop = Interlocked.Read(ref queueDropped);
+                    aggregate = $"sessions={sessions.Count} rejected(capacity={cap},per-ip={perIp},filter={filter},queue-drop={queuedrop})";
                 }
+
+                var log = options.Log;
+                if (log is null)
+                {
+                    return;
+                }
+
+                foreach (var (endpoint, received, sent, idleSeconds, isTls) in snapshot)
+                {
+                    log($"{endpoint} (rx={received},tx={sent},idle={idleSeconds:F0}s,tls={isTls})");
+                }
+
+                log(aggregate);
             }
             catch (Exception ex)
             {
