@@ -1,2 +1,0 @@
-1-byte -> {'channel': '0x41', 'channel_byte': 65}
-2-byte -> {'channel': '0x41', 'channel_byte': 65, 'data_byte': 7, 'data_bytes': b'\x07'}

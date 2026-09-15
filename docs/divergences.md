@@ -411,26 +411,6 @@ re-checked unchanged.
   validation keeps the wire honest; only asymmetric exotic senders
   notice. Kept by design.
 
-## D15 — SNDLOC: blank explicit-send throws, `SEND` never auto-answered (API safety)
-
-- Proof: [`repro/py_d15_sndloc.py`](repro/py_d15_sndloc.py) →
-  [`repro/py_d15_sndloc.log`](repro/py_d15_sndloc.log): `handle_send_sndloc()` returns `''`.
-  C# throws on blank input: pinned by
-  `ExtendedOptionsTests.SendLocationPayload_Blank_Throws`; the receive
-  framing matches (raw ASCII, stored and hooked, never replied — pinned
-  by `SbSendLocation_SurfacesRawLocation`), and an unconfigured location
-  sends nothing (`DoSendLocation_WithoutConfiguredLocation_SendsNoSb`).
-- Code: [`telnet_cs/IO/ByteStreamHandler.cs:2494-2499`](../telnet_cs/IO/ByteStreamHandler.cs#L2494-L2499)
-  (`SendLocationPayloadAsync`: `ThrowIfNullOrWhiteSpace`), receive at
-  [`:2285-2291`](../telnet_cs/IO/ByteStreamHandler.cs#L2285-L2291) plus [`ServerSession.Collectors.cs:1725-1732`](../telnet_cs/Server/ServerSession.Collectors.cs#L1725-L1732). telnetlib3
-  `handle_send_sndloc` (`stream_writer.py:1834-1837`) returns `""`, received
-  by `_handle_sb_sndloc` (`:2621-2625`); neither side auto-answers
-  `SEND`.
-- Why it exists: emitting an empty `SB SNDLOC` is wire noise — throwing
-  turns a caller bug into a loud local error instead of a meaningless
-  peer frame. No wire gain either way; the receive path already agrees.
-  Kept by design.
-
 ## D16 — MSDP non-list enumerables use display form (shape stability)
 
 - Proof: [`repro/py_d16_msdp.py`](repro/py_d16_msdp.py) →
@@ -536,22 +516,7 @@ re-checked unchanged.
 
 ## Info-only divergences (no wire or behavioral impact)
 
-The entries below are informational: they record API-shape or storage-hygiene differences with no wire impact on conformant peers. They are kept by design.
-
-## D17 — Aardwolf 1-byte frames yield empty `DataBytes` (API totality)
-
-- Proof: [`repro/py_d17_aardwolf.py`](repro/py_d17_aardwolf.py) →
-  [`repro/py_d17_aardwolf.log`](repro/py_d17_aardwolf.log): `[0x41]` decodes to
-  `{'channel': '0x41', 'channel_byte': 65}` with no `data_byte` /
-  `data_bytes` keys; `[0x41, 0x07]` adds both. C# yields `DataBytes`
-  empty (never null): pinned by
-  `MudDispatchTests.SbAardwolf_SingleByte_YieldsEmptyData`.
-- Code: [`telnet_cs/Protocol/MudProtocol.cs:575-590`](../telnet_cs/Protocol/MudProtocol.cs#L575-L590) (length switch;
-  1-byte carries channel only). telnetlib3 `mud.py:348-365` (keys
-  present only by length).
-- Why it exists: a non-null empty array keeps consumers
-  (`Length`/`foreach`) total; only key-presence checks on exotic
-  1-byte frames diverge. Info-grade. Kept by design.
+The entry below is informational: it records an API-shape difference with no wire impact on conformant peers. It is kept by design.
 
 ## D20 — TTYPE chain hygiene: empties dropped, repeats stripped, loop capped (storage)
 
