@@ -135,6 +135,22 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task SbMsdp_HostileArrayCloser_Terminates()
+        {
+            // Wire arrival of the array-stall shape: the read must drain
+            // (not spin), deliver the intact prefix, and answer nothing.
+            IReadOnlyDictionary<string, object?>? received = null;
+            int[] body = [1, .. Text("H"), 2, 5, 4];
+            int[] reads = [Iac, Will, Msdp, .. SbBody(Msdp, body)];
+            var (output, _, _) = await ReadOnceAsync(
+              h => h.MsdpReceived += variables => received = variables,
+              reads);
+            output.Should().BeEmpty();
+            received.Should().ContainSingle();
+            received!["H"].Should().BeOfType<List<object?>>().Which.Should().BeEmpty();
+        }
+
+        [Fact]
         public async Task SbMssp_StoresDataAndFiresHook()
         {
             IReadOnlyDictionary<string, object>? received = null;
@@ -657,6 +673,18 @@ namespace telnet_cs.Tests
         {
             int[] bad = SbBody(Gmcp, [.. Text("Char.Vitals {bad")]);
             using var stream = new ScriptedStream([Iac, Will, Gmcp, .. bad]);
+            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
+            stream.Connected.Should().BeTrue();
+            stream.Enqueue([.. Text("hi")]);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("hi");
+        }
+
+        [Fact]
+        public async Task Session_MsdpHostileArray_Survives()
+        {
+            int[] bad = SbBody(Msdp, [1, .. Text("H"), 2, 5, 4]);
+            using var stream = new ScriptedStream([Iac, Will, Msdp, .. bad]);
             using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             stream.Connected.Should().BeTrue();

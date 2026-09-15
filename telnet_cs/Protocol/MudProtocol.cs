@@ -263,7 +263,10 @@ namespace telnet_cs.Protocol
         /// Decodes an MSDP payload into variable assignments. Scalar values are
         /// strings; nested <c>TABLE</c>/<c>ARRAY</c> markers decode recursively
         /// to dictionaries/lists. Bytes outside a <c>VAR</c> item are skipped
-        /// as garbage; a name without a following <c>VAL</c> is dropped.
+        /// as garbage; a name without a following <c>VAL</c> is dropped. A
+        /// delimiter stalled where an array value was expected is skipped (a
+        /// foreign close ends the array instead), so hostile shapes always
+        /// terminate.
         /// </summary>
         /// <param name="payload">The received payload bytes.</param>
         /// <param name="encoding">The primary text encoding, or null for UTF-8 with Latin-1 fallback.</param>
@@ -364,6 +367,28 @@ namespace telnet_cs.Protocol
                     if (this.buf[this.idx] == MsdpVal)
                     {
                         this.idx++;
+                    }
+
+                    // A delimiter where a value was expected stalls ParseValue
+                    // (it consumes nothing while the loop condition still
+                    // holds, spinning until OOM — the reference hangs the
+                    // same way). A foreign close ends the array for the outer
+                    // frame to consume; any other stalled marker is skipped
+                    // as garbage. Every input that terminated before still
+                    // parses identically: the old code only ever completed
+                    // when ParseValue progressed.
+                    if (this.idx < this.buf.Length)
+                    {
+                        if (this.buf[this.idx] == MsdpTableClose)
+                        {
+                            break;
+                        }
+
+                        if (this.buf[this.idx] is MsdpVar or MsdpVal)
+                        {
+                            this.idx++;
+                            continue;
+                        }
                     }
 
                     array.Add(this.ParseValue());

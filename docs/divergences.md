@@ -591,3 +591,25 @@ The entries below are informational: they record API-shape or storage-hygiene di
   (`TERM` selection, environ gating) — both sides stop the cycle, but
   only C# keeps the stored chain clean. Info-grade interop impact (same
   terminal discovered either way). Kept by design.
+
+## D22 — MSDP stalled array delimiters terminate (robustness)
+
+- Proof: a delimiter where an array value was expected (e.g. `VAR K VAL
+  ARRAY_OPEN TABLE_CLOSE`) spins `MsdpParser.ParseArray` forever —
+  `ParseValue` consumes nothing while the loop condition still holds, so
+  the reader appends until OOM. telnetlib3 `mud.py`
+  (`MsdpParser.parse_value` + `_parse_array`) has the identical structure
+  and hangs the same way, so this deliberately diverges from the
+  reference. Pinned by
+  `MudProtocolTests.MsdpDecode_StalledDelimiterInArray_Terminates`,
+  `MudDispatchTests.SbMsdp_HostileArrayCloser_Terminates`, and
+  `MudDispatchTests.Session_MsdpHostileArray_Survives`; surfaced by the
+  standalone fuzzer (`telnet_cs.Fuzz`, codec target).
+- Code: [`telnet_cs/Protocol/MudProtocol.cs`](../telnet_cs/Protocol/MudProtocol.cs)
+  (`ParseArray` pre-check: a foreign close ends the array for the outer
+  frame to consume, any other stalled marker is skipped as garbage).
+- Why it exists: a few peer bytes must never exhaust server memory (the
+  pump thread would spin until OOM, taking every session with it).
+  Inputs that terminated before parse identically — the old code only
+  completed when `ParseValue` progressed — so conformant peers are
+  unaffected. Kept by design.

@@ -7,5 +7,11 @@ internal enum FuzzMode
 {
     Parser,
     Session,
+    Client,
+    Auth,
+    Codec,
+    Encoding,
+    Input,
     Both,
+    All,
 }

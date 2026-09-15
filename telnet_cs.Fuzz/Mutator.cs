@@ -31,6 +31,53 @@ internal static class Mutator
 
     private static readonly byte[] MudOptions = [69, 70, 86, 87, 90, 91, 93, 102, 200, 201];
 
+    private static List<byte[]>? s_external;
+
+    /// <summary>
+    /// Loads previously saved novel inputs for the external-corpus strategy.
+    /// Sorted load order keeps runs deterministic for a given directory.
+    /// Missing directories and unreadable files are silently skipped: there
+    /// is simply no external corpus to sample.
+    /// </summary>
+    public static void LoadExternalCorpus(string dir)
+    {
+        s_external = null;
+        if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir))
+        {
+            return;
+        }
+
+        var files = Directory.GetFiles(dir, "*.bin");
+        Array.Sort(files, StringComparer.Ordinal);
+        var loaded = new List<byte[]>();
+        foreach (var file in files.Take(500))
+        {
+            byte[] bytes;
+            try
+            {
+                bytes = File.ReadAllBytes(file);
+            }
+            catch (IOException)
+            {
+                continue;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            if (bytes.Length is > 0 and <= 65536)
+            {
+                loaded.Add(bytes);
+            }
+        }
+
+        if (loaded.Count != 0)
+        {
+            s_external = loaded;
+        }
+    }
+
     /// <summary>
     /// Generates the input for one iteration.
     /// </summary>
@@ -39,32 +86,36 @@ internal static class Mutator
         var random = new Random(unchecked(seed * 31 + iteration));
         var length = random.Next(1, maxBytes + 1);
         byte[] bytes;
-        switch (random.Next(6))
+        if (s_external is { Count: > 0 } && random.Next(4) == 0)
         {
-            case 0:
-                bytes = new byte[length];
-                FillBiased(random, bytes);
-                break;
-            case 1:
-                bytes = new byte[length];
-                FillFrames(random, bytes);
-                break;
-            case 2:
-                bytes = new byte[length];
-                FillMccpLike(random, bytes);
-                break;
-            case 3:
-                bytes = new byte[length];
-                random.NextBytes(bytes);
-                SpliceCommands(random, bytes);
-                break;
-            case 4:
-                bytes = FillCorpus(random, length);
-                break;
-            default:
-                bytes = FillTargeted(random, length);
-                break;
+            bytes = FillExternal(random, length);
         }
+        else switch (random.Next(6))
+            {
+                case 0:
+                    bytes = new byte[length];
+                    FillBiased(random, bytes);
+                    break;
+                case 1:
+                    bytes = new byte[length];
+                    FillFrames(random, bytes);
+                    break;
+                case 2:
+                    bytes = new byte[length];
+                    FillMccpLike(random, bytes);
+                    break;
+                case 3:
+                    bytes = new byte[length];
+                    random.NextBytes(bytes);
+                    SpliceCommands(random, bytes);
+                    break;
+                case 4:
+                    bytes = FillCorpus(random, length);
+                    break;
+                default:
+                    bytes = FillTargeted(random, length);
+                    break;
+            }
 
         return new FuzzInput(bytes, PickSplits(random, bytes.Length));
     }
@@ -225,6 +276,26 @@ internal static class Mutator
     private static byte[] Ascii(string text) => System.Text.Encoding.ASCII.GetBytes(text);
 
     private static byte[] Frame(byte option, byte[] body) => [Iac, Sb, option, .. body, Iac, Se];
+
+    /// <summary>
+    /// Concatenates 1-2 external-corpus entries and corrupts the result.
+    /// Runs of this strategy turn one run's novel finds into the next run's
+    /// starting points.
+    /// </summary>
+    private static byte[] FillExternal(Random random, int maxBytes)
+    {
+        var external = s_external;
+        ArgumentNullException.ThrowIfNull(external);
+        var buf = new List<byte>();
+        var picks = random.Next(1, 3);
+        for (var p = 0; p < picks; p++)
+        {
+            buf.AddRange(external[random.Next(external.Count)]);
+        }
+
+        MutateBytes(random, buf);
+        return Sized(buf, random.Next(1, maxBytes + 1), random);
+    }
 
     /// <summary>
     /// Concatenates 1-3 corpus entries and corrupts the result, so inputs

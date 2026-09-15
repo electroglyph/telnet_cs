@@ -17,6 +17,10 @@ internal sealed record FuzzOptions
 
     required public int PerIterTimeoutMs { get; init; }
 
+    required public int Rounds { get; init; }
+
+    required public string CorpusDir { get; init; }
+
     public static string Usage => """
         telnet_cs.Fuzz — standalone telnet abuse harness (not part of `dotnet test`).
 
@@ -27,14 +31,18 @@ internal sealed record FuzzOptions
           --seed <int>       PRNG seed; re-running with the same seed replays the same inputs (default 1).
           --iters <int>      Iteration count, > 0 (default 5000).
           --max-bytes <int>  Max input bytes per iteration, 1..65536 (default 2048).
-          --mode <name>      parser | session | both (default both).
+          --mode <name>      parser | session | client | auth | codec | encoding | input | both | all (default both).
+                             both = parser+session; all = every harness.
+          --rounds <int>     Sequential inputs per session/client iteration, 1..16 (default 1).
+          --corpus-dir <dir> Novelty-corpus directory: novel inputs are saved here and
+                             sampled by later runs (default "" = disabled).
           --out <dir>        Crash artifact directory (default crashes).
           --timeout-ms <int> Per-iteration hang guard, 10..30000 ms (default 2000).
           --help, -h         Print this text.
 
         Crash artifacts: <out>/<mode>-s<seed>-i<iter>.bin + .txt (input bytes,
-        hex dump, split points, exception). Re-run with --seed <s> --iters <i+1>
-        --mode <m> to replay the crashing input.
+        hex dump, split points, exception, minimized repro). Re-run with the
+        printed replay line to reproduce the crashing input.
         """;
 
     public static bool TryParse(string[] args, out FuzzOptions? options, out string error)
@@ -46,6 +54,8 @@ internal sealed record FuzzOptions
         var mode = FuzzMode.Both;
         var outDir = "crashes";
         var timeoutMs = 2000;
+        var rounds = 1;
+        var corpusDir = string.Empty;
         for (var i = 0; i < args.Length; i++)
         {
             if (args[i] is "--help" or "-h")
@@ -91,12 +101,18 @@ internal sealed record FuzzOptions
                     {
                         "parser" => (FuzzMode?)FuzzMode.Parser,
                         "session" => (FuzzMode?)FuzzMode.Session,
+                        "client" => (FuzzMode?)FuzzMode.Client,
+                        "auth" => (FuzzMode?)FuzzMode.Auth,
+                        "codec" => (FuzzMode?)FuzzMode.Codec,
+                        "encoding" => (FuzzMode?)FuzzMode.Encoding,
+                        "input" => (FuzzMode?)FuzzMode.Input,
                         "both" => (FuzzMode?)FuzzMode.Both,
+                        "all" => (FuzzMode?)FuzzMode.All,
                         _ => null,
                     };
                     if (parsed is null)
                     {
-                        return Fail($"--mode needs parser|session|both, got '{value}'.", out options, out error);
+                        return Fail($"--mode needs parser|session|client|auth|codec|encoding|input|both|all, got '{value}'.", out options, out error);
                     }
 
                     mode = parsed.Value;
@@ -116,6 +132,21 @@ internal sealed record FuzzOptions
                     }
 
                     break;
+                case "--rounds":
+                    if (!int.TryParse(value, out rounds) || rounds is < 1 or > 16)
+                    {
+                        return Fail($"--rounds needs 1..16, got '{value}'.", out options, out error);
+                    }
+
+                    break;
+                case "--corpus-dir":
+                    if (string.IsNullOrWhiteSpace(value))
+                    {
+                        return Fail("--corpus-dir needs a directory.", out options, out error);
+                    }
+
+                    corpusDir = value;
+                    break;
                 default:
                     return Fail($"Unknown argument '{flag}'. Use --help.", out options, out error);
             }
@@ -129,6 +160,8 @@ internal sealed record FuzzOptions
             Mode = mode,
             OutDir = outDir,
             PerIterTimeoutMs = timeoutMs,
+            Rounds = rounds,
+            CorpusDir = corpusDir,
         };
         error = string.Empty;
         return true;

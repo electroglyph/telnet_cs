@@ -150,6 +150,22 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public void MsdpDecode_StalledDelimiterInArray_Terminates()
+        {
+            // A delimiter where an array value was expected used to spin
+            // forever (ParseValue consuming nothing while the loop condition
+            // held, appending until OOM). A foreign close ends the array
+            // instead; any other stalled byte is skipped — hostile shapes
+            // always terminate with the valid prefix intact.
+            var foreignClose = MudProtocol.MsdpDecode([1, (byte)'K', 2, 5, 4]);
+            foreignClose.Should().ContainSingle();
+            foreignClose["K"].Should().BeOfType<List<object?>>().Which.Should().BeEmpty();
+            var strayMarker = MudProtocol.MsdpDecode([1, (byte)'K', 2, 5, 1, 6]);
+            strayMarker.Should().ContainSingle();
+            strayMarker["K"].Should().BeOfType<List<object?>>().Which.Should().BeEmpty();
+        }
+
+        [Fact]
         public void MsspEncode_Decode_RoundTripsSingleAndMultiValues()
         {
             var values = new Dictionary<string, object>(StringComparer.Ordinal)
