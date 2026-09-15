@@ -429,6 +429,39 @@
             }
         }
 
+        /// <summary>
+        /// Scans the working SLC table for a row whose character value equals
+        /// <paramref name="value"/>, in function order (telnetlib3
+        /// <c>slc.snoop</c>). The match is value-based only: like the
+        /// reference, any row with a live value matches, and value 0 never
+        /// matches. NOSUPPORT rows carry the disable value 255 and scan like
+        /// any other row — that never reports on the wire only because the
+        /// escaped-IAC 255 path bypasses the snoop, exactly like the
+        /// reference, whose escaped data never reaches its snoop branch.
+        /// </summary>
+        /// <param name="value">The delivered data byte.</param>
+        /// <returns>The first matching function code, or null.</returns>
+        internal byte? Snoop(byte value)
+        {
+            if (value == 0)
+            {
+                return null;
+            }
+
+            lock (sync)
+            {
+                for (byte function = 1; function <= LinemodeProtocol.MaxFunction; function++)
+                {
+                    if (table[function].Value == value)
+                    {
+                        return function;
+                    }
+                }
+
+                return null;
+            }
+        }
+
         /// <summary>Sets one SLC table row (test/setup hook).</summary>
         /// <param name="function">The SLC function code (1–30).</param>
         /// <param name="level">The agreement level.</param>

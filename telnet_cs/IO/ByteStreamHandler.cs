@@ -437,6 +437,23 @@
         internal Action<byte>? LineflowReceived { get; set; }
 
         /// <summary>
+        /// Gets the SLC function code of the most recently delivered data byte
+        /// (telnetlib3 <c>slc_received</c>), or null when that byte matches no
+        /// SLC table row. Reset on every consumed input byte and set only by
+        /// data-byte delivery while <see cref="IsSlcSnoopActive"/> holds, so it
+        /// always describes the last byte — never a stale one.
+        /// </summary>
+        internal byte? SlcReceived { get; private set; }
+
+        /// <summary>
+        /// Gets or sets the hook invoked with the SLC function code when a
+        /// delivered data byte matches an SLC table row (telnetlib3's
+        /// <c>_slc_callback</c>). The byte itself stays in-band: like the
+        /// reference, snooping observes without consuming.
+        /// </summary>
+        internal Action<byte>? SlcFunctionReceived { get; set; }
+
+        /// <summary>
         /// Gets or sets the LFLOW restart mode this side sends as a server
         /// (RFC 1372): <c>true</c> sends RESTART_ANY, <c>false</c> (the
         /// default) sends RESTART_XON.
@@ -978,13 +995,30 @@
         }
 
         /// <summary>
+        /// Consumed-byte entry point: every successfully taken input byte
+        /// clears <see cref="SlcReceived"/> (telnetlib3 resets
+        /// <c>slc_received</c> at the top of <c>feed_byte</c>), so only a
+        /// data byte delivered through the snooping appends can set it.
+        /// </summary>
+        private int TryReadByte()
+        {
+            var taken = TryReadByteCore();
+            if (taken != -1)
+            {
+                SlcReceived = null;
+            }
+
+            return taken;
+        }
+
+        /// <summary>
         /// Blind continuation read: never polls <see cref="IByteStream.Available"/>
         /// (fakes and real sockets alike may report 0 mid-sequence), mapping I/O
         /// and over-read failures to -1. While an MCCP stream is armed, serves
         /// decompressed output (feeding whatever the wire reports available);
         /// after a clean stream end serves the queued post-stream plaintext.
         /// </summary>
-        private int TryReadByte()
+        private int TryReadByteCore()
         {
             var mccp = MccpStream;
             if (mccp is not null)
@@ -1200,7 +1234,7 @@
                 sawCrAwaitingNul = false;
                 if (followingCr == 0)
                 {
-                    AppendRecorded(sb, rawBytes, opByteCounts, "\0");
+                    AppendData(sb, rawBytes, opByteCounts, "\0");
                     await FlushMccpShutdownAsync().ConfigureAwait(false);
                     return true;
                 }
@@ -1273,16 +1307,16 @@
                         // not delete already-delivered bytes) — any terminal
                         // presentation belongs in a layer above this parser.
                         // CR keeps its RFC 854 handling in the next case.
-                        AppendRecorded(sb, rawBytes, opByteCounts, (char)input);
+                        AppendData(sb, rawBytes, opByteCounts, (char)input);
                         break;
                     case 13: // Carriage Return: CR is delivered now; a following
                         // NUL is preserved as data by the raw path (the line
                         // layer collapses CR NUL to CR). CR LF stays CR LF.
-                        AppendRecorded(sb, rawBytes, opByteCounts, "\r");
+                        AppendData(sb, rawBytes, opByteCounts, "\r");
                         sawCrAwaitingNul = true;
                         break;
                     default:
-                        AppendRecorded(sb, rawBytes, opByteCounts, (char)input);
+                        AppendData(sb, rawBytes, opByteCounts, (char)input);
                         break;
                 }
 
@@ -1331,6 +1365,80 @@
             // only matters for explicit TextEncoding decoding.
             rawBytes.Add((byte)c);
             opByteCounts.Add(1);
+        }
+
+        /// <summary>
+        /// Appends a delivered data byte and runs the SLC snoop over it
+        /// (telnetlib3's data-byte branch: snoop, then forward in-band).
+        /// Framed bytes that merely ride along as data — the IAC IAC escape,
+        /// a stray SE, an illegal IAC verb — use the plain recorded append
+        /// directly: the reference never snoops those paths either.
+        /// </summary>
+        private void AppendData(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, char c)
+        {
+            AppendRecorded(sb, rawBytes, opByteCounts, c);
+            SnoopDataByte((byte)c);
+        }
+
+        /// <summary>
+        /// Appends delivered data text (CR NUL collapse products) and snoops
+        /// each byte, like the single-byte append below.
+        /// </summary>
+        private void AppendData(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, string text)
+        {
+            AppendRecorded(sb, rawBytes, opByteCounts, text);
+            foreach (var ch in text)
+            {
+                SnoopDataByte((byte)ch);
+            }
+        }
+
+        /// <summary>
+        /// Tests one delivered data byte against the SLC table while snoop is
+        /// active: on a match, records the function in <see cref="SlcReceived"/>
+        /// and fires <see cref="SlcFunctionReceived"/>; on a miss, records
+        /// null. The byte itself is unaffected (already appended).
+        /// </summary>
+        private void SnoopDataByte(byte value)
+        {
+            if (!IsSlcSnoopActive())
+            {
+                return;
+            }
+
+            var function = Linemode.Snoop(value);
+            SlcReceived = function;
+            if (function.HasValue)
+            {
+                SlcFunctionReceived?.Invoke(function.Value);
+            }
+        }
+
+        /// <summary>
+        /// Whether delivered data bytes are SLC-snooped (telnetlib3's
+        /// <c>mode == "remote" or mode == "kludge" and slc_simulated</c>).
+        /// Remote line editing means LINEMODE agreed by the peer with EDIT
+        /// clear; otherwise the pre-LINEMODE char-mode heuristic applies —
+        /// server side our ECHO + SGA, client side their ECHO plus either
+        /// side's SGA. Simulation has no off switch here (the reference
+        /// default), so the kludge half needs no extra flag.
+        /// </summary>
+        private bool IsSlcSnoopActive()
+        {
+            if (Negotiation.IsEnabledByPeer((int)Options.LineMode))
+            {
+                return (Linemode.Mode & LinemodeProtocol.Edit) == 0;
+            }
+
+            if (ApplyLinemodeAsServer)
+            {
+                return Negotiation.IsEnabledByUs((int)Options.Echo)
+                    && Negotiation.IsEnabledByUs((int)Options.SuppressGoAhead);
+            }
+
+            return Negotiation.IsEnabledByPeer((int)Options.Echo)
+                && (Negotiation.IsEnabledByPeer((int)Options.SuppressGoAhead)
+                    || Negotiation.IsEnabledByUs((int)Options.SuppressGoAhead));
         }
 
         /// <summary>

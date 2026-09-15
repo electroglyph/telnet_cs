@@ -687,5 +687,182 @@
             stream.ByteWrites.Should().ContainSingle().Which.Should()
               .Equal(new byte[] { 255, 250, 34, 3, 17, 130, 5, 18, 130, 6, 255, 240 });
         }
+
+        private static async Task<ByteStreamHandler> AgreeRemoteLinemodeAsync(
+            ScriptedStream stream, CancellationTokenSource cts, List<byte> fired)
+        {
+            // Peer WILL LINEMODE plus MODE 0 (EDIT clear): remote line editing.
+            // Server role (the realistic snooping side): WILL earns DO plus
+            // the initial MODE proposal; MODE 0 echoes nothing back (already
+            // the default mask). Ownership transfers to the caller.
+            var sut = new ByteStreamHandler(stream, cts, 1);
+            sut.SlcFunctionReceived = fired.Add;
+            sut.IsServerRole = true;
+            sut.ApplyLinemodeAsServer = true;
+            stream.Enqueue(255, 251, 34, 255, 250, 34, 1, 0, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            sut.Negotiation.IsEnabledByPeer(34).Should().BeTrue();
+            stream.ByteWrites.Should().HaveCount(2);
+            stream.ByteWrites[0].Should().Equal(new byte[] { 255, 253, 34 });
+            stream.ByteWrites[1].Should().Equal(new byte[] { 255, 250, 34, 1, 16, 255, 240 });
+            return sut;
+        }
+
+        [Fact]
+        public async Task SlcSnoop_RemoteMode_MatchSetsReceivedAndFiresHook()
+        {
+            // Data byte 0x03 equals the default IP value (function 3): it is
+            // delivered in-band and reported, like slc_received + callback.
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            var fired = new List<byte>();
+            using var sut = await AgreeRemoteLinemodeAsync(stream, cts, fired);
+            stream.Enqueue(3);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("\x03");
+            sut.SlcReceived.Should().Be((byte)3);
+            fired.Should().Equal((byte)3);
+        }
+
+        [Fact]
+        public async Task SlcSnoop_RemoteMode_MissAfterMatchRecordsNull()
+        {
+            // The report always describes the last byte: IP then 'A' leaves
+            // null (the per-byte reset), with only the match firing the hook.
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            var fired = new List<byte>();
+            using var sut = await AgreeRemoteLinemodeAsync(stream, cts, fired);
+            stream.Enqueue(3, 65);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("\x03" + "A");
+            sut.SlcReceived.Should().BeNull();
+            fired.Should().Equal((byte)3);
+        }
+
+        [Fact]
+        public async Task SlcSnoop_LocalMode_EditSet_Silent()
+        {
+            // MODE EDIT means the peer edits locally: data bytes are just data.
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            var fired = new List<byte>();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            sut.SlcFunctionReceived = fired.Add;
+            sut.IsServerRole = true;
+            sut.ApplyLinemodeAsServer = true;
+            stream.Enqueue(255, 251, 34, 255, 250, 34, 1, 1, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            sut.Negotiation.IsEnabledByPeer(34).Should().BeTrue();
+            stream.Enqueue(3);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("\x03");
+            sut.SlcReceived.Should().BeNull();
+            fired.Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task SlcSnoop_WithoutAgreement_Silent()
+        {
+            // No LINEMODE, no ECHO+SGA: nothing snoops on a fresh handler.
+            using var stream = new ScriptedStream(3);
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            var fired = new List<byte>();
+            sut.SlcFunctionReceived = fired.Add;
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("\x03");
+            sut.SlcReceived.Should().BeNull();
+            fired.Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task SlcSnoop_EscapedIac255_NotSnooped()
+        {
+            // The IAC IAC escape delivers data byte 255, but the escape path
+            // never snoops (reference: escaped data bypasses its snoop
+            // branch) — so the NOSUPPORT disable value matches nothing.
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            var fired = new List<byte>();
+            using var sut = await AgreeRemoteLinemodeAsync(stream, cts, fired);
+            stream.Enqueue(255, 255);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("ÿ");
+            sut.SlcReceived.Should().BeNull();
+            fired.Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task SlcSnoop_CommandByte_ResetsReceived()
+        {
+            // Command bytes reset the report like any consumed byte: IP, then
+            // a silently-consumed NOP, leaves null.
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            var fired = new List<byte>();
+            using var sut = await AgreeRemoteLinemodeAsync(stream, cts, fired);
+            stream.Enqueue(3);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("\x03");
+            sut.SlcReceived.Should().Be((byte)3);
+            stream.Enqueue(255, 241);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            sut.SlcReceived.Should().BeNull();
+        }
+
+        [Fact]
+        public async Task SlcSnoop_KludgeServer_EchoAndSga_Snoops()
+        {
+            // Pre-LINEMODE char mode, server side: our ECHO + SGA snoops.
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            var fired = new List<byte>();
+            sut.SlcFunctionReceived = fired.Add;
+            sut.AllowRemoteEcho = true;
+            sut.IsServerRole = true;
+            sut.ApplyLinemodeAsServer = true;
+            stream.Enqueue(255, 253, 1, 255, 253, 3);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            sut.Negotiation.IsEnabledByUs(1).Should().BeTrue();
+            sut.Negotiation.IsEnabledByUs(3).Should().BeTrue();
+            stream.Enqueue(3);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("\x03");
+            sut.SlcReceived.Should().Be((byte)3);
+            fired.Should().Equal((byte)3);
+        }
+
+        [Fact]
+        public async Task SlcSnoop_KludgeClient_PeerEchoAndSga_Snoops()
+        {
+            // Pre-LINEMODE char mode, client side: their ECHO + SGA snoops
+            // (their SGA alone suffices, matching the reference gate).
+            using var stream = new ScriptedStream();
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1);
+            var fired = new List<byte>();
+            sut.SlcFunctionReceived = fired.Add;
+            sut.AllowRemoteEcho = true;
+            stream.Enqueue(255, 251, 1, 255, 251, 3);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            sut.Negotiation.IsEnabledByPeer(1).Should().BeTrue();
+            sut.Negotiation.IsEnabledByPeer(3).Should().BeTrue();
+            stream.Enqueue(3);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("\x03");
+            sut.SlcReceived.Should().Be((byte)3);
+            fired.Should().Equal((byte)3);
+        }
+
+        [Fact]
+        public void SlcSnoop_Lookup_FirstFunctionWinsAndZeroNeverMatches()
+        {
+            // Value-based scan in function order: IP (3) still wins after a
+            // later row takes the same value; 0 never matches. The NOSUPPORT
+            // disable value 255 scans like any other value (first such row is
+            // function 17) — it never snoops on the wire only because the
+            // IAC IAC escape path bypasses the snoop.
+            var state = new LinemodeState();
+            state.Snoop(3).Should().Be((byte)3);
+            state.Snoop(0).Should().BeNull();
+            state.Snoop(255).Should().Be((byte)17);
+            state.Snoop(200).Should().BeNull();
+            state.SetEntry(5, 2, 3);
+            state.Snoop(3).Should().Be((byte)3);
+        }
     }
 }
