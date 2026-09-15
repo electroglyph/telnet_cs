@@ -3,6 +3,7 @@ namespace telnet_cs.Protocol
     using System;
     using System.Collections;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.Text;
     using System.Text.Json;
     using System.Text.Json.Nodes;
@@ -232,7 +233,7 @@ namespace telnet_cs.Protocol
                     foreach (DictionaryEntry entry in genericTable)
                     {
                         outBytes.Add(MsdpVar);
-                        outBytes.AddRange(Encoding.UTF8.GetBytes(Convert.ToString(entry.Key, null) ?? string.Empty));
+                        outBytes.AddRange(Encoding.UTF8.GetBytes(Convert.ToString(entry.Key, CultureInfo.InvariantCulture) ?? string.Empty));
                         outBytes.Add(MsdpVal);
                         EncodeMsdpValue(outBytes, entry.Value);
                     }
@@ -250,7 +251,10 @@ namespace telnet_cs.Protocol
                     outBytes.Add(MsdpArrayClose);
                     break;
                 default:
-                    outBytes.AddRange(Encoding.UTF8.GetBytes(Convert.ToString(value, null) ?? string.Empty));
+                    // Invariant culture: MSDP floats must encode with '.'
+                    // regardless of the process locale (the reference uses
+                    // str(value), which is locale-independent).
+                    outBytes.AddRange(Encoding.UTF8.GetBytes(Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty));
                     break;
             }
         }

@@ -73,17 +73,25 @@ namespace telnet_cs.Server
         }
 
         /// <summary>
-        /// Closes the session for server shutdown (the reference
-        /// <c>Server.close</c> closing each protocol transport): the stream
-        /// closes (so <c>IsConnected</c> reads false) and pending reads
-        /// cancel. The caller still owns (and disposes) the session.
+        /// Closes the session transport (the reference shell's
+        /// <c>writer.close()</c> on <c>quit</c>): the stream closes (so
+        /// <c>IsConnected</c> reads false) and pending reads cancel. The
+        /// caller still owns (and disposes) the session.
         /// </summary>
-        internal void CloseForServerStop()
+        public void Close()
         {
             pumpShutdown = true;
             ByteStream.Close();
             CancelPendingReads();
         }
+
+        /// <summary>
+        /// Closes the session for server shutdown (the reference
+        /// <c>Server.close</c> closing each protocol transport): the stream
+        /// closes (so <c>IsConnected</c> reads false) and pending reads
+        /// cancel. The caller still owns (and disposes) the session.
+        /// </summary>
+        internal void CloseForServerStop() => Close();
 
         private void ShutdownPump()
         {

@@ -139,7 +139,11 @@ namespace telnet_cs.Protocol
         /// Reads the character-set name from an <c>ACCEPTED</c> payload (verb first).
         /// An empty name is tolerated (the peer named nothing): it yields an
         /// empty string rather than throwing, so the read loop survives a
-        /// malformed ACCEPTED and the caller takes the rejection path.
+        /// malformed ACCEPTED and the caller takes the rejection path. A name
+        /// with non-ASCII bytes likewise yields an empty string: charset names
+        /// are ASCII (RFC 2066 §2 accepts only a name the recipient offered),
+        /// so it matches nothing and takes the rejection path instead of
+        /// adopting a lossy decode.
         /// </summary>
         /// <param name="payload">The received payload, verb first.</param>
         public static string ParseAccepted(IReadOnlyList<byte> payload)
@@ -150,7 +154,13 @@ namespace telnet_cs.Protocol
                 return string.Empty;
             }
 
-            return Encoding.ASCII.GetString([.. payload.Skip(1)]);
+            var name = payload.Skip(1);
+            if (name.Any(static b => b > 127))
+            {
+                return string.Empty;
+            }
+
+            return Encoding.ASCII.GetString([.. name]);
         }
 
         /// <summary>

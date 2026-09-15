@@ -719,7 +719,11 @@
                     ttypeResendsOwed = 0;
                 }
 
-                wantEcho = (advancedNegotiationSent || echoArmedByAnswer) && negotiateEchoPending && !echoNegotiated;
+                wantEcho = (advancedNegotiationSent || echoArmedByAnswer) && negotiateEchoPending && !echoNegotiated
+                    // A linemode server stays in NVT line mode (reference
+                    // _negotiate_echo returns early when line_mode is set),
+                    // so ECHO is never offered.
+                    && !Settings.RequestLinemode;
                 wantEnviron = (advancedNegotiationSent || environArmedByAnswer) && negotiateEnvironPending && !environRequested;
                 if (wantEcho)
                 {

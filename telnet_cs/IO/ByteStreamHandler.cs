@@ -2410,7 +2410,8 @@
         /// null (TextEncoding stays unset, so bytes keep passing through as
         /// (char)byte; no bytes are dropped)
         /// and fires <see cref="CharsetRejected"/>. An ACCEPTED with an empty
-        /// name takes the rejection path (it matches no requested name).
+        /// name — or a non-ASCII name, which matches no ASCII offer (RFC 2066
+        /// §2) — takes the rejection path (it matches no requested name).
         /// and fires <see cref="CharsetRejected"/>. Inbound table-transfer
         /// verbs (<c>TTABLE-IS/ACK/NAK</c>) are logged and ignored: table
         /// transfer is not implemented, and answering would only invite a
@@ -2773,7 +2774,10 @@
         /// <c>_handle_sb_linemode_slc</c> raises <c>ValueError</c>); the whole
         /// buffer is rejected, including any valid triplets before the bad tail.
         /// A server additionally requests a forwardmask after every SLC block
-        /// (reference <c>request_forwardmask</c>).
+        /// (reference <c>request_forwardmask</c>) once LINEMODE is agreed on
+        /// either side; without agreement the SLC reply still goes out but
+        /// the forwardmask is skipped (reference suppresses it without
+        /// receipt of WILL LINEMODE).
         /// </summary>
         /// <param name="payload">The SLC payload ([SLC, func, mod, value, …]).</param>
         /// <exception cref="InvalidDataException">The triplet tail is misaligned.</exception>
@@ -2805,12 +2809,17 @@
                 await SendNegotiation((int)Options.LineMode, [LinemodeProtocol.SetLocalCharacters, .. replies]).ConfigureAwait(false);
             }
 
-            if (ApplyLinemodeAsServer)
+            if (ApplyLinemodeAsServer
+                && (Negotiation.IsEnabledByUs((int)Options.LineMode) || Negotiation.IsEnabledByPeer((int)Options.LineMode)))
             {
                 byte[] mask = LinemodeProtocol.BuildForwardMask(Negotiation.IsEnabledByUs((int)Options.TransmitBinary));
                 WriteLog("Sending: " + nameof(Options.LineMode) + " DO FORWARDMASK.");
                 await SendNegotiation((int)Options.LineMode,
                   [(byte)Commands.Do, LinemodeProtocol.ForwardMask, .. mask]).ConfigureAwait(false);
+            }
+            else if (ApplyLinemodeAsServer)
+            {
+                WriteLog("Skipping LINEMODE DO FORWARDMASK without LINEMODE agreement.");
             }
         }
 

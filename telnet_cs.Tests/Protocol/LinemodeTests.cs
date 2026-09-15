@@ -403,7 +403,9 @@
             // change. Same script as SlcAckedChange_SwitchesSilently, but the
             // handler runs the server rules, so the third read finds the row
             // still at 9 and stays silent (one SLC reply total, not two).
-            // Every server-side SLC block still earns the forwardmask request.
+            // No LINEMODE agreement exists on this bare handler, so no
+            // forwardmask request goes out (reference suppresses DO
+            // FORWARDMASK without receipt of WILL LINEMODE; see A6-3).
             using var stream = new ScriptedStream();
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
@@ -415,17 +417,8 @@
             sut.Linemode.GetEntry(3).Should().Be(new SlcEntry(2, 9, 0));
             stream.Enqueue(255, 250, 34, 3, 3, 2, 9, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
-            var forwardmask = new byte[]
-            {
-              255, 250, 34, 253, 2,
-              0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-              255, 240,
-            };
-            stream.ByteWrites.Should().HaveCount(4);
-            stream.ByteWrites[0].Should().Equal(new byte[] { 255, 250, 34, 3, 3, 130, 9, 255, 240 });
-            stream.ByteWrites[1].Should().Equal(forwardmask);
-            stream.ByteWrites[2].Should().Equal(forwardmask);
-            stream.ByteWrites[3].Should().Equal(forwardmask);
+            stream.ByteWrites.Should().ContainSingle().Which.Should()
+              .Equal(new byte[] { 255, 250, 34, 3, 3, 130, 9, 255, 240 });
         }
 
         [Fact]

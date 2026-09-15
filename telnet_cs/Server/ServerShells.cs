@@ -35,6 +35,8 @@ namespace telnet_cs.Server
         /// banner, <c>tel:sh&gt; </c> prompt, Go-Ahead per prompt (skipped
         /// when <c>NeverSendGa</c>; <c>SendGaAsync</c> still suppresses it
         /// while SGA is in effect), then a <c>\n</c>-terminated line.
+        /// The session transport is closed on exit (the reference shell
+        /// always closes its writer when the loop ends).
         /// </summary>
         /// <param name="session">The accepted session to drive.</param>
         /// <param name="cancellationToken">Token to stop the loop.</param>
@@ -74,6 +76,8 @@ namespace telnet_cs.Server
                     break;
                 }
             }
+
+            session.Close();
         }
 
         /// <summary>

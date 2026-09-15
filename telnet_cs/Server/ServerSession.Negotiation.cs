@@ -48,8 +48,9 @@
         /// <summary>
         /// Sends the server advanced preset once negotiation advances (the
         /// reference <c>begin_advanced_negotiation</c>, gated by
-        /// <c>negotiation_should_advance</c>): <c>WILL SGA</c>, <c>WILL
-        /// BINARY</c>, <c>DO NAWS</c> and <c>DO CHARSET</c> per the matching
+        /// <c>negotiation_should_advance</c>): <c>WILL SGA</c> (suppressed
+        /// when linemode is requested — the reference stays in NVT line mode),
+        /// <c>WILL BINARY</c>, <c>DO NAWS</c> and <c>DO CHARSET</c> per the matching
         /// settings flags, plus <c>DO LINEMODE</c> only when explicitly
         /// requested (the reference LINEMODE offer lives in its dedicated
         /// LinemodeServer path; the default char-mode server never sends it).
@@ -60,7 +61,7 @@
         /// <returns>An awaitable Task.</returns>
         private async Task BeginAdvancedNegotiationAsync(CancellationToken cancellationToken)
         {
-            if (Settings.OfferSuppressGoAhead)
+            if (Settings.OfferSuppressGoAhead && !Settings.RequestLinemode)
             {
                 await OfferEnableAsync(Options.SuppressGoAhead, cancellationToken).ConfigureAwait(false);
             }
