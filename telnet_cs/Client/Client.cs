@@ -253,7 +253,7 @@
             string result = sb.ToString();
             if (result.Length > count)
             {
-                PendingText = result.Substring(count) + PendingText;
+                PrependPendingText(result.Substring(count));
                 result = result.Substring(0, count);
             }
 
@@ -337,7 +337,7 @@
             }
 
             int end = at + terminator.Length;
-            PendingText = s.Substring(end);
+            PrependPendingText(s.Substring(end));
             return s.Substring(0, end);
         }
 
@@ -357,7 +357,7 @@
             if (match.Success)
             {
                 int end = match.Index + match.Length;
-                PendingText = s.Substring(end);
+                PrependPendingText(s.Substring(end));
                 s = s.Substring(0, end);
             }
 
@@ -392,7 +392,7 @@
 
             if (cut >= 0)
             {
-                PendingText = s.Substring(cut);
+                PrependPendingText(s.Substring(cut));
                 s = s.Substring(0, cut);
             }
 
@@ -427,7 +427,7 @@
 
             if (cut >= 0)
             {
-                PendingText = s.Substring(cut);
+                PrependPendingText(s.Substring(cut));
                 s = s.Substring(0, cut);
             }
 
@@ -469,8 +469,7 @@
             {
                 // Drain text a terminated read stashed past its terminator
                 // before touching the wire, so pipelined data is never lost.
-                string pending = PendingText;
-                PendingText = string.Empty;
+                string pending = DrainPendingText();
                 if (pending.Length != 0)
                 {
                     return pending;

@@ -567,7 +567,7 @@
                 var text = await ReadAsync(TimeSpan.FromMilliseconds(MillisecondReadDelay), linked.Token).ConfigureAwait(false);
                 if (!string.IsNullOrEmpty(text))
                 {
-                    PendingText += text;
+                    AppendPendingText(text);
                     if (CheckBufferedTextCap())
                     {
                         // Inbound buffer cap tripped (session closing): stop
@@ -1931,7 +1931,7 @@
                 var text = await ReadAsync(TimeSpan.FromMilliseconds(MillisecondReadDelay), linked.Token).ConfigureAwait(false);
                 if (!string.IsNullOrEmpty(text))
                 {
-                    PendingText += text;
+                    AppendPendingText(text);
                     if (CheckBufferedTextCap())
                     {
                         return;

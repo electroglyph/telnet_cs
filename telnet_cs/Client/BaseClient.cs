@@ -3,6 +3,7 @@
     using System;
     using System.Collections.Generic;
     using System.Text.RegularExpressions;
+    using System.Threading;
     using telnet_cs.Transport;
 
     /// <summary>
@@ -34,6 +35,10 @@
         /// </summary>
         private readonly IByteStream byteStream;
 
+        // Serializes every PendingText read and write (see the property).
+        private readonly Lock pendingTextLock = new();
+        private string pendingText = string.Empty;
+
         /// <inheritdoc/>
         public int MillisecondReadDelay { get; set; } = DefaultMillisecondReadDelay;
 
@@ -62,8 +67,58 @@
         /// an unterminated wait throws <c>TimeoutException</c> (never a
         /// partial), at the cost of one rolling-window poll per
         /// millisecond-spin step.
+        /// All access serializes on <c>pendingTextLock</c>: compound updates
+        /// use the atomic <c>DrainPendingText</c> / <c>AppendPendingText</c> /
+        /// <c>PrependPendingText</c> helpers so operator-concurrent readers
+        /// neither lose nor duplicate bytes. The helpers take only this lock,
+        /// so an outer lock may be held across them only when it is always
+        /// taken outside this one (the server drain holds <c>pumpLock</c>).
         /// </summary>
-        protected string PendingText { get; set; } = string.Empty;
+        protected string PendingText
+        {
+            get { lock (pendingTextLock) { return pendingText; } }
+            set { lock (pendingTextLock) { pendingText = value; } }
+        }
+
+        /// <summary>
+        /// Atomically drains <see cref="PendingText"/>, leaving it empty.
+        /// </summary>
+        /// <returns>The stashed text, or empty when none was stashed.</returns>
+        protected string DrainPendingText()
+        {
+            lock (pendingTextLock)
+            {
+                string drained = pendingText;
+                pendingText = string.Empty;
+                return drained;
+            }
+        }
+
+        /// <summary>
+        /// Atomically appends <paramref name="text"/> to
+        /// <see cref="PendingText"/>.
+        /// </summary>
+        /// <param name="text">The text to append.</param>
+        protected void AppendPendingText(string text)
+        {
+            lock (pendingTextLock)
+            {
+                pendingText += text;
+            }
+        }
+
+        /// <summary>
+        /// Atomically prepends <paramref name="text"/> before
+        /// <see cref="PendingText"/>.
+        /// </summary>
+        /// <param name="text">The text to prepend.</param>
+        protected void PrependPendingText(string text)
+        {
+            lock (pendingTextLock)
+            {
+                pendingText = text + pendingText;
+            }
+        }
 
         /// <inheritdoc/>
         public bool IsConnected

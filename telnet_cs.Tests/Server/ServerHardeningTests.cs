@@ -4,6 +4,7 @@ namespace telnet_cs.Tests
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics;
     using System.Linq;
     using System.Net.Sockets;
     using System.Text;
@@ -308,6 +309,165 @@ namespace telnet_cs.Tests
             var options = new TelnetServerOptions { MaxConcurrentSessions = -1 };
             using var server = new TelnetServer(0, options);
             Assert.Throws<ArgumentOutOfRangeException>(() => server.Start());
+        }
+
+        [Fact]
+        public void Start_ZeroMaxLoginAttempts_Throws()
+        {
+            var options = new TelnetServerOptions { MaxLoginAttempts = 0 };
+            using var server = new TelnetServer(0, options);
+            Assert.Throws<ArgumentOutOfRangeException>(() => server.Start());
+        }
+
+        [Fact]
+        public async Task Start_AcceptFilterThrows_RejectsWithInnerException()
+        {
+            var logs = new List<string>();
+            var options = LowFrictionOptions();
+            options.AcceptFilter = _ => throw new InvalidOperationException("filter-boom");
+            options.Log = m => { lock (logs) { logs.Add(m); } };
+            using var server = new TelnetServer(0, options);
+            server.Start();
+
+            using var raw = new TcpClient();
+            var accept = server.AcceptSessionAsync(CancellationToken.None);
+            await raw.ConnectAsync("127.0.0.1", server.Port);
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => accept);
+            ex.Message.Should().StartWith("over-capacity:");
+            ex.InnerException.Should().BeOfType<InvalidOperationException>()
+                .Which.Message.Should().Be("filter-boom");
+            server.RejectedFilterCount.Should().Be(1);
+            server.RejectedCapacityCount.Should().Be(0);
+            lock (logs)
+            {
+                logs.Should().Contain(m => m.StartsWith("over-capacity:", StringComparison.Ordinal));
+            }
+        }
+
+        [Fact]
+        public async Task AcceptSession_PresetDeadlineAlreadyBlown_ThrowsTimeoutWithHandshakeLog()
+        {
+            var logs = new List<string>();
+            var options = LowFrictionOptions();
+            options.HandshakeTimeout = TimeSpan.FromMilliseconds(200);
+            // A slow accept filter burns the whole handshake budget before
+            // the opening preset runs, so the preset finds no time left and
+            // fails by deadline without sending a byte.
+            options.AcceptFilter = _ => { Thread.Sleep(1000); return true; };
+            options.Log = m => { lock (logs) { logs.Add(m); } };
+            using var server = new TelnetServer(0, options);
+            server.Start();
+
+            using var raw = new TcpClient();
+            var accept = server.AcceptSessionAsync(CancellationToken.None);
+            await raw.ConnectAsync("127.0.0.1", server.Port);
+            var ex = await Assert.ThrowsAsync<TimeoutException>(() => accept);
+            ex.Message.Should().StartWith("handshake-timeout:");
+            lock (logs)
+            {
+                logs.Should().Contain(m => m.StartsWith("handshake-timeout:", StringComparison.Ordinal));
+            }
+        }
+
+        [Fact]
+        public async Task Session_ZmpTinyArgsOverKeyCap_RefusedWithCapLog()
+        {
+            var logs = new List<string>();
+            var options = new TelnetServerOptions
+            {
+                MaxMudKeys = 2,
+                Log = m => { lock (logs) { logs.Add(m); } },
+            };
+            // One-char command with three one-char args: far below the 4096
+            // value cap, so only the key-count cap can refuse it. The
+            // per-read handler fires first (same live option), so the log
+            // carries the handler spelling; the session check behind it is
+            // the backstop for hook paths that bypass the handler cap.
+            var reads = new List<int> { 255, 251, 93, 255, 250, 93 };
+            reads.AddRange(Encoding.Latin1.GetBytes("c\0a\0b\0c\0").Select(b => (int)b));
+            reads.AddRange([255, 240]);
+            using var stream = new ScriptedStream([.. reads]);
+            using var session = NewSession(stream, options);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
+            session.ZmpData.Should().BeEmpty();
+            lock (logs)
+            {
+                logs.Should().Contain(
+                    m => m.StartsWith("mud-cap:", StringComparison.Ordinal)
+                        && m.Contains("option=zmp")
+                        && m.Contains("args=3")
+                        && m.Contains("cap=2"));
+            }
+        }
+
+        [Fact]
+        public async Task Repl_PipelinedOverflow_LogsStashedCount()
+        {
+            var logs = new List<string>();
+            var options = new TelnetServerOptions
+            {
+                MaxReplLineLength = 8,
+                Log = m => { lock (logs) { logs.Add(m); } },
+            };
+            using var stream = new ScriptedStream("ok\n" + new string('x', 20));
+            using var session = NewSession(stream, options);
+            await ServerShells.RunReplAsync(session, CancellationToken.None);
+            OutboundText(stream).Should().Contain("Line too long.");
+            stream.Connected.Should().BeFalse();
+            lock (logs)
+            {
+                logs.Should().Contain(
+                    m => m.StartsWith("buffer-cap:", StringComparison.Ordinal) && m.Contains("repl-pending=20"));
+            }
+        }
+
+        private sealed class PendingTextHarness : ServerSession
+        {
+            public PendingTextHarness(ScriptedStream stream)
+                : base(stream, new TelnetServerOptions(), CancellationToken.None)
+            {
+            }
+
+            public new string DrainPendingText() => base.DrainPendingText();
+
+            public new void AppendPendingText(string text) => base.AppendPendingText(text);
+        }
+
+        [Fact]
+        public async Task PendingText_ConcurrentAppendAndDrain_ConservesEveryChar()
+        {
+            using var stream = new ScriptedStream();
+            using var harness = new PendingTextHarness(stream);
+            const int writers = 4;
+            const int perWriter = 500;
+            const int total = writers * perWriter;
+            int drained = 0;
+            using var done = new ManualResetEventSlim();
+            var drainer = Task.Run(() =>
+            {
+                while (!done.IsSet || Volatile.Read(ref drained) < total)
+                {
+                    drained += harness.DrainPendingText().Length;
+                }
+            });
+            Parallel.For(0, writers, _ =>
+            {
+                for (int i = 0; i < perWriter; i++)
+                {
+                    harness.AppendPendingText("x");
+                }
+            });
+
+            // Spin until every appended char has been drained back out.
+            var sw = Stopwatch.StartNew();
+            while (Volatile.Read(ref drained) < total && sw.Elapsed < TimeSpan.FromSeconds(10))
+            {
+                Thread.Sleep(1);
+            }
+
+            done.Set();
+            await drainer;
+            (drained + harness.DrainPendingText().Length).Should().Be(total);
         }
     }
 }

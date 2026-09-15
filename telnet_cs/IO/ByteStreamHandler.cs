@@ -2203,9 +2203,15 @@
                     {
                         string command = parts[0];
                         List<string> args = [.. parts.Skip(1)];
-                        if (MaxMudValueChars > 0 && (command.Length > MaxMudValueChars || args.Any(a => a.Length > MaxMudValueChars) || args.Count > MaxMudKeys))
+                        if (MaxMudValueChars > 0 && (command.Length > MaxMudValueChars || args.Any(a => a.Length > MaxMudValueChars)))
                         {
                             WriteLog($"mud-cap: option=zmp cmd-len={command.Length} args={args.Count} cap={MaxMudValueChars}");
+                            break;
+                        }
+
+                        if (MaxMudKeys > 0 && args.Count > MaxMudKeys)
+                        {
+                            WriteLog($"mud-cap: option=zmp cmd-len={command.Length} args={args.Count} cap={MaxMudKeys}");
                             break;
                         }
 

@@ -142,7 +142,7 @@ namespace telnet_cs.Client
             {
                 if (!string.IsNullOrEmpty(buffered))
                 {
-                    PendingText = buffered + PendingText;
+                    PrependPendingText(buffered);
                 }
             }
         }

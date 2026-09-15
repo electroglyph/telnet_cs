@@ -23,7 +23,25 @@ server.Start();   // port 0 = ephemeral; read back server.Port afterwards
 
 while (true)
 {
-    ServerSession session = await server.AcceptSessionAsync(ct);
+    ServerSession session;
+    try
+    {
+        session = await server.AcceptSessionAsync(ct);
+    }
+    catch (InvalidOperationException ex)
+    {
+        // Over-capacity / filter reject (socket already disposed), or the
+        // listener was never started. Log and keep accepting.
+        Console.WriteLine(ex.Message);
+        continue;
+    }
+    catch (TimeoutException ex)
+    {
+        // TLS handshake or opening preset exceeded HandshakeTimeout
+        // (socket already disposed). Log and keep accepting.
+        Console.WriteLine(ex.Message);
+        continue;
+    }
     _ = HandleAsync(session);   // AcceptSessionAsync already sent the opening preset
 }
 

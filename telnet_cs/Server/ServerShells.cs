@@ -101,6 +101,7 @@ namespace telnet_cs.Server
 
             if (cap > 0 && pending.Length > cap)
             {
+                int overLength = pending.Length;
                 pending.Clear();
                 try
                 {
@@ -117,7 +118,7 @@ namespace telnet_cs.Server
 #pragma warning restore CA1031
                 try
                 {
-                    session.Settings.Log?.Invoke($"buffer-cap: endpoint={session.RemoteEndPoint ?? "unknown"} repl-pending={pending.Length} cap={cap}");
+                    session.Settings.Log?.Invoke($"buffer-cap: endpoint={session.RemoteEndPoint ?? "unknown"} repl-pending={overLength} cap={cap}");
                 }
                 catch
                 {

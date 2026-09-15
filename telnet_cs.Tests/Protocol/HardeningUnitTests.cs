@@ -133,6 +133,35 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public void Mccp_TrailingOverCap_LogsOnce()
+        {
+            var logs = new List<string>();
+            var decompressor = new MccpDecompressor
+            {
+                MaxCompressedBytes = 64,
+                CapLog = m => logs.Add(m),
+            };
+            byte[] wire = ZlibCompress("hi");
+            wire.Length.Should().BeLessThan(64);
+            foreach (byte b in wire)
+            {
+                decompressor.Feed(b);
+            }
+
+            while (decompressor.TryTakeReady(out _))
+            {
+            }
+
+            decompressor.StreamEnded.Should().BeTrue();
+            for (int i = 0; i < 200; i++)
+            {
+                decompressor.Feed((byte)'p');
+            }
+
+            logs.Count(m => m.StartsWith("mccp-output-cap: trailing=", StringComparison.Ordinal)).Should().Be(1);
+        }
+
+        [Fact]
         public void Mccp_SmallStream_EndStillDetected()
         {
             // Regression: the compressed-input buffer must survive until
@@ -221,6 +250,34 @@ namespace telnet_cs.Tests
             over.Should().BeTrue();
             suppressed.Should().BeTrue();
             guardedReplies.Should().Be(headUnguarded);
+        }
+
+        [Fact]
+        public async Task Handler_ZmpTinyArgsOverKeyCap_RejectedWithArgsLog()
+        {
+            // One-char command with three one-char args: far below the value
+            // cap, so only the key-count cap can refuse it (the old gate let
+            // the count check through under the value cap).
+            var reads = new List<int> { 255, 251, 93, 255, 250, 93 };
+            reads.AddRange(Encoding.ASCII.GetBytes("c\0a\0b\0c\0").Select(b => (int)b));
+            reads.AddRange([255, 240]);
+            using var stream = new ScriptedStream([.. reads]);
+            using var cts = new CancellationTokenSource();
+            using var handler = new ByteStreamHandler(stream, cts, 1);
+            handler.MaxMudKeys = 2;
+            var logs = new List<string>();
+            handler.Log = m => logs.Add(m);
+            int fired = 0;
+            handler.ZmpReceived += (_, _) => fired++;
+            for (int i = 0; i < 10 && stream.Available > 0; i++)
+            {
+                await handler.ReadAsync(TimeSpan.FromMilliseconds(50));
+            }
+
+            fired.Should().Be(0);
+            handler.ZmpData.Should().BeEmpty();
+            logs.Should().Contain(
+                m => m.StartsWith("mud-cap:", StringComparison.Ordinal) && m.Contains("cap=2"));
         }
     }
 }

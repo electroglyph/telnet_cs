@@ -262,8 +262,8 @@
         /// disconnected records). Over budget accepts are refused before any
         /// TLS handshake or preset bytes: the socket is disposed, a rejected
         /// counter bumps, and <c>over-capacity:</c> is logged. Defaults to
-        /// 256; <c>0</c> means unlimited. Negative values are rejected.
-        /// Snapshotted per accept only for counting; the live value is read
+        /// 256; <c>0</c> means unlimited. Negative values are rejected at
+        /// <c>Start</c>. Counted per accept; the live value is read
         /// under the server lock.
         /// </summary>
         public int MaxConcurrentSessions { get; set; } = 256;
@@ -276,7 +276,8 @@
         /// <see cref="MaxConcurrentSessions"/> and refused the same way
         /// before any TLS handshake or preset bytes. Many legitimate clients
         /// behind one NAT address share this budget. Defaults to 16;
-        /// <c>0</c> means unlimited. Negative values are rejected.
+        /// <c>0</c> means unlimited. Negative values are rejected at
+        /// <c>Start</c>.
         /// </summary>
         public int MaxConnectionsPerIp { get; set; } = 16;
 
@@ -285,8 +286,10 @@
         /// before any TLS handshake or preset bytes, with the raw remote
         /// endpoint. Null (the default) allows everything. A <c>false</c>
         /// return or a thrown exception disposes the accepted socket with no
-        /// bytes sent; exceptions never propagate out of the accept path and
-        /// are logged as <c>over-capacity:</c> filter rejects.
+        /// bytes sent, bumps the filter-reject counter, logs
+        /// <c>over-capacity:</c> filter-reject, and throws
+        /// <see cref="InvalidOperationException"/> out of the accept path
+        /// (a filter-thrown exception is preserved as <c>InnerException</c>).
         /// </summary>
         public Func<System.Net.EndPoint?, bool>? AcceptFilter { get; set; }
 
@@ -309,11 +312,18 @@
 
         /// <summary>
         /// Gets or sets the maximum buffered inbound text chars
-        /// (<c>pumpBufferedText + PendingText</c> combined, checked atomically
-        /// under the pump lock after each append). On exceed the session is
+        /// (<c>pumpBufferedText + PendingText</c> combined, checked under
+        /// the pump lock after each pump append). On exceed the session is
         /// closed fail-closed (never silently drop authenticated data) and
-        /// <c>buffer-cap:</c> is logged. Defaults to 65536; <c>0</c> means
-        /// unlimited. Negative values are rejected. Read live per append.
+        /// <c>buffer-cap:</c> is logged. The pump append path holds the
+        /// pump lock while operator-side <c>PendingText</c> appends occur
+        /// outside it, so enforcement for those appends is delayed to the
+        /// next check, not missed. Enforcement is post-hoc per wire pass
+        /// (the whole pass is appended before the check), so a flood can
+        /// transiently lodge about one pass before the session closes.
+        /// Defaults to 65536; <c>0</c> means
+        /// unlimited. Negative values are rejected at <c>Start</c>.
+        /// Read live per append.
         /// </summary>
         public int MaxBufferedTextChars { get; set; } = 65536;
 
@@ -324,7 +334,9 @@
         /// backspace handling on every appended chunk without a newline. On
         /// exceed a pinned notice is sent, the session closes, and pending
         /// bytes are cleared so no over-cap bytes leak into the next line.
-        /// Defaults to 4096; <c>0</c> means unlimited. Read live per line.
+        /// Enforcement is post-hoc per chunk (the whole chunk is appended
+        /// before the check), so one overlong chunk is transiently buffered
+        /// first. Defaults to 4096; <c>0</c> means unlimited. Read live per line.
         /// </summary>
         public int MaxReplLineLength { get; set; } = 4096;
 
@@ -356,7 +368,10 @@
         /// <summary>
         /// Gets or sets the maximum single TTYPE answer length in chars.
         /// Overlong answers are ignored (chain untouched) plus logged.
-        /// Defaults to 256; <c>0</c> means unlimited.
+        /// The answer chain itself hard-stops at 9 entries, each bounded by
+        /// the subnegotiation cap rather than this one, so <c>0</c> retains
+        /// up to about 9 MiB per session. Defaults to 256; <c>0</c> means
+        /// unlimited.
         /// </summary>
         public int MaxTtypeChars { get; set; } = 256;
 
@@ -406,8 +421,11 @@
 
         /// <summary>
         /// Gets or sets the maximum compressed input bytes retained by the
-        /// MCCP decompressor (prefix-compacted sliding window, so long
-        /// sessions stay bounded instead of disconnecting). Defaults to 8
+        /// MCCP decompressor. The input buffer is never compacted by design
+        /// (end-confirmation re-examines consumed bytes), so growth is
+        /// bounded by this cap instead: on exceed the stream marks failed,
+        /// clears queued output, logs <c>mccp-output-cap:</c>, and the
+        /// handler refuses compression and resumes plaintext. Defaults to 8
         /// MiB; <c>0</c> means unlimited.
         /// </summary>
         public int MaxCompressedBytes { get; set; } = 8 * 1024 * 1024;

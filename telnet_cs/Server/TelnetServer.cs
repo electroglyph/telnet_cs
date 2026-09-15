@@ -151,6 +151,7 @@
             ArgumentOutOfRangeException.ThrowIfNegative(options.MaxDecompressedBytes);
             ArgumentOutOfRangeException.ThrowIfNegative(options.MaxDecompressionRatio);
             ArgumentOutOfRangeException.ThrowIfNegative(options.MaxCompressedBytes);
+            ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxLoginAttempts, 1);
             listener.Start(options.Backlog);
             boundPort = ((IPEndPoint)listener.LocalEndpoint).Port;
             if (options.StatusInterval is { } interval && interval > TimeSpan.Zero && statusTimer is null)
@@ -241,6 +242,9 @@
         /// <c>MaxConnectionsPerIp</c>, <c>AcceptFilter</c>) runs before any
         /// TLS handshake or preset bytes: refused accepts dispose the socket
         /// with no bytes sent and throw <see cref="InvalidOperationException"/>.
+        /// Throws <see cref="TimeoutException"/> when the TLS handshake or
+        /// the opening preset exceeds <c>HandshakeTimeout</c> (logged as
+        /// <c>handshake-timeout:</c>; the socket is disposed).
         /// Throws <see cref="InvalidOperationException"/> if the listener was
         /// never started.
         /// </summary>
@@ -438,6 +442,7 @@
                         TimeSpan left = handshakeDeadlineUtc - DateTime.UtcNow;
                         if (left <= TimeSpan.Zero)
                         {
+                            LogOutsideLock($"handshake-timeout: endpoint={endpoint}");
                             throw new TimeoutException($"handshake-timeout: endpoint {endpoint}.");
                         }
 

@@ -367,7 +367,7 @@
             }
 
             int end = at + terminator.Length;
-            PendingText = s.Substring(end);
+            PrependPendingText(s.Substring(end));
             return s.Substring(0, end);
         }
 

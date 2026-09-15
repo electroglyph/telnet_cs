@@ -111,9 +111,15 @@ namespace telnet_cs.Server
         {
             int maxValue = MudMaxValueChars();
             int maxKeys = MudMaxKeys();
-            if (maxValue > 0 && (command.Length > maxValue || args.Count > maxValue || args.Any(a => a.Length > maxValue)))
+            if (maxValue > 0 && (command.Length > maxValue || args.Any(a => a.Length > maxValue)))
             {
                 LogMudCap("zmp", command.Length + args.Count);
+                return false;
+            }
+
+            if (maxKeys > 0 && args.Count > maxKeys)
+            {
+                LogMudCap("zmp-args", args.Count);
                 return false;
             }
 

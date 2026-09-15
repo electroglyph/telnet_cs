@@ -80,11 +80,6 @@ namespace telnet_cs.IO
         /// </summary>
         internal NegotiationStormGuard? StormGuard { get; set; }
 
-        private bool NoteStormVerbFrame()
-        {
-            return StormGuard?.NoteFrame() > NegotiationStormGuard.Threshold;
-        }
-
         private bool ShouldSuppressStormRefusal()
         {
             return StormGuard is not null && StormGuard.IsOverThreshold;

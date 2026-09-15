@@ -48,6 +48,7 @@ internal sealed class MccpDecompressor : IDisposable
     private long totalOut;
     private uint runningCheck = 1;
     private bool disposed;
+    private bool trailingCapLogged;
     private readonly RawEndLocator rawEnd = new();
 
     /// <summary>
@@ -113,12 +114,16 @@ internal sealed class MccpDecompressor : IDisposable
         {
             if (MaxCompressedBytes > 0 && trailing.Count >= MaxCompressedBytes)
             {
-                try
+                if (!trailingCapLogged)
                 {
-                    CapLog?.Invoke($"mccp-output-cap: trailing={trailing.Count} cap={MaxCompressedBytes}");
-                }
-                catch
-                {
+                    trailingCapLogged = true;
+                    try
+                    {
+                        CapLog?.Invoke($"mccp-output-cap: trailing={trailing.Count} cap={MaxCompressedBytes}");
+                    }
+                    catch
+                    {
+                    }
                 }
 
                 return;
@@ -184,6 +189,11 @@ internal sealed class MccpDecompressor : IDisposable
         if (trailing.Count > 0)
         {
             value = trailing.Dequeue();
+            if (MaxCompressedBytes <= 0 || trailing.Count < MaxCompressedBytes)
+            {
+                trailingCapLogged = false;
+            }
+
             return true;
         }
 

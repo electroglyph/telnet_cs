@@ -58,18 +58,19 @@ namespace telnet_cs.Server
         /// </summary>
         private string TakePendingText()
         {
-            string pending = PendingText;
-            PendingText = string.Empty;
+            // pumpLock outermost: the buffer-cap check nests pumpLock
+            // outside the PendingText lock, so every nest follows that order.
             lock (pumpLock)
             {
+                string pending = DrainPendingText();
                 if (pumpBufferedText.Length != 0)
                 {
                     pending += pumpBufferedText;
                     pumpBufferedText = string.Empty;
                 }
-            }
 
-            return pending;
+                return pending;
+            }
         }
 
         /// <summary>
