@@ -12,8 +12,8 @@ clanker port over most of the applicable features from telnetlib3.
 
 I left a lot of telnetlib3's stuff out of scope, because it does A LOT.
 
-There are a few minor currently known divergences from telnetlib3 mentioned
-here: [divergences](docs/divergences.md)
+There are known divergences from telnetlib3 (including wire-visible ones
+such as terminal-speed field order) listed here: [divergences](docs/divergences.md)
 
 Thanks and respect to jquast and all the other contributors of telnetlib3.
 
@@ -38,7 +38,9 @@ speed), 1091 (terminal type), 1096 (X display), 1184 (linemode), 1372
   linemode, charset), dynamic `SetTimeout`, and idle `Timeout.\r\n` notice.
 - **Ported from [telnetlib3](https://github.com/jquast/telnetlib3):**
   - Negotiation behaviors — NAWS clamped to the 0–65535 wire range; terminal
-    speed transported verbatim with strict validation (rounding only at the
+    speed in `"<tx>,<rx>"` order per RFC 1079 §4 (telnetlib3 uses the opposite
+    order — see divergences D14), validated then normalized (trimmed, leading
+    zeros stripped, two ASCII-digit parts required; rounding only at the
     consumption point); TTYPE collection with LOOPMAX overflow slot, empty
     skipping, and MTTS filtering; single-active TSPEED/CHARSET requests;
     subnegotiations split across reads reassemble before dispatch; outbound
@@ -50,8 +52,10 @@ speed), 1091 (terminal type), 1096 (X display), 1184 (linemode), 1372
     skipped for MUD clients), and password echo suppression at login.
   - MUD + MCCP — GMCP/MSDP/MSSP/MSP/MXP/ZMP/ATCP/Aardwolf codecs and
     per-protocol dispatch with stores (`MsspData`, `ZmpData`, …), MTTS
-    bitvector parsing, and inbound MCCP2/MCCP3 zlib decompression (refused
-    over TLS, `DONT` on corrupt streams; no outbound compression).
+    bitvector parsing, and MCCP2/MCCP3 zlib compression in both directions
+    once agreed (server offers only when explicitly enabled, client
+    compresses MCCP3 after the peer accepts; refused over TLS, `DONT` on
+    corrupt streams).
   - Retro codecs — ATASCII, PETSCII, Atari ST, Big5-BBS (decode tables match
     telnetlib3 cell-for-cell), with strict/replace/ignore encode fallbacks
     and split-sequence-safe incremental coders.
@@ -61,13 +65,13 @@ speed), 1091 (terminal type), 1096 (X display), 1184 (linemode), 1372
     TRAPSIG to IAC commands, forwardmask flush, CR/LF line send).
   - Server REPL shell — `Server.ServerShells.RunReplAsync` (`Ready.` banner,
     `tel:sh> ` prompt with per-prompt Go-Ahead, and
-    `quit/help/version/negotiation/stats/environ` commands).
+    `quit/help/version/negotiation/stats/environ/slc` commands).
   - Runtime extras — `SendGaAsync` (SGA-aware Go-Ahead), generic
     `WaitForNegotiationAsync` / `WaitForOptionEnabledAsync` waiters,
     `Server.TelnetSessionContext` (activity timestamps, rx/tx counters,
     typescript recorder, property bag), `IdleTimeout` (default 300 s),
     `StatusInterval` (default 20 s), and opt-in `TlsAutoDetect` peek.
-- 1296 tests, full suite green with warnings-as-errors. Requires the
+- 1337 tests green as of 2026-09-15, full suite with warnings-as-errors. Requires the
   .NET 10 SDK and runtime; build with
   `dotnet build telnet_cs.sln -c Release`.
 - Usage guides: [client](docs/client.md), [server](docs/server.md).

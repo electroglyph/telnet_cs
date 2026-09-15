@@ -1,5 +1,7 @@
 # Server usage guide
 
+Last verified: 2026-09-15 (suite 1337/1337 green).
+
 The server lives in the `telnet_cs.Server` namespace. `TelnetServer` owns
 only the listen socket; each accepted connection is a `ServerSession`
 (which derives from `Client.BaseClient`, so the read/write/waiter API
@@ -47,10 +49,14 @@ so mutating it affects live sessions too (read per-read), not just
 subsequently accepted ones.
 
 The opening preset is just `DO TTYPE` (when `RequestTerminalType`, on by
-default). Flags on `TelnetServerOptions` default to requesting TTYPE, TSPEED
-(never sent unsolicited — request explicitly), NAWS, old ENVIRON (never sent
-unsolicited — request explicitly), new ENVIRON (deferred, never in the
-opening preset), and CHARSET, and offering ECHO/SGA/Binary; XDisplay,
+default). It is sent by `AcceptSessionAsync` before it returns.
+
+Everything else follows in the advanced preset once negotiation advances
+(any option enabled on either side; a peer that refuses everything gets
+nothing further; fires at most once). Flags on `TelnetServerOptions` default
+to requesting TTYPE, TSPEED (never sent unsolicited — request explicitly),
+NAWS, old ENVIRON (never sent unsolicited — request explicitly), new ENVIRON
+(deferred, never in the opening preset), and CHARSET, and offering ECHO/SGA/Binary; XDisplay,
 Linemode, SendLocation, and MCCP offers (`OfferMccp2`/`OfferMccp3`) default
 off, while passive MCCP accept (`EnableMccp`) defaults on. Once negotiation
 advances, the server sends `WILL SGA`, `WILL BINARY`, `DO NAWS`, `DO CHARSET`
@@ -151,6 +157,9 @@ own loop for anything real.
 
 ## Gotchas
 
+- Inbound negotiation only advances inside caller-driven reads
+  (`ReadAsync` / `TerminatedReadAsync` / `Request*Async`): a handler that
+  accepts then writes without reading stalls TTYPE/ENVIRON/CHARSET.
 - `Request*Async` collectors are not re-entrant: don't call them
   concurrently on one session.
 - `SendSynchAsync` / `ReceiveUrgentAsync` need a real `TcpByteStream`.

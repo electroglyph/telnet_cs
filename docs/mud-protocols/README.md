@@ -3,7 +3,7 @@
 Local copies of third-party MUD client protocol specifications, stored as
 ground truth for the `GMCP` / `MSDP` / `MSSP` / `MSP` / `MXP` / `ZMP` /
 `ATCP` / `MTTS` / `MCCP` frame codecs in `telnet_cs/Protocol/MudProtocol.cs`
-(see `feature.md` §§4, 8, 9).
+(MCCP also uses `telnet_cs/IO/MccpDecompressor.cs`).
 
 > **License: UNKNOWN for every file below, except `zmp.md` (see note).**
 > These are third-party documents fetched from the public web. No license
@@ -23,15 +23,15 @@ layout/nav markup dropped); each file links its source URL at the top.
 
 | File | Protocol (option) | Source URL |
 | --- | --- | --- |
-| `mtts.md` | MTTS (§4) | <https://tintin.mudhalla.net/protocols/mtts/> |
-| `mccp.md` | MCCP1/2/3 — 85/86/87 (§8) | <https://tintin.mudhalla.net/protocols/mccp/> |
-| `gmcp.md` | GMCP — 201 (§9) | <https://www.gammon.com.au/gmcp> (redirects to `forum/threads/12834.html?id=12834`) |
-| `msdp.md` | MSDP — 69 (§9) | <https://tintin.mudhalla.net/protocols/msdp/> |
-| `mssp.md` | MSSP — 70 (§9) | <https://tintin.mudhalla.net/protocols/mssp/> |
-| `msp.md` | MSP — 90 (§9) | <https://www.zuggsoft.com/zmud/msp.htm> |
-| `mxp.md` | MXP — 91 (§9) | <https://www.zuggsoft.com/zmud/mxp.htm> |
-| `zmp.md` | ZMP — 93 (§9) | <https://discworld.starturtle.net/external/protocols/zmp.html> |
-| `atcp.md` | ATCP — 200 (§9) | <https://www.ironrealms.com/rapture/manual/files/FeatATCP-txt.html> |
+| `mtts.md` | MTTS | <https://tintin.mudhalla.net/protocols/mtts/> |
+| `mccp.md` | MCCP1/2/3 — 85/86/87 | <https://tintin.mudhalla.net/protocols/mccp/> |
+| `gmcp.md` | GMCP — 201 | <https://www.gammon.com.au/gmcp> (redirects to `forum/threads/12834.html?id=12834`) |
+| `msdp.md` | MSDP — 69 | <https://tintin.mudhalla.net/protocols/msdp/> |
+| `mssp.md` | MSSP — 70 | <https://tintin.mudhalla.net/protocols/mssp/> |
+| `msp.md` | MSP — 90 | <https://www.zuggsoft.com/zmud/msp.htm> |
+| `mxp.md` | MXP — 91 | <https://www.zuggsoft.com/zmud/mxp.htm> |
+| `zmp.md` | ZMP — 93 | <https://discworld.starturtle.net/external/protocols/zmp.html> |
+| `atcp.md` | ATCP — 200 | <https://www.ironrealms.com/rapture/manual/files/FeatATCP-txt.html> |
 
 Notes:
 
@@ -44,10 +44,10 @@ Notes:
   carry a per-fetch rotating `#…` fragment — link text and target shape
   match, only the fragment rotates; and two tintin hrefs (`mnes`, `mslp`)
   are stored with a trailing slash the live pages omit (same resource).
-- IETF options implemented in `feature.md` §§1–3, 5–8 (Logout, SNDLOC,
-  EOR, LFLOW, New Environ, Charset, COM Port, XDisplay) are grounded in
+- IETF options implemented for Logout, SNDLOC,
+  EOR, LFLOW, New Environ, Charset, COM Port, XDisplay are grounded in
   `docs/telnet-rfcs/rfc727/779/885/1096/1372/1571/1572/2066/2217.txt`.
-- Lint: `markdownlint-cli2` is clean on all ten files except 102
+- Lint: `markdownlint-cli2` is clean on all nine files except 102
   `MD013/line-length` remainders that cannot be wrapped without falsifying
   the reference: byte-exact wire examples in fenced blocks (93), table rows
   (5, `mtts.md`), one `mxp.md` element-definition heading, and three lines

@@ -1,5 +1,7 @@
 # Client usage guide
 
+Last verified: 2026-09-15 (suite 1337/1337 green).
+
 The client lives in the `telnet_cs.Client` namespace. The main type is
 `Client` (implements `IClient`); options are carried by the
 `TelnetClientOptions` record. Everything is async-only.
@@ -45,7 +47,7 @@ start reading:
 | Setting | Answers |
 |---|---|
 | `TerminalType` / `TerminalTypes` | TTYPE `IS`, cycling the list per `SEND` (default `"unknown"`) |
-| `TerminalSpeed` | TSPEED `IS` `"<tx>,<rx>"`, validated not verbatim (trimmed, leading zeros stripped, two ASCII-digit parts required; malformed `SEND` gets no reply). Default `"38400,38400"` |
+| `TerminalSpeed` | TSPEED `IS` `"<tx>,<rx>"` per RFC 1079 §4, validated not verbatim (trimmed, leading zeros stripped, two ASCII-digit parts required; malformed `SEND` gets no reply). Default `"38400,38400"` |
 | `WindowWidth` / `WindowHeight` | NAWS size, clamped to 0–65535; `0` is sent as-is (RFC 1073 "unspecified"), never probed from the console |
 | `EnvironmentUser`, `EnvironmentDisplay`, `EnvironmentUserVars` | ENVIRON `USER`/custom vars, plus auto `TERM`/`LANG`/`COLUMNS`/`LINES`/`COLORTERM` (`LANG` is `en_US.<WebName minus "-">`, `C` when `TextEncoding` is null). `DISPLAY` is never volunteered in `SB` answers (only spontaneous `INFO` carries it) |
 | `CharsetOffers` | CHARSET preference order (default `["UTF-8", "LATIN1", "US-ASCII"]`); an empty inbound offer list answers `REJECTED` (an empty own list only blocks outbound `REQUEST`s we send) |
@@ -62,6 +64,10 @@ is left at its default; prefer `TelnetClientOptions`.
 `Client.Trace` is additive, not a fallback: client writes invoke both
 `Settings.Log` and `Client.Trace`, and per-read handler logs use
 `Settings.Log` only.
+
+Spontaneous ENVIRON `INFO` updates ride the negotiated option, preferring
+`NEW_ENVIRON` when agreed (what reference peers `DO`) and falling back to
+`OLD_ENVIRON`.
 
 ## Reading and writing
 
@@ -98,9 +104,10 @@ Enable options explicitly, then wait for agreement:
 ```csharp
 await client.RequestEnableAsync(Options.WindowSize);
 bool naws = await client.WaitForOptionEnabledAsync(Options.WindowSize, local: true,
-    TimeSpan.FromSeconds(5));
+    TimeSpan.FromSeconds(5));   // false on timeout (never throws)
 bool done = await client.WaitForNegotiationAsync(
     s => s.IsEnabledByUs((int)Options.OldEnvironment), TimeSpan.FromSeconds(5));
+    // throws TimeoutException on a missed deadline
 ```
 
 On window resize, re-announce (there is no console-resize event in .NET —
@@ -113,8 +120,9 @@ await client.RefreshWindowSizeAsync();
 `GoAheadReceived` fires on the read path for unsuppressed `GA`
 (RFC 858 turn-taking). `SendGaAsync` sends `IAC GA` unless our own `WILL`
 Suppress-GA holds (local side only; then it sends nothing and returns `false`).
-`SendTimingMarkAsync` does an RFC 860 round-trip. `Dispose()` (or
-`using`) is the only close (`Client` is `IDisposable`, not
+`SendTimingMarkAsync` does an RFC 860 round-trip. `SendEorAsync` sends `IAC EOR`
+only when the peer sent `DO EOR` (otherwise it sends nothing and returns `false`).
+`Dispose()` (or `using`) is the only close (`Client` is `IDisposable`, not
 `IAsyncDisposable`).
 
 ## Linemode and retro input
