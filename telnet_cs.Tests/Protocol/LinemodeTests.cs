@@ -2,7 +2,6 @@
 {
     using System;
     using System.Collections.Generic;
-    using System.IO;
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
@@ -468,17 +467,23 @@
         }
 
         [Fact]
-        public async Task SlcTruncated_Throws()
+        public async Task SlcTruncated_Ignored()
         {
-            // telnetlib3 _handle_sb_linemode_slc raises ValueError on len%3≠0:
-            // the whole buffer is rejected, nothing is answered.
+            // A misaligned SLC tail is a malformed peer frame, not a
+            // framing bug: the reference raises ValueError at feed level
+            // but contains it per byte in its feed loop, so end-to-end the
+            // frame is a no-op there too. The whole buffer is rejected,
+            // nothing is answered, and later valid frames still dispatch.
             using var stream = new ScriptedStream();
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
             stream.Enqueue(255, 250, 34, 3, 3, 2, 255, 240);
-            var act = async () => await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
-            (await act.Should().ThrowAsync<InvalidDataException>()).WithMessage("*multiple of 3*");
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
+            stream.Enqueue(255, 250, 34, 3, 3, 2, 5, 255, 240);
+            (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
+            stream.ByteWrites.Should().ContainSingle().Which.Take(4).Should()
+              .Equal(new byte[] { 255, 250, 34, 3 });
         }
 
         [Fact]

@@ -2,7 +2,6 @@
 {
     using System;
     using System.Collections.Generic;
-    using System.IO;
     using System.Text;
     using System.Text.Json.Nodes;
     using System.Threading.Tasks;
@@ -2785,22 +2784,24 @@
         /// <summary>
         /// Apply an inbound SLC triplet list (RFC 1184 §2.4/§5.5) and reply
         /// with the resulting ACKs/disagreements, if any. A payload whose
-        /// triplet tail is not a multiple of 3 throws (telnetlib3
-        /// <c>_handle_sb_linemode_slc</c> raises <c>ValueError</c>); the whole
-        /// buffer is rejected, including any valid triplets before the bad tail.
-        /// A server additionally requests a forwardmask after every SLC block
+        /// triplet tail is not a multiple of 3 is logged and ignored as a
+        /// whole, including any valid triplets before the bad tail (telnetlib3
+        /// <c>_handle_sb_linemode_slc</c> raises <c>ValueError</c>, but its
+        /// feed loop contains per-byte <c>ValueError</c> into a debug log, so
+        /// end-to-end the frame is a no-op there too). A server additionally
+        /// requests a forwardmask after every SLC block
         /// (reference <c>request_forwardmask</c>) once LINEMODE is agreed on
         /// either side; without agreement the SLC reply still goes out but
         /// the forwardmask is skipped (reference suppresses it without
         /// receipt of WILL LINEMODE).
         /// </summary>
         /// <param name="payload">The SLC payload ([SLC, func, mod, value, …]).</param>
-        /// <exception cref="InvalidDataException">The triplet tail is misaligned.</exception>
         private async Task ReplySlcAsync(List<byte> payload)
         {
             if ((payload.Count - 1) % 3 != 0)
             {
-                throw new InvalidDataException($"SLC buffer wrong size: expect multiple of 3: {payload.Count - 1}.");
+                WriteLog($"Ignoring LINEMODE SLC with misaligned triplet tail: {payload.Count - 1}.");
+                return;
             }
 
             List<byte>? replies = null;

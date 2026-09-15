@@ -1699,20 +1699,25 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task InboundSlc_MalformedTriplets_Throw()
+        public async Task InboundSlc_MalformedTriplets_IgnoredAndSessionSurvives()
         {
-            // Misaligned SLC triplets throw (telnetlib3 raises ValueError);
-            // nothing is answered.
+            // A misaligned SLC tail is logged and ignored as a whole (the
+            // reference contains the feed-level ValueError per byte in its
+            // feed loop, so end-to-end the frame is a no-op there too);
+            // nothing is answered for it, and the session keeps dispatching
+            // later frames.
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             stream.Enqueue([255, 251, 34, 255, 250, 34, 3, 3, 255, 240]);
-            var act = async () => await session.ReadAsync(TimeSpan.FromMilliseconds(500));
-            await act.Should().ThrowAsync<InvalidDataException>();
-            // The MODE proposal and the advanced batch precede the throw.
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
+            // The MODE proposal and the advanced batch precede the ignored frame.
             OutboundBytes(stream).Should().Equal(
               255, 253, 34,
               255, 250, 34, 1, 16, 255, 240,
               255, 251, 3, 255, 251, 0, 255, 253, 31, 255, 253, 42);
+            stream.Enqueue([255, 250, 34, 3, 3, 2, 5, 255, 240]);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
+            OutboundBytes(stream).Should().HaveCountGreaterThan(15);
         }
 
         [Fact]

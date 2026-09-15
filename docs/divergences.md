@@ -246,19 +246,24 @@ re-checked unchanged.
   agreement gates in `ReplyModeAsync`), [`:2422-2468`](../telnet_cs/IO/ByteStreamHandler.cs#L2422-L2468)
   (`ReplyCharsetAnswerAsync`: ACCEPTED/REJECTED, then table verbs
   logged and ignored at [`:2454-2468`](../telnet_cs/IO/ByteStreamHandler.cs#L2454-L2468), never answered), [`:1889-1898`](../telnet_cs/IO/ByteStreamHandler.cs#L1889-L1898)
-  (`STATUS SEND` without agreement ignored). The one deliberate
-  exception is the SLC triplet shape ([`ByteStreamHandler.cs:2784`](../telnet_cs/IO/ByteStreamHandler.cs#L2784)
-  throws `InvalidDataException` on a non-multiple-of-3 buffer), which
-  matches telnetlib3 (`stream_writer.py:2934-2935` raises `ValueError`
-  on the same shape). telnetlib3: `_handle_sb_lflow`
+   (`STATUS SEND` without agreement ignored), and `ReplySlcAsync` (a
+   misaligned SLC triplet tail is logged and ignored as a whole, pinned by
+   `LinemodeTests.SlcTruncated_Ignored` and
+   `AuditIoSplitTests.MisalignedSlc_IgnoredOutOfRead`). There are no
+   deliberate exceptions left in this set: the SLC shape check was once
+   kept throwing because both sides raise at the feed boundary (telnetlib3
+   `stream_writer.py:2934-2935` raises `ValueError` on the same shape), but
+   end-to-end the reference contains per-byte `ValueError` in its chunk
+   loop (`_base.py`), so a ragged SLC tail is a no-op there too — throwing
+   here would leave the one remote kill switch this section exists to ban.
+   telnetlib3: `_handle_sb_lflow`
   (`stream_writer.py:2677-2694`), `LINEMODE` dispatch (`:2816-2834`)
   and `MODE` missing-byte gate (`:2836-2846`), `STATUS` (`:2781-2812`,
   guard at `:2784`), `CHARSET` (`:2472-2477`).
 - Why it exists: a 3-byte peer frame must never tear down the
   connection — exceptions out of the feed path turn malformed input
   into a remote kill switch, so the read loop logs and ignores instead.
-  The SLC shape check is kept throwing because both sides agree and it
-  signals a framing bug, not a peer value. Kept by design.
+  Kept by design.
 
 ## D9 — unsolicited `WILL`/`WONT TIMING-MARK` ignored (robustness)
 

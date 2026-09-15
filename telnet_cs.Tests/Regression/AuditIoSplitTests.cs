@@ -128,19 +128,18 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task MisalignedSlc_ThrowsInvalidDataOutOfRead()
+        public async Task MisalignedSlc_IgnoredOutOfRead()
         {
-            // telnetlib3 raises out of feed_byte on a misaligned SLC tail
-            // ("SLC buffer wrong size: expect multiple of 3"); this stack
-            // documents the same fail-fast contract rather than silently
-            // swallowing a malformed peer frame. Open question whether the
-            // read loop should instead contain per-SB errors; changing that
-            // would diverge from the reference.
+            // telnetlib3 raises out of feed_byte on a misaligned SLC tail,
+            // but its feed loop contains per-byte ValueError into a debug
+            // log — end-to-end the frame is a no-op there, so containing it
+            // here matches the reference rather than diverging from it. The
+            // malformed frame is logged and ignored with no reply.
             using var stream = new ScriptedStream(Iac, Sb, 34, 3, 3, 2, 5, 9, Iac, Se);
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
-            Func<Task<string>> read = () => ReadOnceAsync(sut);
-            await read.Should().ThrowAsync<InvalidDataException>();
+            (await ReadOnceAsync(sut)).Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
         }
 
         [Fact]
