@@ -2069,7 +2069,22 @@
             switch (inputOption)
             {
                 case (int)Options.Gmcp:
-                    var (package, data) = MudProtocol.GmcpDecode(body, encoding);
+                    // Malformed JSON is a peer value, not a framing bug: log
+                    // and ignore it like every other malformed subnegotiation
+                    // (the reference debug-logs the ValueError in its feed
+                    // loop), so a bad frame can never tear down the read.
+                    string package;
+                    JsonNode? data;
+                    try
+                    {
+                        (package, data) = MudProtocol.GmcpDecode(body, encoding);
+                    }
+                    catch (ArgumentException ex)
+                    {
+                        WriteLog("Ignoring malformed GMCP payload: " + ex.Message);
+                        break;
+                    }
+
                     GmcpReceived?.Invoke(package, data);
                     break;
                 case (int)Options.Msdp:

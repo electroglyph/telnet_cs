@@ -233,8 +233,13 @@ re-checked unchanged.
   `SbCharsetIllegalVerb_IgnoredWithoutReplyOrEvent`,
   `SbCharsetTTableIs_IgnoredWithoutReply`,
   `SbCharsetTTableRejected_ClearsPendingWithoutReply`, and
-  `StatusTimingMarkTests.StatusSend_NoAgreements_IgnoredSilently` (silent:
-  no `IS`, no `WONT`).
+   `StatusTimingMarkTests.StatusSend_NoAgreements_IgnoredSilently` (silent:
+   no `IS`, no `WONT`), and
+   `MudDispatchTests.SbGmcp_MalformedJson_IgnoredWithoutThrow` plus
+   `MudDispatchTests.Session_MalformedGmcpJson_IgnoredAndSessionSurvives`
+   (malformed GMCP JSON: the reference debug-logs the `ValueError` in its
+   feed loop, so the typed hook stays silent while the raw hook still
+   fires and the session survives).
 - Code: [`telnet_cs/IO/ByteStreamHandler.cs:2303-2315`](../telnet_cs/IO/ByteStreamHandler.cs#L2303-L2315)
   (`ReplyLineflowAsync`: shape and agreement gates), [`:2635-2673`](../telnet_cs/IO/ByteStreamHandler.cs#L2635-L2673)
   (`ReplyLinemodeAsync` dispatch at [`:2635-2651`](../telnet_cs/IO/ByteStreamHandler.cs#L2635-L2651), `MODE` shape and

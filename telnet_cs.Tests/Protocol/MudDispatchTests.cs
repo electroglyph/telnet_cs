@@ -175,6 +175,31 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task SbGmcp_MalformedJson_IgnoredWithoutThrow()
+        {
+            // Malformed JSON is a peer value, not a framing bug: the read
+            // must log and ignore it instead of letting the decode failure
+            // escape (a remote kill switch). The typed hook stays silent;
+            // the raw hook still surfaces the received bytes.
+            var typedFired = 0;
+            var raw = new List<(int Option, byte[] Payload)>();
+            int[] body = [.. Text("Char.Vitals {bad")];
+            int[] reads = [Iac, Will, Gmcp, .. SbBody(Gmcp, body)];
+            var (output, _, _) = await ReadOnceAsync(
+              h =>
+              {
+                  h.GmcpReceived += (_, _) => typedFired++;
+                  h.MudSubnegotiationReceived += (option, payload) => raw.Add((option, payload));
+              },
+              reads);
+            output.Should().BeEmpty();
+            typedFired.Should().Be(0);
+            raw.Should().ContainSingle();
+            raw[0].Option.Should().Be(Gmcp);
+            raw[0].Payload.Should().Equal([.. body.Select(static b => (byte)b)]);
+        }
+
+        [Fact]
         public async Task SbMsdp_Latin1Fallback()
         {
             IReadOnlyDictionary<string, object?>? received = null;
@@ -625,6 +650,18 @@ namespace telnet_cs.Tests
             stream.Enqueue(second);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             session.MsspData.Should().ContainSingle().Which.Value.Should().Be("Two");
+        }
+
+        [Fact]
+        public async Task Session_MalformedGmcpJson_IgnoredAndSessionSurvives()
+        {
+            int[] bad = SbBody(Gmcp, [.. Text("Char.Vitals {bad")]);
+            using var stream = new ScriptedStream([Iac, Will, Gmcp, .. bad]);
+            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
+            stream.Connected.Should().BeTrue();
+            stream.Enqueue([.. Text("hi")]);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("hi");
         }
 
         [Fact]
