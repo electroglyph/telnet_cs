@@ -155,7 +155,7 @@
                     return pending;
                 }
 
-                string result = await ReadWireOnceAsync(timeout, cancellationToken).ConfigureAwait(false);
+                string result = await ReadWireOnceAsync(timeout, cancellationToken, backgroundPass: false).ConfigureAwait(false);
                 if (result.Length == 0)
                 {
                     // Nothing on the wire: surface a wire error the pump
@@ -190,8 +190,11 @@
         /// <param name="timeout">The rolling timeout for no further response.</param>
         /// <param name="callerToken">The caller's cancellation token (linked
         /// with the session's own).</param>
+        /// <param name="backgroundPass">True when the background pump (not a
+        /// caller read) runs this pass: forwarded to the deferred-negotiation
+        /// flush (see there).</param>
         /// <returns>Any text read from the session.</returns>
-        private async Task<string> ReadWireOnceAsync(TimeSpan timeout, CancellationToken callerToken)
+        private async Task<string> ReadWireOnceAsync(TimeSpan timeout, CancellationToken callerToken, bool backgroundPass)
         {
             // A per-read linked source: caller cancel (or session teardown)
             // aborts this pass without cancelling the session's own
@@ -232,7 +235,7 @@
 
                     // Deferred opening negotiation (WILL ECHO, DO
                     // NEW_ENVIRON, encoding check) armed by this read.
-                    await FlushDeferredNegotiationAsync(linked.Token).ConfigureAwait(false);
+                    await FlushDeferredNegotiationAsync(linked.Token, backgroundPass).ConfigureAwait(false);
                     return result;
                 }
                 catch (OperationCanceledException)

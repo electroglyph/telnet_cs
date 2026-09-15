@@ -165,7 +165,7 @@ namespace telnet_cs.Server
                         bool releaseFailed = false;
                         try
                         {
-                            string text = await ReadWireOnceAsync(PumpReadSlice, InternalCancellation.Token).ConfigureAwait(false);
+                            string text = await ReadWireOnceAsync(PumpReadSlice, InternalCancellation.Token, backgroundPass: true).ConfigureAwait(false);
                             if (text.Length != 0)
                             {
                                 lock (pumpLock)

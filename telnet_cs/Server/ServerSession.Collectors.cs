@@ -551,11 +551,18 @@
             if (preDone && replayedAny)
             {
                 // The cycle already ended before this request started: the
-                // replay above re-asked it, nothing more to wait for.
+                // replay above re-asked it, nothing more to wait for. A
+                // background pass that filed these answers withheld the
+                // answer-triggered WILL ECHO / DO NEW_ENVIRON (unsolicited
+                // cycle), so flush here — after the SENDs above — instead
+                // of some later pass: the wire order stays
+                // SENDs-then-ECHO/ENVIRON no matter who consumed first.
                 lock (collectorLock)
                 {
                     expectingTerminalType = false;
                 }
+
+                await FlushDeferredNegotiationAsync(cancellationToken, backgroundPass: false).ConfigureAwait(false);
             }
 
             var end = DateTime.UtcNow.Add(timeout);
@@ -609,7 +616,7 @@
 
             if (timedOut)
             {
-                await FlushDeferredNegotiationAsync(cancellationToken).ConfigureAwait(false);
+                await FlushDeferredNegotiationAsync(cancellationToken, backgroundPass: false).ConfigureAwait(false);
                 bool warnEnviron;
                 bool warnCharset;
                 lock (collectorLock)
@@ -662,7 +669,16 @@
         /// the same.
         /// </summary>
         /// <param name="cancellationToken">A token to cancel the send.</param>
-        private async Task FlushDeferredNegotiationAsync(CancellationToken cancellationToken)
+        /// <param name="backgroundPass">True when this flush runs on a
+        /// background-pump pass rather than a caller-driven read: the
+        /// answer-triggered WILL ECHO / DO NEW_ENVIRON for an unsolicited
+        /// cycle (no request in flight, peer never WILLed TTYPE) are
+        /// withheld — releasing them there would put them ahead of the
+        /// SENDs a later request still owes, and the wire order would
+        /// depend on who consumed first. The arms stay set, so an explicit
+        /// read or request flush releases them after the SENDs. Solicited
+        /// cycles flush as usual either way.</param>
+        private async Task FlushDeferredNegotiationAsync(CancellationToken cancellationToken, bool backgroundPass)
         {
             bool sendTtypeProbe = false;
             int sendTtypeCycleSends = 0;
@@ -745,12 +761,16 @@
                     ttypeResendsOwed = 0;
                 }
 
-                wantEcho = (advancedNegotiationSent || echoArmedByAnswer) && negotiateEchoPending && !echoNegotiated
+                // A background pass withholds the answer-triggered release
+                // for an unsolicited cycle (see the parameter doc); the
+                // arms stay set for a later explicit flush.
+                bool answerRelease = !backgroundPass || TtypeCycleSolicitedLocked();
+                wantEcho = (advancedNegotiationSent || (echoArmedByAnswer && answerRelease)) && negotiateEchoPending && !echoNegotiated
                     // A linemode server stays in NVT line mode (reference
                     // _negotiate_echo returns early when line_mode is set),
                     // so ECHO is never offered.
                     && !Settings.RequestLinemode;
-                wantEnviron = (advancedNegotiationSent || environArmedByAnswer) && negotiateEnvironPending && !environRequested;
+                wantEnviron = (advancedNegotiationSent || (environArmedByAnswer && answerRelease)) && negotiateEnvironPending && !environRequested;
                 if (wantEcho)
                 {
                     echoNegotiated = true;

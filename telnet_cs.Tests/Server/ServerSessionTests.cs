@@ -867,6 +867,25 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task RequestTerminalTypesAsync_PumpConsumedFirst_SendOrderStillHolds()
+        {
+            // Regression: the background pump's first pass used to release
+            // WILL ECHO / DO NEW_ENVIRON for unsolicited answers before the
+            // requester's SENDs went out. Yielding the wire first forces the
+            // pump-first consumer order deterministically; the bytes must
+            // still come out SENDs-then-ECHO/ENVIRON.
+            using var stream = new ScriptedStream();
+            stream.Enqueue([.. TtypeIsFrame("ALPHA"), .. TtypeIsFrame("BETA"), .. TtypeIsFrame("GAMMA"), .. TtypeIsFrame("ALPHA")]);
+            using var session = NewSession(stream);
+            await Task.Delay(300);
+            session.ClientTerminalTypes.Should().Equal("ALPHA", "BETA", "GAMMA", "ALPHA");
+            var types = await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5));
+            types.Should().Equal("ALPHA", "BETA", "GAMMA");
+            session.ClientTerminalTypes.Should().Equal("ALPHA", "BETA", "GAMMA", "ALPHA");
+            OutboundBytes(stream).Should().Equal(255, 250, 24, 1, 255, 240, 255, 250, 24, 1, 255, 240, 255, 250, 24, 1, 255, 240, 255, 250, 24, 1, 255, 240, 255, 251, 1, 255, 253, 39);
+        }
+
+        [Fact]
         public async Task RequestTerminalTypesAsync_SkipsEmptyAnswers()
         {
             // An empty answer ends the cycle: only answers before it are kept.
