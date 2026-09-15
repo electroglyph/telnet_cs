@@ -53,7 +53,7 @@ start reading:
 | `CharsetOffers` | CHARSET preference order (default `["UTF-8", "LATIN1", "US-ASCII"]`); an empty inbound offer list answers `REJECTED` (an empty own list only blocks outbound `REQUEST`s we send) |
 | `XDisplayLocation`, `SendLocation` | X-DISPLAY / SNDLOC answers |
 | `TextEncoding` | Decode charset plus BINARY-path encode charset (default UTF-8; null = legacy Latin-1; non-BINARY writes stay strict ASCII) and advertises `LANG=en_US.<WebName minus "-">` (`C` when null) |
-| `AllowRemoteEcho` | `true` accepts the server's `DO ECHO` (default refuses) |
+| `AllowRemoteEcho` | `true` accepts the server's `DO ECHO` (default refuses). Agreement is negotiation state only — received bytes are never replayed, so an app that wants echo writes them back itself |
 | `EnableMccp` | Passively accept MCCP2/3 (default on; the stack inflates inbound and compresses outbound); always refused over TLS |
 | `EnableMudOptions` / `EnableComPort` | Agree MUD options (default off) / RFC 2217 framing (default on) |
 | `Log`, `IsWriteConsole`, `EnableBell` | Diagnostics, console echo, BEL setting (currently no effect — BEL arrives as data) |

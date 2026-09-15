@@ -23,8 +23,9 @@
 
         /// <summary>
         /// Gets or sets whether sessions offer <c>WILL ECHO</c> (RFC 857) in the
-        /// opening preset: the server echoes agreed inbound data back down the
-        /// wire. Defaults to <c>true</c>.
+        /// opening preset. Agreement is negotiation state only: the read path
+        /// never replays inbound bytes, so a session that wants remote echo
+        /// writes the bytes back itself. Defaults to <c>true</c>.
         /// </summary>
         public bool OfferEcho { get; set; } = true;
 

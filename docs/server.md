@@ -104,9 +104,11 @@ await session.WriteAsync(rawBytes);             // byte[] gets IAC doubling
 await session.SendGaAsync();    // sends nothing, returns false while SGA agreed; SendCommand(GoAhead) is suppressed while our WILL Suppress-GA holds (never IAC NOP)
 ```
 
-`AuthenticateAsync` prompts with `LoginUserPrompt`/`LoginPasswordPrompt`,
-retries up to `MaxLoginAttempts`, and always suppresses echo-back of the
-password line (negotiation untouched; the username line echoes normally). It returns `false` on exhausted attempts or a
+`AuthenticateAsync` prompts with `LoginUserPrompt`/`LoginPasswordPrompt` and
+retries up to `MaxLoginAttempts`. Neither credential line is echoed: the read
+path never replays inbound bytes (agreed ECHO is negotiation state only), so
+password secrecy is structural and the username line stays silent too — a
+session that wants remote echo writes the input bytes back itself. It returns `false` on exhausted attempts or a
 timed-out credential line — the session stays open unless
 `DisconnectOnExhaustion` is set (writes `\r\nLogin failed.\r\n`, then
 closes; default `false`). Between attempts it waits `LoginAttemptDelay`

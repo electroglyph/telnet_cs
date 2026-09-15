@@ -527,14 +527,16 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task AuthenticateAsync_PasswordLine_IsNotEchoed()
+        public async Task AuthenticateAsync_CredentialLines_AreNeverEchoed()
         {
             // Multi-line auth works on ScriptedStream when later lines are
             // Enqueued after the earlier read requests them (never up front).
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
-            // Agree echo in an earlier read so the username line below is
-            // echoed (mid-read agreements never echo, by the snapshot rule).
+            // Agree echo in an earlier read (mid-read agreements never echo,
+            // by the snapshot rule — and since the read path never replays
+            // inbound bytes at all, this agreement changes no wire bytes
+            // below; it only exercises the negotiated state).
             stream.Enqueue(255, 253, 1);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             OutboundBytes(stream).Take(3).Should().Equal(255, 251, 1);
@@ -549,14 +551,15 @@ namespace telnet_cs.Tests
             stream.Enqueue([.. "s3cret\n".Select(c => (int)c)]);
             (await authTask).Should().BeTrue(seen?.ToString());
 
-            // The username echoes (agreed echo); the secret never hits the
-            // wire, and no extra WILL ECHO is emitted (already agreed).
-            // AuthenticateAsync itself sends no negotiation bytes at all
-            // (prompts + suppressed-echo reads only); the three 251s are
-            // WILL ECHO (pre-agreed above) plus WILL SGA / WILL BINARY from
-            // the advanced preset the DO ECHO released.
+            // Neither credential line hits the wire: the read path never
+            // replays inbound bytes, so password secrecy is structural (no
+            // per-read suppression needed) — and the username stays silent
+            // too; echoing is the application's job. AuthenticateAsync itself
+            // sends no negotiation bytes at all (prompts only); the three
+            // 251s are WILL ECHO (pre-agreed above) plus WILL SGA / WILL
+            // BINARY from the advanced preset the DO ECHO released.
             string outbound = System.Text.Encoding.Latin1.GetString(OutboundBytes(stream));
-            outbound.Should().Contain("bob");
+            outbound.Should().NotContain("bob");
             outbound.Should().NotContain("s3cret");
             OutboundBytes(stream).Where(b => b == 251).Should().HaveCount(3);
         }

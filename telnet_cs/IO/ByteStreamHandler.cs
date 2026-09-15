@@ -152,7 +152,7 @@
         /// Split out of <c>RetrieveAndParseResponse</c> to keep that method
         /// under the complexity gate. Returns null when not discarding.
         /// </summary>
-        private async Task<bool?> RetrieveSynchDiscardAsync(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes)
+        private async Task<bool?> RetrieveSynchDiscardAsync(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts)
         {
             if (PollSynchTrigger())
             {
@@ -160,7 +160,7 @@
             }
 
             return InSynchDiscard
-              ? await RetrieveAndParseSynchDiscard(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false)
+              ? await RetrieveAndParseSynchDiscard(sb, rawBytes, opByteCounts).ConfigureAwait(false)
               : null;
         }
 
@@ -186,7 +186,7 @@
         /// so end-of-urgent never cuts the scan short and a later urgent byte
         /// re-triggers a fresh scan.
         /// </summary>
-        private async Task<bool> RetrieveAndParseSynchDiscard(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes)
+        private async Task<bool> RetrieveAndParseSynchDiscard(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts)
         {
             var input = ReadNextByte();
             if (input != IacByte)
@@ -212,7 +212,7 @@
                 return false;
             }
 
-            await InterpretNextAsCommand(sb, rawBytes, opByteCounts, echoBytes, verb).ConfigureAwait(false);
+            await InterpretNextAsCommand(sb, rawBytes, opByteCounts, verb).ConfigureAwait(false);
             return false;
         }
 
@@ -256,15 +256,6 @@
         /// The client feeds its effective per-instance setting before each read.
         /// </summary>
         internal bool AllowRemoteEcho { get; set; }
-
-        /// <summary>
-        /// Gets or sets whether agreed echo-back is withheld for the current
-        /// read. Negotiation state is untouched (no <c>WONT</c> is sent), so
-        /// conforming peers keep hiding local echo; only our own
-        /// <c>EchoBackAsync</c> replay is skipped. Fed per read by sessions
-        /// that prompt for secrets.
-        /// </summary>
-        internal bool SuppressEchoBack { get; set; }
 
         /// <summary>
         /// Whether the peer is currently echoing our input (we sent <c>DO ECHO</c>,
@@ -1180,9 +1171,8 @@
         /// <param name="sb">The incoming message.</param>
         /// <param name="rawBytes">The raw data bytes backing <paramref name="sb"/> (used when <see cref="TextEncoding"/> is set).</param>
         /// <param name="opByteCounts">Parallel to <paramref name="sb"/>: bytes of <paramref name="rawBytes"/> per appended char.</param>
-        /// <param name="echoBytes">Parallel to <paramref name="sb"/>: the original data byte to echo per char, or null for command markers (never echoed) and rendering continuations.</param>
         /// <returns>True if response is pending.</returns>
-        private async Task<bool> RetrieveAndParseResponse(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes)
+        private async Task<bool> RetrieveAndParseResponse(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts)
         {
             // A corrupt MCCP stream arms its refusal from the sync byte path;
             // flush it at the async points around this pass (extension: the
@@ -1193,7 +1183,7 @@
             // Poll-gated and TCP-only, so fakes and pipes never see it; the urgent
             // byte itself is consumed by the probe, and in-band IAC DM (below)
             // ends the mode.
-            var synch = await RetrieveSynchDiscardAsync(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
+            var synch = await RetrieveSynchDiscardAsync(sb, rawBytes, opByteCounts).ConfigureAwait(false);
             if (synch.HasValue)
             {
                 return synch.Value;
@@ -1210,7 +1200,7 @@
                 sawCrAwaitingNul = false;
                 if (followingCr == 0)
                 {
-                    AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "\0", 0);
+                    AppendRecorded(sb, rawBytes, opByteCounts, "\0");
                     await FlushMccpShutdownAsync().ConfigureAwait(false);
                     return true;
                 }
@@ -1223,7 +1213,7 @@
             if (!pushbackByte.HasValue && (pendingIac || pendingVerb.HasValue) && (MccpHasOutput || byteStream.Available > 0))
             {
                 // RFC 854 command split across reads completes here.
-                if (await ResumePendingCommandAsync(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false))
+                if (await ResumePendingCommandAsync(sb, rawBytes, opByteCounts).ConfigureAwait(false))
                 {
                     return true;
                 }
@@ -1235,7 +1225,7 @@
             {
                 // A bare IAC SB IAC stalled on an earlier read resumes here:
                 // the newly arrived byte completes the empty-frame probe.
-                await PerformNegotiation(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
+                await PerformNegotiation(sb, rawBytes, opByteCounts).ConfigureAwait(false);
                 return true;
             }
 
@@ -1244,7 +1234,7 @@
                 // A subnegotiation stalled on an earlier read resumes here:
                 // the newly arrived bytes continue its frame (telnetlib3
                 // _sb_buffer parity) instead of being parsed as fresh input.
-                await PerformNegotiation(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
+                await PerformNegotiation(sb, rawBytes, opByteCounts).ConfigureAwait(false);
                 return true;
             }
 
@@ -1266,11 +1256,11 @@
                         {
                             // Escaped literal data byte 255: one char + one raw byte,
                             // not the decimal string "255".
-                            AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, (char)IacByte);
+                            AppendRecorded(sb, rawBytes, opByteCounts, (char)IacByte);
                         }
                         else
                         {
-                            await InterpretNextAsCommand(sb, rawBytes, opByteCounts, echoBytes, inputVerb).ConfigureAwait(false);
+                            await InterpretNextAsCommand(sb, rawBytes, opByteCounts, inputVerb).ConfigureAwait(false);
                         }
 
                         break;
@@ -1283,16 +1273,16 @@
                         // not delete already-delivered bytes) — any terminal
                         // presentation belongs in a layer above this parser.
                         // CR keeps its RFC 854 handling in the next case.
-                        AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, (char)input);
+                        AppendRecorded(sb, rawBytes, opByteCounts, (char)input);
                         break;
                     case 13: // Carriage Return: CR is delivered now; a following
                         // NUL is preserved as data by the raw path (the line
                         // layer collapses CR NUL to CR). CR LF stays CR LF.
-                        AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, "\r", 13);
+                        AppendRecorded(sb, rawBytes, opByteCounts, "\r");
                         sawCrAwaitingNul = true;
                         break;
                     default:
-                        AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, (char)input);
+                        AppendRecorded(sb, rawBytes, opByteCounts, (char)input);
                         break;
                 }
 
@@ -1321,22 +1311,19 @@
             }
         }
 
-        private static void AppendRecorded(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes, string text, byte? echoByte = null)
+        private static void AppendRecorded(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, string text)
         {
             sb.Append(text);
             rawBytes.AddRange(Encoding.ASCII.GetBytes(text));
             // Char-aligned: ASCII yields exactly one byte per char, so each sb
             // char maps to exactly one count entry (the documented invariant).
-            // Only the first char carries the original data byte for echo;
-            // command markers pass none and are never echoed back.
             for (var i = 0; i < text.Length; i++)
             {
                 opByteCounts.Add(1);
-                echoBytes.Add(i == 0 ? echoByte : null);
             }
         }
 
-        private static void AppendRecorded(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes, char c)
+        private static void AppendRecorded(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, char c)
         {
             sb.Append(c);
             // Data bytes are Latin-1 by definition here: the default (null
@@ -1344,9 +1331,6 @@
             // only matters for explicit TextEncoding decoding.
             rawBytes.Add((byte)c);
             opByteCounts.Add(1);
-            // The char overload is only used for genuine data (escaped IAC and
-            // the default data case), so the byte always echoes.
-            echoBytes.Add((byte)c);
         }
 
         /// <summary>
@@ -1358,9 +1342,8 @@
         /// <param name="sb">The incoming message.</param>
         /// <param name="rawBytes">The raw data bytes backing <paramref name="sb"/> (used when <see cref="TextEncoding"/> is set).</param>
         /// <param name="opByteCounts">Parallel to <paramref name="sb"/>: bytes of <paramref name="rawBytes"/> per appended char.</param>
-        /// <param name="echoBytes">Parallel to <paramref name="sb"/>: the original data byte to echo per char, or null for command markers (never echoed) and rendering continuations.</param>
         /// <param name="inputVerb">The command we received.</param>
-        private async Task InterpretNextAsCommand(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes, int inputVerb)
+        private async Task InterpretNextAsCommand(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, int inputVerb)
         {
             WriteLog(Enum.GetName(typeof(Commands), inputVerb) ?? inputVerb.ToString());
             switch (inputVerb)
@@ -1432,7 +1415,7 @@
                     // escape path, which likewise bypasses the 8-bit gate)
                     // and matches telnetlib3's parser.
                     WriteLog("Stray SE outside subnegotiation; delivering 0xF0 as data.");
-                    AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, (char)Commands.SubnegotiationEnd);
+                    AppendRecorded(sb, rawBytes, opByteCounts, (char)Commands.SubnegotiationEnd);
                     return;
                 case (int)Commands.NoOperation:
                 case (int)Commands.DataMark:
@@ -1466,7 +1449,7 @@
                     await ReplyToCommand(inputVerb).ConfigureAwait(false);
                     return;
                 case (int)Commands.Subnegotiation:
-                    await PerformNegotiation(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
+                    await PerformNegotiation(sb, rawBytes, opByteCounts).ConfigureAwait(false);
                     return;
                 default:
                     // IAC followed by a byte with no defined TELNET command
@@ -1480,7 +1463,7 @@
                     // bypasses the 8-bit gate because the peer framed the byte
                     // explicitly.
                     WriteLog($"Illegal 2-byte IAC {inputVerb}; delivering as data.");
-                    AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, (char)inputVerb);
+                    AppendRecorded(sb, rawBytes, opByteCounts, (char)inputVerb);
                     return;
             }
         }
@@ -1490,7 +1473,7 @@
         /// The terminal type, speed, and window size are taken from the settable
         /// properties on this handler (fed per read from the client's settings).
         /// </summary>
-        private async Task PerformNegotiation(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes)
+        private async Task PerformNegotiation(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts)
         {
             int inputOption;
             List<byte> payload;
@@ -1571,7 +1554,7 @@
                 iacPending = false;
             }
 
-            await ScanAndDispatchSbAsync(inputOption, payload, overCap, iacPending, sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
+            await ScanAndDispatchSbAsync(inputOption, payload, overCap, iacPending, sb, rawBytes, opByteCounts).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -1582,7 +1565,7 @@
         /// the data stream.
         /// </summary>
         private async Task DispatchInterruptedSbAsync(int following,
-            StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes)
+            StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts)
         {
             if (following is (int)Commands.Do or (int)Commands.Dont or (int)Commands.Will or (int)Commands.Wont)
             {
@@ -1613,7 +1596,7 @@
 
             if (following == (int)Commands.Subnegotiation)
             {
-                await PerformNegotiation(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
+                await PerformNegotiation(sb, rawBytes, opByteCounts).ConfigureAwait(false);
                 return;
             }
 
@@ -1626,7 +1609,7 @@
         }
 
         private async Task ScanAndDispatchSbAsync(int inputOption, List<byte> payload, bool overCap, bool iacPending,
-            StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes)
+            StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts)
         {
             // Scan to IAC SE. The payload is capped: over-long input keeps being
             // consumed (so the stream resynchronises) but is then ignored.
@@ -1673,7 +1656,7 @@
                     // Any reply-vs-silence difference for the inner frame comes
                     // from the payload dispatch rules (SEND vs stray payload),
                     // not from this recovery path.
-                    await PerformNegotiation(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
+                    await PerformNegotiation(sb, rawBytes, opByteCounts).ConfigureAwait(false);
                     return;
                 }
                 else
@@ -1681,7 +1664,7 @@
                     // The outer frame is interrupted by an inner command: drop
                     // the buffered payload (reference: warns, clears its SB
                     // buffer) and dispatch the inner command normally.
-                    await DispatchInterruptedSbAsync(followingSplit, sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
+                    await DispatchInterruptedSbAsync(followingSplit, sb, rawBytes, opByteCounts).ConfigureAwait(false);
                     return;
                 }
             }
@@ -1725,13 +1708,13 @@
                             // fresh (see the detailed note there). Returning
                             // early here would leak the inner frame's tail
                             // into the data stream — never do that.
-                            await PerformNegotiation(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
+                            await PerformNegotiation(sb, rawBytes, opByteCounts).ConfigureAwait(false);
                             return;
                         }
 
                         // The outer frame is interrupted by an inner command:
                         // drop the buffered payload and dispatch it normally.
-                        await DispatchInterruptedSbAsync(following, sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
+                        await DispatchInterruptedSbAsync(following, sb, rawBytes, opByteCounts).ConfigureAwait(false);
                         return;
                     }
 
@@ -3059,8 +3042,7 @@
         /// <param name="sb">The incoming message.</param>
         /// <param name="rawBytes">The raw data bytes backing <paramref name="sb"/>.</param>
         /// <param name="opByteCounts">Parallel to <paramref name="sb"/>: bytes of <paramref name="rawBytes"/> per appended char.</param>
-        /// <param name="echoBytes">Parallel to <paramref name="sb"/>: the original data byte to echo per char.</param>
-        private async Task<bool> ResumePendingCommandAsync(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts, List<byte?> echoBytes)
+        private async Task<bool> ResumePendingCommandAsync(StringBuilder sb, List<byte> rawBytes, List<int> opByteCounts)
         {
             if (pendingIac)
             {
@@ -3074,7 +3056,7 @@
 
                 if (verb == IacByte)
                 {
-                    AppendRecorded(sb, rawBytes, opByteCounts, echoBytes, (char)IacByte);
+                    AppendRecorded(sb, rawBytes, opByteCounts, (char)IacByte);
                     return true;
                 }
 
@@ -3132,11 +3114,11 @@
                         return true;
                     }
 
-                    await ScanAndDispatchSbAsync(sbOption, [], false, false, sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
+                    await ScanAndDispatchSbAsync(sbOption, [], false, false, sb, rawBytes, opByteCounts).ConfigureAwait(false);
                     return true;
                 }
 
-                await InterpretNextAsCommand(sb, rawBytes, opByteCounts, echoBytes, verb).ConfigureAwait(false);
+                await InterpretNextAsCommand(sb, rawBytes, opByteCounts, verb).ConfigureAwait(false);
                 return true;
             }
 
@@ -3184,7 +3166,7 @@
 
                 if (stashedVerb == (int)Commands.Subnegotiation)
                 {
-                    await ScanAndDispatchSbAsync(stashedOption, [], false, false, sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
+                    await ScanAndDispatchSbAsync(stashedOption, [], false, false, sb, rawBytes, opByteCounts).ConfigureAwait(false);
                     return true;
                 }
 

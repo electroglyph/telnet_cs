@@ -497,16 +497,7 @@
                     }
 
                     await WriteAsync(Settings.LoginPasswordPrompt, cancellationToken).ConfigureAwait(false);
-                    string? password;
-                    echoBackSuppressed = true;
-                    try
-                    {
-                        password = await ReadCredentialLineAsync(timeout, cancellationToken).ConfigureAwait(false);
-                    }
-                    finally
-                    {
-                        echoBackSuppressed = false;
-                    }
+                    string? password = await ReadCredentialLineAsync(timeout, cancellationToken).ConfigureAwait(false);
 
                     if (password is null)
                     {
@@ -630,13 +621,9 @@
             return line.TrimEnd('\r', '\n');
         }
 
-        // Withholds our echo-back while a secret line is read (see
-        // AuthenticateAsync): fed to every per-read handler, restored after.
-        private bool echoBackSuppressed;
-
         // Stands the background pump down for the whole credential exchange
         // (see AuthenticateAsync): explicit reads drive the wire, so password
-        // bytes are never consumed with a stale echo snapshot.
+        // bytes are never double-consumed.
         private volatile bool authPumpStanddown;
 
         // First-data TLS sniff state (see ReadAsync): once a raw byte has

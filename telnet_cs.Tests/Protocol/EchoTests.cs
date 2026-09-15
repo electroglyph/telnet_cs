@@ -152,8 +152,11 @@
         }
 
         [Fact]
-        public async Task OptIn_EchoesReceivedBytesBack()
+        public async Task OptIn_AgreedEcho_DoesNotReplayReceivedBytes()
         {
+            // Agreed ECHO is negotiation state only: the read path never
+            // replays inbound bytes, so an app that wants echo writes them
+            // back itself. "AB" is delivered with no echo write.
             using var stream = new ScriptedStream();
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);
@@ -163,7 +166,8 @@
             await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             stream.Enqueue(65, 66);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("AB");
-            stream.ByteWrites.Should().Contain(b => b.SequenceEqual(new byte[] { 65, 66 }));
+            stream.ByteWrites.SelectMany(b => b).Should().NotContain((byte)65);
+            stream.ByteWrites.SelectMany(b => b).Should().NotContain((byte)66);
         }
 
         [Fact]
@@ -179,7 +183,7 @@
         }
 
         [Fact]
-        public async Task OptIn_CommandMarkers_AreNotEchoedBack()
+        public async Task OptIn_CommandMarkers_DeliveredWithoutReplay()
         {
             using var stream = new ScriptedStream();
             using var cts = new CancellationTokenSource();
@@ -190,12 +194,12 @@
             await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             stream.Enqueue(255, 243, 65);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("A");
-            stream.ByteWrites.Should().Contain(b => b.SequenceEqual(new byte[] { 65 }));
+            stream.ByteWrites.SelectMany(b => b).Should().NotContain((byte)65);
             stream.ByteWrites.SelectMany(b => b).Should().NotContain((byte)'[');
         }
 
         [Fact]
-        public async Task OptIn_ControlByte_EchoesOriginalByte()
+        public async Task OptIn_ControlByte_DeliveredWithoutReplay()
         {
             using var stream = new ScriptedStream();
             using var cts = new CancellationTokenSource();
@@ -206,11 +210,11 @@
             await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             stream.Enqueue(3);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("\x03");
-            stream.ByteWrites.Should().Contain(b => b.SequenceEqual(new byte[] { 3 }));
+            stream.ByteWrites.SelectMany(b => b).Should().NotContain((byte)3);
         }
 
         [Fact]
-        public async Task OptIn_EchoBack_EscapesIac()
+        public async Task OptIn_EscapedIac_DeliveredWithoutReplay()
         {
             using var stream = new ScriptedStream();
             using var cts = new CancellationTokenSource();
@@ -221,7 +225,10 @@
             await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             stream.Enqueue(255, 255);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("\u00ff");
-            stream.ByteWrites.Should().Contain(b => b.SequenceEqual(new byte[] { 255, 255 }));
+            // Only negotiation bytes go out: the agreed WILL ECHO plus the
+            // DO ECHO reply, never the 0xFF data byte doubled back.
+            CountWrites(stream, 251, 1).Should().Be(1);
+            stream.ByteWrites.Should().NotContain(b => b.SequenceEqual(new byte[] { 255, 255 }));
         }
 
         [Fact]
@@ -241,7 +248,7 @@
         }
 
         [Fact]
-        public async Task Client_DoEcho_OptIn_EchoesBack()
+        public async Task Client_DoEcho_OptIn_DoesNotReplay()
         {
             using (GlobalStateGuard.SkipProactive(true))
             {

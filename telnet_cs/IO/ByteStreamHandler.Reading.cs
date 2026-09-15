@@ -68,9 +68,6 @@
         /// <exception cref="OperationCanceledException">The read was already cancelled before it started.</exception>
         public async Task<string> ReadAsync(TimeSpan timeout)
         {
-            // Snapshot before the read: bytes arriving before a mid-read DO ECHO
-            // agreement must not be echoed back.
-            var echoBack = Negotiation.IsEnabledByUs((int)Options.Echo);
             if (!byteStream.Connected)
             {
                 return string.Empty;
@@ -86,7 +83,6 @@
             var sb = new StringBuilder();
             var rawBytes = new List<byte>();
             var opByteCounts = new List<int>();
-            var echoBytes = new List<byte?>();
             byteStream.ReceiveTimeout = ClampReceiveTimeout(timeout);
             var endInitialTimeout = DateTime.UtcNow.Add(timeout);
             var rollingTimeout = ExtendRollingTimeout(timeout);
@@ -94,7 +90,7 @@
             {
                 do
                 {
-                    bool got = await RetrieveAndParseResponse(sb, rawBytes, opByteCounts, echoBytes).ConfigureAwait(false);
+                    bool got = await RetrieveAndParseResponse(sb, rawBytes, opByteCounts).ConfigureAwait(false);
                     if (got)
                     {
                         rollingTimeout = ExtendRollingTimeout(timeout);
@@ -111,10 +107,6 @@
             }
 
             var read = DecodeResult(sb, rawBytes);
-            if (echoBack && !SuppressEchoBack)
-            {
-                await EchoBackAsync(echoBytes).ConfigureAwait(false);
-            }
 
             if (LocalEchoEnabled)
             {
@@ -122,32 +114,6 @@
             }
 
             return read;
-        }
-
-        /// <summary>
-        /// Returns received data bytes to the sender (RFC 857 remote echo: we
-        /// agreed via <c>WILL ECHO</c>, so the peer relies on us). Only genuine
-        /// data echoes — command markers (BRK/EOF/...) render locally and are
-        /// never sent back. Data 0xFF is escaped per the usual IAC-doubling rule.
-        /// </summary>
-        private Task EchoBackAsync(List<byte?> echoBytes)
-        {
-            var escaped = new List<byte>(echoBytes.Count);
-            foreach (var b in echoBytes)
-            {
-                if (b.HasValue)
-                {
-                    escaped.Add(b.Value);
-                    if (b.Value == IacByte)
-                    {
-                        escaped.Add(b.Value);
-                    }
-                }
-            }
-
-            return escaped.Count == 0
-                ? Task.CompletedTask
-                : WriteWireAsync(escaped.ToArray(), 0, escaped.Count, internalCancellation.Token);
         }
 
         private string DecodeResult(StringBuilder sb, List<byte> rawBytes)

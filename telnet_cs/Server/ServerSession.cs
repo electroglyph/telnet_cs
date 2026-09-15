@@ -469,15 +469,14 @@
             // settings for debugging), and the machine must never beep at a peer.
             handler.IsWriteConsole = Settings.IsWriteConsole ?? false;
             handler.EnableBell = false;
-            // The server performs echoing: an inbound DO ECHO (including the
-            // confirmation of our own WILL ECHO) is answered WILL, and agreed
-            // inbound bytes echo down the wire via the unchanged EchoBackAsync
-            // path. Gated by OfferEcho so operators can refuse echo entirely;
-            // the bounce guard (never both directions) still applies.
+            // The server negotiates echoing: an inbound DO ECHO (including the
+            // confirmation of our own WILL ECHO) is answered WILL. Agreement is
+            // negotiation state only — the read path never replays inbound
+            // bytes, so echoing is the application's job (a session that wants
+            // remote echo writes the bytes back itself). Gated by OfferEcho so
+            // operators can refuse echo entirely; the bounce guard (never both
+            // directions) still applies.
             handler.AllowRemoteEcho = Settings.OfferEcho;
-            // Secret-prompt suppression (AuthenticateAsync): negotiation state
-            // is untouched, only our echo-back replay is withheld.
-            handler.SuppressEchoBack = echoBackSuppressed;
             // MUD stores are session-lived (handlers are per-read): the
             // append/replace reports come back through the typed hooks.
             // Per-read handler lists are capped from the same options so a

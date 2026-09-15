@@ -51,10 +51,12 @@
         public bool? IsWriteConsole { get; set; }
 
         /// <summary>
-        /// Opts in to performing remote echo (RFC 857): a server <c>DO ECHO</c>
-        /// is answered with <c>WILL</c> and received data is echoed back, unless
-        /// the peer is already echoing (the infinite-bounce hazard). False (the
-        /// default) answers <c>DO ECHO</c> with <c>WONT</c>.
+        /// Opts in to the remote-echo role (RFC 857): a server <c>DO ECHO</c>
+        /// is answered with <c>WILL</c>, unless the peer is already echoing
+        /// (the infinite-bounce hazard). Agreement is negotiation state only:
+        /// received data is never replayed, so an app that wants echo writes
+        /// the bytes back itself. False (the default) answers <c>DO ECHO</c>
+        /// with <c>WONT</c>.
         /// </summary>
         public bool AllowRemoteEcho { get; set; }
 
