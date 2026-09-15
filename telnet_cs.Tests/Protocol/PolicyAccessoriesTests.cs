@@ -170,5 +170,22 @@ namespace telnet_cs.Tests
             fired.Should().Be(0);
             sut.TextEncoding.Should().BeSameAs(Encoding.Latin1);
         }
+
+        [Fact]
+        public async Task ReadPath_SyncTermSequence_IgnoredInServerRole()
+        {
+            // Server decoding is set by negotiation and explicit
+            // configuration alone: peer font bytes stay inert data, fire no
+            // hook, and latch nothing.
+            var fired = 0;
+            using var stream = new ScriptedStream(27, 91, 48, 59, 51, 54, 32, 68);
+            using var cts = new CancellationTokenSource();
+            using var sut = new ByteStreamHandler(stream, cts, 1) { IsServerRole = true };
+            sut.SyncTermFontDetected += _ => fired++;
+            await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
+            fired.Should().Be(0);
+            sut.TextEncoding.Should().BeNull();
+            sut.ForceBinaryDecoding.Should().BeFalse();
+        }
     }
 }

@@ -176,7 +176,11 @@
 
         /// <summary>
         /// Scans inbound bytes for a SyncTERM font-selection sequence and
-        /// adopts its encoding for subsequent reads. An explicitly configured
+        /// adopts its encoding for subsequent reads — client role only. A
+        /// server must never let peer bytes reconfigure its decoding: server
+        /// decoding is set by negotiation and explicit configuration alone,
+        /// so the sequence stays inert data there (reference parity:
+        /// <c>server_base.py</c> has no font scan). An explicitly configured
         /// <see cref="ByteStreamHandler.TextEncoding"/> always wins; the
         /// sequence itself stays in the data stream untouched. A detected
         /// switch always latches binary decoding (reference parity:
@@ -186,7 +190,7 @@
         /// </summary>
         private void ApplySyncTermFont(ReadOnlySpan<byte> raw)
         {
-            if (raw.IsEmpty)
+            if (IsServerRole || raw.IsEmpty)
             {
                 return;
             }

@@ -2086,10 +2086,23 @@
         }
 
         /// <summary>
-        /// Decodes with the agreed CHARSET when one resolved (strict, so the
-        /// codecs still fall back to Latin-1), else UTF-8 with Latin-1
-        /// fallback — the reference's <c>environ_encoding or "utf-8"</c>.
+        /// Resolves the text encoding for MUD subnegotiation payloads (MSDP,
+        /// MSSP, ZMP, ATCP, GMCP, ...): the agreed CHARSET once one resolved
+        /// (strict), else null, which selects UTF-8 with Latin-1 fallback in
+        /// <c>MudProtocol</c>.
         /// </summary>
+        /// <remarks>
+        /// UTF-8-first is deliberate. GMCP carries JSON, which is UTF-8 by
+        /// definition, and the MUD option family centers UTF-8 as the
+        /// negotiated capability (CHARSET negotiation, the MSDP <c>UTF_8</c>
+        /// variable, the MTTS flag) — while no specification mandates a
+        /// pre-CHARSET default, so any choice corrupts some peer camp. The
+        /// Latin-1 fallback already absorbs the common legacy case (lone high
+        /// bytes fail strict UTF-8 decoding and retry as Latin-1); the
+        /// accepted residual is Latin-1 payloads that also parse as valid
+        /// UTF-8, which decode as UTF-8. Peers are expected to negotiate a
+        /// charset; until they do, UTF-8 is the assumed wire encoding.
+        /// </remarks>
         private Encoding? MudEncoding()
         {
             if (NegotiatedCharset is null)
