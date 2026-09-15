@@ -439,21 +439,6 @@ re-checked unchanged.
   peers. Keeping the scalar shape is the conservative choice; changing
   it needs a coordinated spec, not unilateral alignment. Kept.
 
-## D17 — Aardwolf 1-byte frames yield empty `DataBytes` (API totality)
-
-- Proof: [`repro/py_d17_aardwolf.py`](repro/py_d17_aardwolf.py) →
-  [`repro/py_d17_aardwolf.log`](repro/py_d17_aardwolf.log): `[0x41]` decodes to
-  `{'channel': '0x41', 'channel_byte': 65}` with no `data_byte` /
-  `data_bytes` keys; `[0x41, 0x07]` adds both. C# yields `DataBytes`
-  empty (never null): pinned by
-  `MudDispatchTests.SbAardwolf_SingleByte_YieldsEmptyData`.
-- Code: [`telnet_cs/Protocol/MudProtocol.cs:575-590`](../telnet_cs/Protocol/MudProtocol.cs#L575-L590) (length switch;
-  1-byte carries channel only). telnetlib3 `mud.py:348-365` (keys
-  present only by length).
-- Why it exists: a non-null empty array keeps consumers
-  (`Length`/`foreach`) total; only key-presence checks on exotic
-  1-byte frames diverge. Info-grade. Kept by design.
-
 ## D18 — SyncTERM font id capped, scan continues (robustness)
 
 - Proof: [`repro/py_d18_syncterm.py`](repro/py_d18_syncterm.py) →
@@ -498,45 +483,6 @@ re-checked unchanged.
   refuse. The OR-policy converges both setup styles; handler-only and
   list-only deployments each behave as documented. Kept by design.
 
-## D20 — TTYPE chain hygiene: empties dropped, repeats stripped, loop capped (storage)
-
-- Proof: [`repro/py_d20_ttype.py`](repro/py_d20_ttype.py) →
-  [`repro/py_d20_ttype.log`](repro/py_d20_ttype.log) (real `TelnetServer.on_ttype`,
-  `request_ttype` recorded): a fresh answer continues the cycle
-  (`sends= 1`); empty `ttype1` is stored (`{'ttype1': ''}`) and stops
-  the cycle (`sends= 0`); a `ttype1 == ttype2` duplicate is kept
-  (`ttype2` stored, `TERM` overwritten) and stops it; past the loop
-  max the over-cap answer is still recorded (`ttype9` stored, `TERM`
-  overwritten again) before stopping. C# drops empties, strips the
-  terminating duplicate repeat, keeps the third-slot `MTTS` vector, and
-  records the over-cap answer once into the overflow slot before
-  stopping: pinned
-  by `ServerSessionTests.RequestTerminalTypesAsync_SkipsEmptyAnswers`,
-  `RequestTerminalTypesAsync_CollectsChainUntilRepeat`,
-  `RequestTerminalTypesAsync_NonConsecutiveRepeat_StopsAtFirstRepeat`,
-  `RequestTerminalTypesAsync_BeyondLoopMax_StopsAtCap`,
-  `RequestTerminalTypesAsync_OverflowPastCap_StopsAndReleasesEnviron`,
-  and the `RequestTerminalTypesAsync_MttsThirdEntry_EffectiveTypeIsSecond`
-  (`ExtendedCollectorsTests`) /
-  `RequestTerminalTypesAsync_LowercaseMttsThird_StopsWithSecondEffective`
-  (`ServerSessionTests`) variants.
-- Code: [`telnet_cs/Server/ServerSession.Collectors.cs`](../telnet_cs/Server/ServerSession.Collectors.cs) (empty answers
-  end the turn without advancing at [`:1552-1558`](../telnet_cs/Server/ServerSession.Collectors.cs#L1552-L1558); the returned list
-  ends at the first repeat — first-entry loop or previous-entry repeat
-  (terminator excluded) at [`:1600-1612`](../telnet_cs/Server/ServerSession.Collectors.cs#L1600-L1612) and [`:609-618`](../telnet_cs/Server/ServerSession.Collectors.cs#L609-L618) — while a
-  third-slot `MTTS` vector stops the cycle but is kept in the chain;
-  past-`TerminalTypeLoopMax` ([`:328`](../telnet_cs/Server/ServerSession.Collectors.cs#L328)) the over-cap answer is recorded
-  once into the overflow slot and the cycle stops at [`:1576-1588`](../telnet_cs/Server/ServerSession.Collectors.cs#L1576-L1588)).
-  telnetlib3 `server.py:602-653` stores every answer including `""`
-  (`:611-614`) and stops the cycle on empty/dup/over-cap
-  (`:630-648`), but keeps the stored dup/empty/over-cap entry (and the
-  `TERM` overwrite for non-empty entries — an empty answer stores `''`
-  without touching `TERM`), with `TTYPE_LOOPMAX = 8` at `:90`.
-- Why it exists: storing `""`/dups/over-cap answers pollutes the chain
-  (`TERM` selection, environ gating) — both sides stop the cycle, but
-  only C# keeps the stored chain clean. Info-grade interop impact (same
-  terminal discovered either way). Kept by design.
-
 ## D21 — CHARSET receive leniency with empty-name discipline (RFC 2066 §2)
 
 - Proof: [`repro/py_d21_charset.py`](repro/py_d21_charset.py) →
@@ -577,3 +523,61 @@ re-checked unchanged.
   selection", but the handler treats it as one — internal
   contradiction). Receive leniency (separator/alias) accepts
   non-conformant senders without changing our conformant sends. Kept.
+
+## Info-only divergences (no wire or behavioral impact)
+
+The entries below are informational: they record API-shape or storage-hygiene differences with no wire impact on conformant peers. They are kept by design.
+
+## D17 — Aardwolf 1-byte frames yield empty `DataBytes` (API totality)
+
+- Proof: [`repro/py_d17_aardwolf.py`](repro/py_d17_aardwolf.py) →
+  [`repro/py_d17_aardwolf.log`](repro/py_d17_aardwolf.log): `[0x41]` decodes to
+  `{'channel': '0x41', 'channel_byte': 65}` with no `data_byte` /
+  `data_bytes` keys; `[0x41, 0x07]` adds both. C# yields `DataBytes`
+  empty (never null): pinned by
+  `MudDispatchTests.SbAardwolf_SingleByte_YieldsEmptyData`.
+- Code: [`telnet_cs/Protocol/MudProtocol.cs:575-590`](../telnet_cs/Protocol/MudProtocol.cs#L575-L590) (length switch;
+  1-byte carries channel only). telnetlib3 `mud.py:348-365` (keys
+  present only by length).
+- Why it exists: a non-null empty array keeps consumers
+  (`Length`/`foreach`) total; only key-presence checks on exotic
+  1-byte frames diverge. Info-grade. Kept by design.
+
+## D20 — TTYPE chain hygiene: empties dropped, repeats stripped, loop capped (storage)
+
+- Proof: [`repro/py_d20_ttype.py`](repro/py_d20_ttype.py) →
+  [`repro/py_d20_ttype.log`](repro/py_d20_ttype.log) (real `TelnetServer.on_ttype`,
+  `request_ttype` recorded): a fresh answer continues the cycle
+  (`sends= 1`); empty `ttype1` is stored (`{'ttype1': ''}`) and stops
+  the cycle (`sends= 0`); a `ttype1 == ttype2` duplicate is kept
+  (`ttype2` stored, `TERM` overwritten) and stops it; past the loop
+  max the over-cap answer is still recorded (`ttype9` stored, `TERM`
+  overwritten again) before stopping. C# drops empties, strips the
+  terminating duplicate repeat, keeps the third-slot `MTTS` vector, and
+  records the over-cap answer once into the overflow slot before
+  stopping: pinned
+  by `ServerSessionTests.RequestTerminalTypesAsync_SkipsEmptyAnswers`,
+  `RequestTerminalTypesAsync_CollectsChainUntilRepeat`,
+  `RequestTerminalTypesAsync_NonConsecutiveRepeat_StopsAtFirstRepeat`,
+  `RequestTerminalTypesAsync_BeyondLoopMax_StopsAtCap`,
+  `RequestTerminalTypesAsync_OverflowPastCap_StopsAndReleasesEnviron`,
+  and the `RequestTerminalTypesAsync_MttsThirdEntry_EffectiveTypeIsSecond`
+  (`ExtendedCollectorsTests`) /
+  `RequestTerminalTypesAsync_LowercaseMttsThird_StopsWithSecondEffective`
+  (`ServerSessionTests`) variants.
+- Code: [`telnet_cs/Server/ServerSession.Collectors.cs`](../telnet_cs/Server/ServerSession.Collectors.cs) (empty answers
+  end the turn without advancing at [`:1552-1558`](../telnet_cs/Server/ServerSession.Collectors.cs#L1552-L1558); the returned list
+  ends at the first repeat — first-entry loop or previous-entry repeat
+  (terminator excluded) at [`:1600-1612`](../telnet_cs/Server/ServerSession.Collectors.cs#L1600-L1612) and [`:609-618`](../telnet_cs/Server/ServerSession.Collectors.cs#L609-L618) — while a
+  third-slot `MTTS` vector stops the cycle but is kept in the chain;
+  past-`TerminalTypeLoopMax` ([`:328`](../telnet_cs/Server/ServerSession.Collectors.cs#L328)) the over-cap answer is recorded
+  once into the overflow slot and the cycle stops at [`:1576-1588`](../telnet_cs/Server/ServerSession.Collectors.cs#L1576-L1588)).
+  telnetlib3 `server.py:602-653` stores every answer including `""`
+  (`:611-614`) and stops the cycle on empty/dup/over-cap
+  (`:630-648`), but keeps the stored dup/empty/over-cap entry (and the
+  `TERM` overwrite for non-empty entries — an empty answer stores `''`
+  without touching `TERM`), with `TTYPE_LOOPMAX = 8` at `:90`.
+- Why it exists: storing `""`/dups/over-cap answers pollutes the chain
+  (`TERM` selection, environ gating) — both sides stop the cycle, but
+  only C# keeps the stored chain clean. Info-grade interop impact (same
+  terminal discovered either way). Kept by design.
