@@ -154,14 +154,17 @@ re-checked unchanged.
 - Proof: [`repro/py_d6_qbit.py`](repro/py_d6_qbit.py) → [`repro/py_d6_qbit.log`](repro/py_d6_qbit.log):
   `WILL SGA` then `WONT SGA` both return `True` (bytes out immediately,
   D1's shape). Him-side: `DONT SGA` out, then inbound `WILL SGA` yields
-  `writes= ['fffe03', 'fffd03']` — the `DO` is resent immediately, the
-  `DONT` forgotten. Us-side race: after `WILL, WONT`, inbound `DO SGA`
-  yields `writes= ['fffb03', 'fffc03']` — silent, but only because the
+  cumulative `writes= ['fffe03', 'fffd03']` — the `DO` (`fffd03`) is a new
+  byte resent immediately, the `DONT` forgotten. Us-side race: after
+  `WILL, WONT` (cumulative `writes= ['fffb03', 'fffc03']`), inbound `DO SGA`
+  leaves the buffer unchanged at `writes= ['fffb03', 'fffc03']` — no new
+  bytes for the `DO` (silent), only because the
   stale `WILL`-pending flag suppresses the re-`WILL` while `local` is
   latched `False`. C# answers the same stale `DO` with `WONT`:
   `NegotiationStateTests.UsSide_QueueMirrorsHimSide` (`OfferEnable` →
   `Will`, `OfferDisable` → null/queued, `ReceivedDo` → `Wont`), and the
-  him-side mirror is pinned by `QueuedDisable_DrainsWhenEnableCompletes`,
+  him-side shape (`DONT` goes out immediately, no queue left behind) is
+  pinned by `QueuedDisable_DrainsWhenEnableCompletes`,
   `ReceivedWill_InWantNoEmpty_ClearsToNo`, and
   `ToggleTwice_EnableClearsQueuedDisable`.
 - Code: [`telnet_cs/Protocol/NegotiationState.cs:360-363`](../telnet_cs/Protocol/NegotiationState.cs#L360-L363) (`WantNo` +
@@ -255,9 +258,10 @@ re-checked unchanged.
 ## D9 — unsolicited `WILL`/`WONT TIMING-MARK` ignored (robustness)
 
 - Proof: [`repro/py_d4_raisevssilent.log`](repro/py_d4_raisevssilent.log): `WILL-TM-no-pending`
-  raises `ValueError: cannot recv WILL TM, must first send DO TM`.
-  telnetlib3 also raises on `WONT TM` without a prior `DO`
-  (`stream_writer.py:2340`). C# stays silent ([`repro/cs_wire.log`](repro/cs_wire.log)
+  raises `ValueError: cannot recv WILL TM, must first send DO TM`, and
+  `WONT-TM-no-pending` raises
+  `ValueError: WONT TM received but DO TM was not sent`.
+  C# stays silent ([`repro/cs_wire.log`](repro/cs_wire.log)
   run `d9-willtm`: `data=` `writes=` empty): pinned by
   `StatusTimingMarkTests.WillTimingMark_Unsolicited_IgnoredSilently`,
   `WontTimingMark_Unsolicited_IgnoredSilently`, and
@@ -544,14 +548,18 @@ re-checked unchanged.
   `force_binary= True`, no raise). C# answers `ACCEPTED "USASCII"`
   ([`repro/cs_wire.log`](repro/cs_wire.log) run `d21-request-usascii`:
   `writes=FFFA2A0255534153434949FFF0`, `NegotiatedCharset=USASCII`),
-  rejects empty/whitespace-only offers (`ExtendedOptionsTests.SbCharsetRequest_EmptyOffers_AnswersRejected`),
+  rejects empty offers (`ExtendedOptionsTests.SbCharsetRequest_EmptyOffers_AnswersRejected`;
+  whitespace-only offers filter to empty in `SplitOffers`/`SelectSupported` and take the same REJECTED path),
   and routes empty `ACCEPTED` to the rejection path (pending cleared,
   `CharsetRejected`, no binary latch — pinned by
-  `ExtendedOptionsTests.SbCharsetAccepted_EmptyName_TakesRejectionPath`); alias and
-  separator leniency are pinned in `MudProtocolTests`
+  `ExtendedOptionsTests.SbCharsetAccepted_EmptyName_TakesRejectionPath`); alias
+  leniency is pinned in `MudProtocolTests`
   (`CharsetSelect_NormalizesNames`: `US ASCII`, `ISO-8859-01`;
   `CharsetSelect_WeakDefaultAcceptsFirstViable`: weak-default
-  fallthrough).
+  fallthrough) and separator fallback in
+  `AuditProtocolTests.CharsetRequest_SpaceInName_RoundTrips` and
+  `AuditProperOptionsTests.CharsetSeparator_FallsBackFromSpace`
+  (basic round-trip: `MudProtocolTests.CharsetRequest_RoundTripsOffers`).
 - Code: [`telnet_cs/Protocol/CharsetProtocol.cs:48-71`](../telnet_cs/Protocol/CharsetProtocol.cs#L48-L71) (`BuildRequest`
   separator fallback), [`:96-123`](../telnet_cs/Protocol/CharsetProtocol.cs#L96-L123) (`ParseRequest` space re-split),
   [`:266-328`](../telnet_cs/Protocol/CharsetProtocol.cs#L266-L328) (alias superset incl. `USASCII` and `cpNNNN`);

@@ -1,8 +1,8 @@
 """Fresh probe D4: error-policy split — truth raises, Cs logs-and-ignores.
 
-Cases: WILL TM with no pending DO; STATUS SEND w/o WILL; illegal CHARSET
-verb 0x09; client DO LOGOUT. Wire: neither side emits bytes in any of
-these (except where noted).
+Cases: WILL TM with no pending DO; WONT TM with no pending DO; STATUS SEND
+w/o WILL; illegal CHARSET verb 0x09; client DO LOGOUT. Wire: neither side
+emits bytes in any of these (except where noted).
 """
 import sys
 import os
@@ -14,7 +14,7 @@ sys.path.insert(0, str(_HERE))
 import telnetlib3
 from h import make_writer, feed, writes_hex, clear
 
-IAC, SB, SE, WILL, DO = telnetlib3.IAC, telnetlib3.SB, telnetlib3.SE, telnetlib3.WILL, telnetlib3.DO
+IAC, SB, SE, WILL, WONT, DO = telnetlib3.IAC, telnetlib3.SB, telnetlib3.SE, telnetlib3.WILL, telnetlib3.WONT, telnetlib3.DO
 TM, LOGOUT, STATUS, CHARSET = telnetlib3.TM, telnetlib3.LOGOUT, telnetlib3.STATUS, telnetlib3.CHARSET
 
 
@@ -29,6 +29,7 @@ def probe(label, fn):
 
 def main():
     probe('WILL-TM-no-pending', lambda w: feed(w, IAC + WILL + TM))
+    probe('WONT-TM-no-pending', lambda w: feed(w, IAC + WONT + TM))
     probe('STATUS-SEND-no-will', lambda w: feed(w, IAC + SB + STATUS + b'\x01' + IAC + SE))
     probe('CHARSET-badverb', lambda w: feed(w, IAC + SB + CHARSET + b'\x09' + IAC + SE))
     # client DO LOGOUT needs client role

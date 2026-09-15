@@ -287,14 +287,9 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Server_WillEcho_SilentWithoutStateChange()
         {
-            // Source of truth: a server never lets the peer echo. handle_will raises
-            // for WILL ECHO on the server role; the raise is caught in the data-chunk
-            // loop, logged, and yields no reply and no remote-option state change.
-            // Our code routes WILL ECHO through AgreeEcho to ReceivedWill(agree:true),
-            // emitting DO 1 and marking IsEnabledByPeer(1) true.
-            // Proof: feed a ServerSession FF FB 01; reference bytes contain no
-            // FF FD 01 and IsEnabledByPeer(1) stays false. Observing DO or enabled
-            // state proves the missing role gate. This test is correct.
+            // Server-role WILL ECHO is benign (MUD clients send it): it is
+            // swallowed without reply and without negotiation state change,
+            // instead of tearing down the connection.
             using var stream = new ScriptedStream(255, 251, 1);
             using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
