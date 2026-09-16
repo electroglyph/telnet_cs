@@ -1,6 +1,6 @@
 # Client usage guide
 
-Last verified: 2026-09-16 (suite 1484/1484 green).
+Last verified: 2026-09-16 (suite 1493/1493 green).
 
 The client lives in the `telnet_cs.Client` namespace. The main type is
 `Client` (implements `IClient`); options are carried by the
@@ -36,6 +36,15 @@ For tests or custom transports, construct over an `IByteStream` directly:
 
 ```csharp
 var client = new Client(byteStream, cancellationToken);
+```
+
+The hermetic option is `telnet_cs.Transport.InMemoryPipe.Create()`, which
+returns two linked ends with no sockets — hand one to the client and the
+other to a `ServerSession`:
+
+```csharp
+var (clientStream, serverStream) = InMemoryPipe.Create();
+using var client = new Client(clientStream, cancellationToken);
 ```
 
 ## Configuring answers

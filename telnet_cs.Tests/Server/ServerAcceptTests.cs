@@ -44,6 +44,7 @@ namespace telnet_cs.Tests
             options.IsWriteConsole.Should().BeNull();
             options.Log.Should().BeNull();
             options.TlsProtocols.Should().Be(SslProtocols.None);
+            options.GetServerCertificate.Should().BeNull();
             options.ListenAddress.Should().Be(IPAddress.Any);
         }
 

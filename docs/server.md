@@ -1,6 +1,6 @@
 # Server usage guide
 
-Last verified: 2026-09-16 (suite 1484/1484 green).
+Last verified: 2026-09-16 (suite 1493/1493 green).
 
 The server lives in the `telnet_cs.Server` namespace. `TelnetServer` owns
 only the listen socket; each accepted connection is a `ServerSession`
@@ -236,6 +236,32 @@ Set `ServerCertificate` for implicit TLS before the preset. With
 `TlsAutoDetect` set to a finite window plus a certificate, the server peeks
 at the first byte (`0x16` = handshake, else plaintext) instead of
 committing. MCCP is always refused over TLS.
+
+For rotation without restart, set `GetServerCertificate`: it is invoked on
+every TLS handshake and its return is used for that handshake, so swapping
+the certificate it returns rotates the next handshake with no restart. A
+null return falls back to `ServerCertificate` (rotation by mutating
+`ServerCertificate` keeps working); a throwing callback fails that
+handshake like any failed handshake. The callback must be thread-safe —
+concurrent accepts invoke it concurrently.
+
+## Testing without sockets
+
+`telnet_cs.Transport.InMemoryPipe.Create()` returns two linked
+`IByteStream` ends with real blocking semantics and no sockets or ports:
+bytes written on one end arrive on the other, and `Close` propagates
+end-of-stream to the peer. Drive a `ServerSession` on one end and a
+`Client` on the other to pin negotiation, reads, and writes
+hermetically:
+
+```csharp
+var (clientStream, serverStream) = InMemoryPipe.Create();
+using var session = new ServerSession(serverStream, new TelnetServerOptions(), ct);
+using var client = new Client(clientStream, ct);
+```
+
+Reserve loopback for what memory cannot prove: the TCP accept lifecycle,
+the TLS handshake, urgent data, and per-IP accounting.
 
 ## The REPL shell
 

@@ -1,0 +1,53 @@
+# Changelog
+
+All notable changes to this project are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/): `Added` /
+`Changed` / `Fixed` per release, with wire, preset, and default changes
+called out explicitly. Behavioral reviews start from this file plus the
+green gates, not from member-name diffing.
+
+## [Unreleased]
+
+### Added
+
+- NuGet autopublish: a `VersionPrefix` bump merged to `master` publishes
+  to nuget.org via trusted publishing. No tags, no CI prereleases.
+- Refuse-reason exception subtypes (`SessionCapacityException`,
+  `PerIpCapacityException`, `ConnectionRefusedByFilterException`), all
+  deriving from `InvalidOperationException`, each with `RemoteEndPoint` +
+  `Reason` for mapping without message sniffing.
+- `TelnetServerOptions.AcceptFilterV2`: accept filter returning its own
+  refuse reason (`AcceptDecision`), surfaced in the log line and exception.
+  The `bool` filter wins when both are set.
+- `TelnetServerOptions.DisableAllNegotiation` (default `false`): silences
+  all server negotiation output; inbound verbs ignored without reply.
+- `TelnetServer.AcceptTcpAsync` + `NegotiateAsync`: split accept so
+  admission (filters/caps, then TLS) runs with no negotiation bytes out
+  and the opening preset goes last. `AcceptSessionAsync` is the two
+  composed; disposing an unnegotiated session releases its reservation.
+- `MaxTerminatedReadChars` on `TelnetServerOptions`/`TelnetClientOptions`
+  (default 65536, `0` = unlimited) plus per-session/instance overrides:
+  the 64 KiB terminated-read cap is now configurable, exception type and
+  message shape unchanged.
+- `TelnetServerOptions.OnBufferCap`: hook fired alongside the
+  `buffer-cap:` log with the same values (`BufferCapEvent`), at most
+  once per accumulation; exceptions swallowed, close unchanged.
+- `TelnetServerOptions.GetServerCertificate`: per-handshake certificate
+  callback for rotation without restart (null falls back to
+  `ServerCertificate`; a throw fails that handshake).
+- `telnet_cs.Transport.InMemoryPipe`: public hermetic transport pair
+  (`Create()` returns two linked `IByteStream` ends, no sockets) for
+  tests and adapters; loopback stays reserved for TCP/TLS/urgent/IP
+  behavior.
+
+### Changed
+
+- **Default change (wire-visible):** `TelnetServerOptions.TextEncoding`
+  now defaults to UTF-8 (was null = Latin-1). CHARSET agreement still
+  overrides per session.
+
+### Fixed
+
+- Handshake-timeout accepts released their capacity reservation twice,
+  over-freeing one slot per timed-out handshake. Each accept now releases
+  exactly once.

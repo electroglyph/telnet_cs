@@ -217,6 +217,29 @@
         public X509Certificate2? ServerCertificate { get; set; }
 
         /// <summary>
+        /// Per-handshake server certificate callback (rotation without
+        /// restart). Invoked on every TLS handshake and its return is used
+        /// for that handshake; a null return falls back to <see
+        /// cref="ServerCertificate"/> read fresh for that same handshake, so
+        /// rotation by mutating <c>ServerCertificate</c> keeps working — the
+        /// callback is an override, not a replacement. When neither yields a
+        /// certificate the accept proceeds plaintext (missing-cert behavior).
+        /// A callback that throws fails the handshake: the socket is disposed
+        /// and the exception propagates like any failed handshake. The
+        /// callback must be thread-safe: concurrent accepts invoke it
+        /// concurrently. Null (the default) uses <c>ServerCertificate</c>
+        /// directly. There is no reload-signal API — point this at whatever
+        /// already holds the current certificate.
+        /// </summary>
+        /// <example>
+        /// <code>
+        /// var options = new TelnetServerOptions { ServerCertificate = certV1 };
+        /// options.GetServerCertificate = () => currentCert; // swap currentCert to rotate
+        /// </code>
+        /// </example>
+        public Func<X509Certificate2?>? GetServerCertificate { get; set; }
+
+        /// <summary>
         /// TLS protocol versions for the server handshake. <c>SslProtocols.None</c>
         /// (the default) lets the OS pick the best available. Mirrors the
         /// client's <c>TlsProtocols</c>; only used when <c>ServerCertificate</c>

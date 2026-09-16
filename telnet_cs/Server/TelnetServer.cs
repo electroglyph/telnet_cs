@@ -4,6 +4,7 @@
     using System.Net;
     using System.Net.Security;
     using System.Security.Authentication;
+    using System.Security.Cryptography.X509Certificates;
     using System.Threading;
     using System.Threading.Tasks;
     using telnet_cs.Transport;
@@ -274,7 +275,10 @@
         /// <see cref="PerIpCapacityException"/>, or
         /// <see cref="ConnectionRefusedByFilterException"/> (all deriving
         /// from <see cref="InvalidOperationException"/>) — then the TLS
-        /// handshake runs where a <c>ServerCertificate</c> is configured. No
+        /// handshake runs where a certificate is configured (<see
+        /// cref="TelnetServerOptions.GetServerCertificate"/> consulted first,
+        /// falling back to <c>ServerCertificate</c>, resolved once per
+        /// handshake). No
         /// negotiation or preset bytes are sent; call
         /// <see cref="NegotiateAsync"/> to send the opening preset, or
         /// dispose the session to abandon it (disposal releases the admission
@@ -434,7 +438,10 @@
                 TcpClient tcpSocket = new TcpClient(accepted);
                 ISocket socket = tcpSocket;
                 bool isTls = false;
-                if (options.ServerCertificate is not null)
+                // Either certificate source arms the TLS path; the handshake
+                // below resolves exactly once per handshake (see there), so a
+                // rotation racing the accept cannot skew the gate.
+                if (options.ServerCertificate is not null || options.GetServerCertificate is not null)
                 {
                     TimeSpan remaining = handshakeDeadlineUtc - DateTime.UtcNow;
                     using var deadlineCts = handshakeEnabled ? new CancellationTokenSource(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero) : null;
@@ -480,26 +487,48 @@
 
                     if (handshake)
                     {
+                        // Resolved once per handshake into a local: the
+                        // callback wins, null falls back to ServerCertificate
+                        // read fresh here, and neither yielding a certificate
+                        // keeps the missing-cert plaintext behavior below.
+                        X509Certificate2? certificate;
                         try
                         {
-                            socket = await TlsSocket.AuthenticateAsServerAsync(
-                                tcpSocket,
-                                new SslServerAuthenticationOptions
-                                {
-                                    ServerCertificate = options.ServerCertificate,
-                                    ClientCertificateRequired = false,
-                                    EnabledSslProtocols = options.TlsProtocols,
-                                },
-                                handshakeLinked.Token).ConfigureAwait(false);
-                            isTls = true;
+                            certificate = options.GetServerCertificate?.Invoke() ?? options.ServerCertificate;
                         }
-                        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && handshakeEnabled && DateTime.UtcNow >= handshakeDeadlineUtc)
+                        catch
                         {
+                            // A throwing callback is a handshake failure:
+                            // same release + dispose as any failed handshake.
                             ReleaseReservation(reservationIpKey!);
                             reservationIpKey = null;
-                            LogOutsideLock($"handshake-timeout: endpoint={endpoint}");
                             accepted.Dispose();
-                            throw new TimeoutException($"handshake-timeout: endpoint {endpoint}.");
+                            throw;
+                        }
+
+                        if (certificate is not null)
+                        {
+                            try
+                            {
+                                socket = await TlsSocket.AuthenticateAsServerAsync(
+                                    tcpSocket,
+                                    new SslServerAuthenticationOptions
+                                    {
+                                        ServerCertificate = certificate,
+                                        ClientCertificateRequired = false,
+                                        EnabledSslProtocols = options.TlsProtocols,
+                                    },
+                                    handshakeLinked.Token).ConfigureAwait(false);
+                                isTls = true;
+                            }
+                            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && handshakeEnabled && DateTime.UtcNow >= handshakeDeadlineUtc)
+                            {
+                                ReleaseReservation(reservationIpKey!);
+                                reservationIpKey = null;
+                                LogOutsideLock($"handshake-timeout: endpoint={endpoint}");
+                                accepted.Dispose();
+                                throw new TimeoutException($"handshake-timeout: endpoint {endpoint}.");
+                            }
                         }
                     }
                 }
