@@ -1,2 +1,0 @@
-4-byte -> no-raise writes= []
-5-byte-verb-first -> RAISED struct.error unpack requires a buffer of 4 bytes

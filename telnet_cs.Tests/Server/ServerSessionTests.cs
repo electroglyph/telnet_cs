@@ -1177,16 +1177,16 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task InboundNaws_VerbFirst_SetsClientWindowSize()
+        public async Task InboundNaws_VerbFirst_Ignored()
         {
+            // RFC 1073 carries no verb inside NAWS: a 5-byte IS-first
+            // frame stores no size and latches no agreement.
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 250, 31, 0, 0, 80, 0, 24, 255, 240]);
             using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
-            session.ClientWindowSize.Should().Be(((ushort)80, (ushort)24));
-            // Latching remote NAWS counts as negotiation advance, so the
-            // advanced preset follows (DO NAWS itself deduped as agreed).
-            OutboundBytes(stream).Should().Equal(255, 251, 3, 255, 251, 0, 255, 253, 42);
+            session.ClientWindowSize.Should().BeNull();
+            session.Negotiation.IsEnabledByPeer(31).Should().BeFalse();
         }
 
         [Fact]
@@ -1232,7 +1232,7 @@ namespace telnet_cs.Tests
             // Zero means "unspecified" to the server: stored as-is (advisory).
             // Range-clamping is client-send-side only (NawsProtocol).
             using var stream = new ScriptedStream();
-            stream.Enqueue([255, 250, 31, 0, 0, 0, 0, 0, 255, 240]);
+            stream.Enqueue([255, 250, 31, 0, 0, 0, 0, 255, 240]);
             using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientWindowSize.Should().Be(((ushort)0, (ushort)0));

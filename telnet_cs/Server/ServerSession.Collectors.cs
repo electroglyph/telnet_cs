@@ -1513,12 +1513,7 @@
         {
             lock (collectorLock)
             {
-                if (payload.Count == 5 && payload[0] == EnvironmentProtocol.Is)
-                {
-                    // Our own stack's shape (verb first).
-                    clientWindowSize = ((ushort)(payload[1] << 8 | payload[2]), (ushort)(payload[3] << 8 | payload[4]));
-                }
-                else if (payload.Count == 4)
+                if (payload.Count == 4)
                 {
                     // Strict RFC 1073 shape (no verb).
                     clientWindowSize = ((ushort)(payload[0] << 8 | payload[1]), (ushort)(payload[2] << 8 | payload[3]));

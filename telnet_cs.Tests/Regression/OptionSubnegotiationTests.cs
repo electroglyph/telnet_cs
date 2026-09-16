@@ -316,15 +316,16 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task NawsVerbFirst_Accepted()
+        public async Task NawsVerbFirstShape_Ignored()
         {
-            // Our own 5-byte verb-first shape is
-            // accepted alongside the strict RFC 1073 shape.
+            // RFC 1073 carries no verb inside NAWS: a 5-byte IS-first
+            // frame is not a size report, so it is ignored (no stored
+            // size) instead of parsed.
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 250, 31, 0, 0, 80, 0, 24, 255, 240]);
             using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
-            session.ClientWindowSize.Should().Be(((ushort)80, (ushort)24));
+            session.ClientWindowSize.Should().BeNull();
         }
 
         [Fact]

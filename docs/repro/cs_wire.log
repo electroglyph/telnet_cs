@@ -75,13 +75,6 @@ LastLocation=null
 LineflowEnabled=True
 NegotiatedCharset=null
 ForceBinaryDecoding=False
---- d13-naws5
-data=
-writes=
-LastLocation=null
-LineflowEnabled=True
-NegotiatedCharset=null
-ForceBinaryDecoding=False
 --- d21-request-usascii
 data=
 writes=FFFA2A0255534153434949FFF0

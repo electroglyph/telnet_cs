@@ -373,25 +373,6 @@ re-checked unchanged.
   `WONT`/`DONT` is a harmless extension (informs the peer instead of
   leaving it believing compression is agreed). Kept by design.
 
-## D13 — NAWS accepts the 5-byte verb-first shape (tolerance)
-
-- Proof: [`repro/py_d13_naws.py`](repro/py_d13_naws.py) →
-  [`repro/py_d13_naws.log`](repro/py_d13_naws.log): the strict 4-byte shape is accepted;
-  the 5-byte verb-first shape raises `struct.error` out of `feed_byte`.
-  C# accepts both and stays silent on the wire ([`repro/cs_wire.log`](repro/cs_wire.log)
-  run `d13-naws5`): pinned by `OptionSubnegotiationTests.NawsVerbFirst_Accepted`
-  (size stored from the verb-first frame) and
-  `ServerSessionTests.InboundNaws_BareShape_SetsClientWindowSize`
-  (strict 4-byte shape).
-- Code: [`telnet_cs/Server/ServerSession.Collectors.cs:1512-1535`](../telnet_cs/Server/ServerSession.Collectors.cs#L1512-L1535)
-  (verb-first 5-byte is this stack's own shape; strict RFC 1073 4-byte
-  also accepted). telnetlib3 `_handle_sb_naws`
-  (`stream_writer.py:2649-2668`) unpacks unconditionally (`:2668`).
-- Why it exists: our own stack emits verb-first, so strictness would
-  drop real peer data and crash the reader on one surplus byte; the
-  tolerance accepts both shapes. A fix belongs on the raising side.
-  Kept by design.
-
 ## D14 — TSPEED validation is strict digit-only and string-preserving (wire honesty)
 
 - Proof: [`repro/py_d14_tspeed.py`](repro/py_d14_tspeed.py) →

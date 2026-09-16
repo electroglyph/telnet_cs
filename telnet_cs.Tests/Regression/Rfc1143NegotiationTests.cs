@@ -137,8 +137,8 @@ namespace telnet_cs.Tests
             // and rows, and fires the callback with no WONT. RFC 1073 defines the
             // 4-byte payload IAC SB NAWS W(2) H(2) IAC SE with no verb byte.
             // Our handler gate WONTs any SB whose payload[0] != SEND, while
-            // ServerSession.Collectors.cs TryConsumeNaws already accepts both the strict
-            // 4-byte shape and our 5-byte verb-first shape; the framing layer must stop
+            // ServerSession.Collectors.cs TryConsumeNaws accepts the strict
+            // RFC 1073 4-byte shape; the framing layer must stop
             // refusing what the session would accept. Dimensions land in the session
             // collector, so the handler half stays silent by design.
             // Proof: wire FF FA 1F 00 50 00 18 FF F0 must yield empty output and empty
