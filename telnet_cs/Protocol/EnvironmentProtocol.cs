@@ -405,16 +405,16 @@
           string? columns,
           string? lines,
           string? colorTerm) => name switch
-        {
-            "USER" => user,
-            "DISPLAY" => display,
-            "TERM" => term,
-            "LANG" => lang,
-            "COLUMNS" => columns,
-            "LINES" => lines,
-            "COLORTERM" => colorTerm,
-            _ => null,
-        };
+          {
+              "USER" => user,
+              "DISPLAY" => display,
+              "TERM" => term,
+              "LANG" => lang,
+              "COLUMNS" => columns,
+              "LINES" => lines,
+              "COLORTERM" => colorTerm,
+              _ => null,
+          };
 
         private static List<(byte Type, string Name)> ParseSendRequests(IEnumerable<byte> requested)
         {
