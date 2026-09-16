@@ -10,6 +10,13 @@ green gates, not from member-name diffing.
 
 ### Added
 
+- Fuzzer coverage: new `write` (client/server outbound writes, commands,
+  negotiation requests), `term` (terminated/exact reads with fuzz
+  terminators, patterns, counts), `mccp` (direct decompressor feed,
+  compressor round-trip, write filter), `proto` (stateless option helpers,
+  negotiation/SLC state machines, converter), and `accept` (server accept
+  lifecycle plus hermetic pipe echo) modes; `codec`/`encoding` now also
+  cover the encode direction. New `FuzzModeSmokeTests` pins every mode.
 - NuGet autopublish: a `VersionPrefix` bump merged to `master` publishes
   to nuget.org via trusted publishing. No tags, no CI prereleases.
 - Refuse-reason exception subtypes (`SessionCapacityException`,

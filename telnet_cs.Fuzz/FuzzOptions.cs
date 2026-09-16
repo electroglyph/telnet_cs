@@ -31,7 +31,8 @@ internal sealed record FuzzOptions
           --seed <int>       PRNG seed; re-running with the same seed replays the same inputs (default 1).
           --iters <int>      Iteration count, > 0 (default 5000).
           --max-bytes <int>  Max input bytes per iteration, 1..65536 (default 2048).
-          --mode <name>      parser | session | client | auth | codec | encoding | input | both | all (default both).
+          --mode <name>      parser | session | client | auth | codec | encoding | input |
+                             write | term | mccp | proto | accept | both | all (default both).
                              both = parser+session; all = every harness.
           --rounds <int>     Sequential inputs per session/client iteration, 1..16 (default 1).
           --corpus-dir <dir> Novelty-corpus directory: novel inputs are saved here and
@@ -106,13 +107,18 @@ internal sealed record FuzzOptions
                         "codec" => (FuzzMode?)FuzzMode.Codec,
                         "encoding" => (FuzzMode?)FuzzMode.Encoding,
                         "input" => (FuzzMode?)FuzzMode.Input,
+                        "write" => (FuzzMode?)FuzzMode.Write,
+                        "term" => (FuzzMode?)FuzzMode.Term,
+                        "mccp" => (FuzzMode?)FuzzMode.Mccp,
+                        "proto" => (FuzzMode?)FuzzMode.Proto,
+                        "accept" => (FuzzMode?)FuzzMode.Accept,
                         "both" => (FuzzMode?)FuzzMode.Both,
                         "all" => (FuzzMode?)FuzzMode.All,
                         _ => null,
                     };
                     if (parsed is null)
                     {
-                        return Fail($"--mode needs parser|session|client|auth|codec|encoding|input|both|all, got '{value}'.", out options, out error);
+                        return Fail($"--mode needs parser|session|client|auth|codec|encoding|input|write|term|mccp|proto|accept|both|all, got '{value}'.", out options, out error);
                     }
 
                     mode = parsed.Value;

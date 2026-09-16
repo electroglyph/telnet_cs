@@ -1,6 +1,7 @@
 ﻿using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("telnet_cs.Tests")]
+[assembly: InternalsVisibleTo("telnet_cs.Fuzz")]
 
 namespace telnet_cs.Transport
 {

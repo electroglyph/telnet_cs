@@ -12,6 +12,11 @@ internal enum FuzzMode
     Codec,
     Encoding,
     Input,
+    Write,
+    Term,
+    Mccp,
+    Proto,
+    Accept,
     Both,
     All,
 }

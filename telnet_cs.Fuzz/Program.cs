@@ -1,3 +1,7 @@
+using System.Runtime.CompilerServices;
+
+[assembly: InternalsVisibleTo("telnet_cs.Tests")]
+
 namespace telnet_cs.Fuzz;
 
 /// <summary>
@@ -73,8 +77,14 @@ internal static class Program
         FuzzMode.Codec => ["codec"],
         FuzzMode.Encoding => ["encoding"],
         FuzzMode.Input => ["input"],
+        FuzzMode.Write => ["write"],
+        FuzzMode.Term => ["term"],
+        FuzzMode.Mccp => ["mccp"],
+        FuzzMode.Proto => ["proto"],
+        FuzzMode.Accept => ["accept"],
         FuzzMode.Both => ["parser", "session"],
-        _ => ["parser", "session", "client", "auth", "codec", "encoding", "input"],
+        _ => ["parser", "session", "client", "auth", "codec", "encoding", "input",
+            "write", "term", "mccp", "proto", "accept"],
     };
 
     private static IReadOnlyList<FuzzInput> BuildSequence(string target, FuzzOptions options, int iteration)
@@ -102,6 +112,11 @@ internal static class Program
         "codec" => CodecHarness.RunAsync(seq[0], token),
         "encoding" => EncodingHarness.RunAsync(seq[0], token),
         "input" => InputHarness.RunAsync(seq[0], token),
+        "write" => WriteHarness.RunAsync(seq[0], token),
+        "term" => TermHarness.RunAsync(seq[0], token),
+        "mccp" => MccpHarness.RunAsync(seq[0], token),
+        "proto" => ProtoHarness.RunAsync(seq[0], token),
+        "accept" => AcceptHarness.RunAsync(seq[0], token),
         _ => throw new ArgumentOutOfRangeException(nameof(target)),
     };
 
