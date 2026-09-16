@@ -1,6 +1,6 @@
 # Server usage guide
 
-Last verified: 2026-09-15 (suite 1337/1337 green).
+Last verified: 2026-09-16 (suite 1426/1426 green).
 
 The server lives in the `telnet_cs.Server` namespace. `TelnetServer` owns
 only the listen socket; each accepted connection is a `ServerSession`
