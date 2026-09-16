@@ -2112,14 +2112,19 @@
 
         /// <summary>
         /// Answer an RFC 1408/1572 ENVIRON SEND with an IS built from the
-        /// configured environment values. The SEND type list (after the verb)
-        /// is mirrored. Old (36) and new (39) forms share framing and verbs;
-        /// the answer goes out on whichever option asked. A <c>VAR</c> (or
-        /// empty) request also volunteers the session parameters
-        /// <c>TERM</c>, <c>LANG</c>, <c>COLUMNS</c> and <c>LINES</c>, matching
-        /// telnetlib3's auto-sent <c>send_env</c> set; <c>LANG</c> is
-        /// <c>C</c> without an explicit <see cref="TextEncoding"/>, else
-        /// <c>en_US.&lt;encoding&gt;</c>.
+        /// configured environment values. Named requests are answered
+        /// requested-only in order, with a bare type+name (no
+        /// <c>VALUE</c>) for undefined variables. A bare <c>VAR</c> or
+        /// <c>USERVAR</c> marker volunteers that type's defaults, and an
+        /// empty request volunteers both. Old (36) and new (39) forms share
+        /// framing and verbs; the answer goes out on whichever option
+        /// asked. Volunteered well-known variables include the session
+        /// parameters <c>TERM</c>, <c>LANG</c>, <c>COLUMNS</c> and
+        /// <c>LINES</c>, matching telnetlib3's auto-sent <c>send_env</c>
+        /// set; <c>LANG</c> is <c>C</c> without an explicit
+        /// <see cref="TextEncoding"/>, else
+        /// <c>en_US.&lt;encoding&gt;</c>. <c>DISPLAY</c> is never
+        /// volunteered on this path.
         /// </summary>
         /// <param name="inputOption">The option under negotiation (old or new).</param>
         /// <param name="payload">The full received subnegotiation payload, verb first.</param>
