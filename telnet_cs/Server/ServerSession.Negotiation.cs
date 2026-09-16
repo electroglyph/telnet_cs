@@ -39,6 +39,11 @@
         /// <returns>An awaitable Task.</returns>
         public async Task SendOpeningPresetAsync(CancellationToken cancellationToken = default)
         {
+            if (Settings.DisableAllNegotiation)
+            {
+                return;
+            }
+
             if (Settings.RequestTerminalType)
             {
                 await RequestEnableAsync(Options.TerminalType, cancellationToken).ConfigureAwait(false);

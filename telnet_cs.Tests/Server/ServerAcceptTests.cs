@@ -9,6 +9,7 @@ namespace telnet_cs.Tests
     using System.Net;
     using System.Net.Sockets;
     using System.Security.Authentication;
+    using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
     using FluentAssertions;
@@ -38,7 +39,7 @@ namespace telnet_cs.Tests
             options.LoginUserPrompt.Should().Be("login: ");
             options.LoginPasswordPrompt.Should().Be("Password: ");
             options.MaxLoginAttempts.Should().Be(3);
-            options.TextEncoding.Should().BeNull();
+            options.TextEncoding.Should().Be(Encoding.UTF8);
             options.IsWriteConsole.Should().BeNull();
             options.Log.Should().BeNull();
             options.TlsProtocols.Should().Be(SslProtocols.None);
@@ -170,16 +171,15 @@ namespace telnet_cs.Tests
             var collectTask = session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5));
 
             // Pump the client until it has processed our WILL ECHO: its DO reply
-            // confirms our offer, flipping our us-side to YES.
+            // confirms our offer, flipping our us-side to YES. The TTYPE
+            // collection routinely finishes first (single "unknown" answer);
+            // that must not cut the ECHO wait short, so the loop exits only
+            // on ECHO confirmation or the 10 s budget.
             sw.Restart();
             while (!session.Negotiation.IsEnabledByUs((int)Options.Echo) && sw.Elapsed < TimeSpan.FromSeconds(10))
             {
                 await client.ReadAsync(TimeSpan.FromMilliseconds(50));
                 await session.ReadAsync(TimeSpan.FromMilliseconds(50));
-                if (collectTask.IsCompleted)
-                {
-                    break;
-                }
             }
 
             session.Negotiation.IsEnabledByUs((int)Options.Echo).Should().BeTrue();

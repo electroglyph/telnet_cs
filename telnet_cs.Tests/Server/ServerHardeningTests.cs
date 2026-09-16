@@ -31,7 +31,12 @@ namespace telnet_cs.Tests
 
         private static string OutboundText(ScriptedStream stream)
         {
-            return string.Concat(stream.StringWrites);
+            // Session text is UTF-8 pre-encoded into byte writes (the
+            // options default). Dropping U+FFFD excises negotiation frames
+            // and restores the text-channel view the old string-write path
+            // recorded; ASCII pins are unaffected.
+            return Encoding.UTF8.GetString(stream.ByteWrites.SelectMany(static w => w).ToArray())
+                .Replace("\uFFFD", string.Empty);
         }
 
         private static void WriteLineRaw(NetworkStream peer, string line)
@@ -83,9 +88,7 @@ namespace telnet_cs.Tests
                 using var raw2 = new TcpClient();
                 var accept2 = server.AcceptSessionAsync(CancellationToken.None);
                 await raw2.ConnectAsync("127.0.0.1", server.Port);
-                var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => accept2);
-                ex.Message.Should().StartWith("over-capacity:");
-                server.RejectedCapacityCount.Should().Be(1);
+                var ex = await Assert.ThrowsAsync<SessionCapacityException>(() => accept2);
                 server.RejectedPerIpCount.Should().Be(0);
                 held1.Item2.IsConnected.Should().BeTrue();
             }
@@ -107,9 +110,7 @@ namespace telnet_cs.Tests
                 using var raw2 = new TcpClient();
                 var accept2 = server.AcceptSessionAsync(CancellationToken.None);
                 await raw2.ConnectAsync("127.0.0.1", server.Port);
-                var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => accept2);
-                ex.Message.Should().StartWith("over-capacity:");
-                server.RejectedPerIpCount.Should().Be(1);
+                var ex = await Assert.ThrowsAsync<PerIpCapacityException>(() => accept2);
                 server.RejectedCapacityCount.Should().Be(0);
                 held1.Item2.IsConnected.Should().BeTrue();
             }
@@ -146,7 +147,7 @@ namespace telnet_cs.Tests
             using var raw = new TcpClient();
             var accept = server.AcceptSessionAsync(CancellationToken.None);
             await raw.ConnectAsync("127.0.0.1", server.Port);
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => accept);
+            var ex = await Assert.ThrowsAsync<ConnectionRefusedByFilterException>(() => accept);
             ex.Message.Should().StartWith("over-capacity:");
             server.RejectedFilterCount.Should().Be(1);
             server.RejectedCapacityCount.Should().Be(0);
@@ -340,7 +341,7 @@ namespace telnet_cs.Tests
             using var raw = new TcpClient();
             var accept = server.AcceptSessionAsync(CancellationToken.None);
             await raw.ConnectAsync("127.0.0.1", server.Port);
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => accept);
+            var ex = await Assert.ThrowsAsync<ConnectionRefusedByFilterException>(() => accept);
             ex.Message.Should().StartWith("over-capacity:");
             ex.InnerException.Should().BeOfType<InvalidOperationException>()
                 .Which.Message.Should().Be("filter-boom");

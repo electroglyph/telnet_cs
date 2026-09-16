@@ -18,10 +18,11 @@ namespace telnet_cs.Transport
     {
         /// <summary>
         /// Creates two linked ends. Bytes written on <c>A</c> are readable
-        /// on <c>B</c> and vice versa.
+        /// on <c>B</c> and vice versa. Each end logs what it wrote in
+        /// <see cref="DuplexEnd.WrittenBytes"/> for assertion.
         /// </summary>
         /// <returns>The linked <c>(A, B)</c> ends.</returns>
-        public static (IByteStream A, IByteStream B) Create()
+        public static (DuplexEnd A, DuplexEnd B) Create()
         {
             var endA = new DuplexEnd();
             var endB = new DuplexEnd();
@@ -38,7 +39,7 @@ namespace telnet_cs.Transport
         /// indefinitely; <c>Close</c> wakes blocked readers so no test can
         /// hang on a drained peer.
         /// </summary>
-        private sealed class DuplexEnd : IByteStream
+        internal sealed class DuplexEnd : IByteStream
         {
             private readonly Lock mutex = new();
             private readonly Queue<byte> inbound = new();

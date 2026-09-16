@@ -258,6 +258,14 @@
         internal bool AllowRemoteEcho { get; set; }
 
         /// <summary>
+        /// Gets or sets whether inbound negotiation verbs are silently
+        /// ignored: no state change, no reply, no log. Fed per read from
+        /// <c>TelnetServerOptions.DisableAllNegotiation</c> on server
+        /// sessions; always <c>false</c> on the client.
+        /// </summary>
+        internal bool SilenceNegotiation { get; set; }
+
+        /// <summary>
         /// Whether the peer is currently echoing our input (we sent <c>DO ECHO</c>,
         /// RFC 857): local console echo is suppressed while true.
         /// </summary>
@@ -3384,14 +3392,23 @@
             }
 
             var (usBefore, himBefore) = Negotiation.GetStates(inputOption);
-            var reply = inputVerb switch
+            Commands? reply = null;
+            if (!SilenceNegotiation)
             {
-                (int)Commands.Do => Negotiation.ReceivedDo(inputOption, AgreeEcho(inputOption, peerPerforms: false)),
-                (int)Commands.Dont => Negotiation.ReceivedDont(inputOption),
-                (int)Commands.Will => Negotiation.ReceivedWill(inputOption, AgreeEcho(inputOption, peerPerforms: true)),
-                (int)Commands.Wont => Negotiation.ReceivedWont(inputOption),
-                _ => null,
-            };
+                reply = inputVerb switch
+                {
+                    (int)Commands.Do => Negotiation.ReceivedDo(inputOption, AgreeEcho(inputOption, peerPerforms: false)),
+                    (int)Commands.Dont => Negotiation.ReceivedDont(inputOption),
+                    (int)Commands.Will => Negotiation.ReceivedWill(inputOption, AgreeEcho(inputOption, peerPerforms: true)),
+                    (int)Commands.Wont => Negotiation.ReceivedWont(inputOption),
+                    _ => null,
+                };
+            }
+            else
+            {
+                // Master switch: the verb earns no state, no reply, no log.
+                return;
+            }
             if (IsServerRole && inputVerb == (int)Commands.Do && inputOption == (int)Options.RemoteFlowControl && reply is Commands.Wont)
             {
                 // Directional refusal with a latch: WONT goes out, but the

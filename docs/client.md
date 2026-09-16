@@ -1,6 +1,6 @@
 # Client usage guide
 
-Last verified: 2026-09-16 (suite 1426/1426 green).
+Last verified: 2026-09-16 (suite 1444/1444 green).
 
 The client lives in the `telnet_cs.Client` namespace. The main type is
 `Client` (implements `IClient`); options are carried by the

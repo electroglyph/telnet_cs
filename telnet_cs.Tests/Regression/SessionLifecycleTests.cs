@@ -20,6 +20,17 @@ namespace telnet_cs.Tests
     {
         private static int[] Ascii(string text) => text.Select(c => (int)c).ToArray();
 
+        private static string OutboundText(ScriptedStream stream)
+        {
+            // Session text is UTF-8 pre-encoded into byte writes (the
+            // options default). Dropping U+FFFD excises negotiation frames
+            // (e.g. the per-prompt IAC GA) and restores the text-channel
+            // view the old string-write path recorded; ASCII pins are
+            // unaffected.
+            return System.Text.Encoding.UTF8.GetString(stream.ByteWrites.SelectMany(static w => w).ToArray())
+                .Replace("\uFFFD", string.Empty);
+        }
+
         [Fact]
         public async Task ClientGa_PeerOnlySga_StillSends()
         {
@@ -170,10 +181,12 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SessionCounters_Latin1Byte_CountsOneWireByte()
         {
-            // Default Latin-1 mapping: byte E9 decodes to "é" (one char) but
-            // is a single wire byte. A UTF-8-hardcoded count would report 2.
+            // Explicit Latin-1 mapping (the default is UTF-8): byte E9
+            // decodes to "é" (one char) but is a single wire byte. A
+            // UTF-8-hardcoded count would report 2.
+            var options = new TelnetServerOptions { TextEncoding = System.Text.Encoding.Latin1 };
             using var stream = new ScriptedStream(0xE9);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using var session = new ServerSession(stream, options, CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("é");
             session.Context.CharsReceived.Should().Be(1);
         }
@@ -293,7 +306,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream(Ascii("quit\n"));
             using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             await ServerShells.RunReplAsync(session, CancellationToken.None);
-            string.Concat(stream.StringWrites).Should().Contain("tel:sh> \r\nGoodbye.");
+            OutboundText(stream).Should().Contain("tel:sh> \r\nGoodbye.");
         }
 
         [Fact]
@@ -310,7 +323,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream(Ascii("bogus\nquit\n"));
             using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             await ServerShells.RunReplAsync(session, CancellationToken.None);
-            string.Concat(stream.StringWrites).Should().Contain("no such command.");
+            OutboundText(stream).Should().Contain("no such command.");
         }
     }
 }

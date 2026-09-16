@@ -477,6 +477,10 @@
             // operators can refuse echo entirely; the bounce guard (never both
             // directions) still applies.
             handler.AllowRemoteEcho = Settings.OfferEcho;
+            // Master negotiation switch, fed live per read like the flags
+            // above: while set, inbound verbs earn no state, no reply, no
+            // log (see ByteStreamHandler.SilenceNegotiation).
+            handler.SilenceNegotiation = Settings.DisableAllNegotiation;
             // MUD stores are session-lived (handlers are per-read): the
             // append/replace reports come back through the typed hooks.
             // Per-read handler lists are capped from the same options so a

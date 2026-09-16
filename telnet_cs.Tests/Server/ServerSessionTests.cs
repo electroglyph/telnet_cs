@@ -558,7 +558,7 @@ namespace telnet_cs.Tests
             // sends no negotiation bytes at all (prompts only); the three
             // 251s are WILL ECHO (pre-agreed above) plus WILL SGA / WILL
             // BINARY from the advanced preset the DO ECHO released.
-            string outbound = System.Text.Encoding.Latin1.GetString(OutboundBytes(stream));
+            string outbound = System.Text.Encoding.UTF8.GetString(OutboundBytes(stream));
             outbound.Should().NotContain("bob");
             outbound.Should().NotContain("s3cret");
             OutboundBytes(stream).Where(b => b == 251).Should().HaveCount(3);
@@ -571,7 +571,7 @@ namespace telnet_cs.Tests
             while (!ready(writes) && sw.Elapsed < TimeSpan.FromSeconds(30))
             {
                 await Task.Delay(20);
-                writes = string.Concat(stream.StringWrites);
+                writes = System.Text.Encoding.UTF8.GetString(OutboundBytes(stream));
             }
 
             ready(writes).Should().BeTrue();
@@ -1091,7 +1091,10 @@ namespace telnet_cs.Tests
         public async Task RequestNewEnvironmentAsync_WithEncodingLang_DecodesHighBytes()
         {
             // A LANG entry carrying an encoding suffix presumes BINARY
-            // capability: later bare 8-bit bytes decode instead of dropping.
+            // capability: later 8-bit bytes decode instead of dropping. The
+            // session default is UTF-8, so the stimulus is the complete C3 A9
+            // pair (a lone E9 is an incomplete sequence the incremental
+            // decoder buffers, not a decode).
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 250, 39, 0, 0, (byte)'L', (byte)'A', (byte)'N', (byte)'G', 1,
               .. System.Text.Encoding.Latin1.GetBytes("en_US.UTF-8"), 255, 240]);
@@ -1099,15 +1102,16 @@ namespace telnet_cs.Tests
             session.Negotiation.ReceivedWill((int)Options.NewEnvironment, agree: true);
             var env = await session.RequestNewEnvironmentAsync(TimeSpan.FromSeconds(5));
             env.Should().Contain("LANG", "en_US.UTF-8");
-            stream.Enqueue([0xE9]);
+            stream.Enqueue([0xC3, 0xA9]);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("é");
         }
 
         [Fact]
         public async Task RequestNewEnvironmentAsync_WithPlainLang_DropsHighBytes()
         {
-            // The bytes path is 8-bit-clean regardless of LANG: bare high bytes
-            // arrive as Latin-1 even without an encoding suffix or BINARY.
+            // A plain LANG=C entry switches nothing: the UTF-8 session
+            // default still decodes the complete C3 A9 pair to a single é
+            // (Latin-1 Ã© would prove a charset flip).
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 250, 39, 0, 0, (byte)'L', (byte)'A', (byte)'N', (byte)'G', 1,
               (byte)'C', 255, 240]);
@@ -1115,7 +1119,7 @@ namespace telnet_cs.Tests
             session.Negotiation.ReceivedWill((int)Options.NewEnvironment, agree: true);
             var env = await session.RequestNewEnvironmentAsync(TimeSpan.FromSeconds(5));
             env.Should().Contain("LANG", "C");
-            stream.Enqueue([0xE9]);
+            stream.Enqueue([0xC3, 0xA9]);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().Be("é");
         }
 

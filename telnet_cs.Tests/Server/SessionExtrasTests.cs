@@ -231,7 +231,8 @@ namespace telnet_cs.Tests
 
             closed.Should().BeTrue();
             session.IsIdleTimedOut.Should().BeTrue();
-            stream.StringWrites.Should().ContainSingle().Which.Should().Be("\r\nTimeout.\r\n");
+            byte[] notice = stream.ByteWrites.Should().ContainSingle().Which;
+            Encoding.UTF8.GetString(notice).Should().Be("\r\nTimeout.\r\n");
         }
 
         [Fact]
@@ -260,7 +261,8 @@ namespace telnet_cs.Tests
 
             closed.Should().BeTrue();
             session.IsIdleTimedOut.Should().BeTrue();
-            stream.StringWrites.Should().ContainSingle().Which.Should().Be("\r\nTimeout.\r\n");
+            byte[] notice = stream.ByteWrites.Should().ContainSingle().Which;
+            Encoding.UTF8.GetString(notice).Should().Be("\r\nTimeout.\r\n");
         }
 
         [Fact]

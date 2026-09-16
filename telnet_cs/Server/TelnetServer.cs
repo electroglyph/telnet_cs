@@ -239,9 +239,13 @@
         /// opening preset (see <see cref="ServerSession.SendOpeningPresetAsync"/>)
         /// before this returns; a fully toggled-off preset sends nothing.
         /// Admission control (<c>MaxConcurrentSessions</c>,
-        /// <c>MaxConnectionsPerIp</c>, <c>AcceptFilter</c>) runs before any
+        /// <c>MaxConnectionsPerIp</c>, <c>AcceptFilter</c>,
+        /// <c>AcceptFilterV2</c>) runs before any
         /// TLS handshake or preset bytes: refused accepts dispose the socket
-        /// with no bytes sent and throw <see cref="InvalidOperationException"/>.
+        /// with no bytes sent and throw <see cref="SessionCapacityException"/>,
+        /// <see cref="PerIpCapacityException"/>, or
+        /// <see cref="ConnectionRefusedByFilterException"/> (all deriving
+        /// from <see cref="InvalidOperationException"/>).
         /// Throws <see cref="TimeoutException"/> when the TLS handshake or
         /// the opening preset exceeds <c>HandshakeTimeout</c> (logged as
         /// <c>handshake-timeout:</c>; the socket is disposed).
@@ -287,7 +291,7 @@
                     LogOutsideLock($"over-capacity: filter-reject endpoint={endpoint} reason=filter-threw");
                     System.Diagnostics.Debug.WriteLine(ex.Message);
                     accepted.Dispose();
-                    throw new InvalidOperationException($"over-capacity: filter rejected endpoint {endpoint}.", ex);
+                    throw new ConnectionRefusedByFilterException(remoteEndPoint, ex);
                 }
 
                 if (!allowed)
@@ -295,7 +299,32 @@
                     Interlocked.Increment(ref rejectedFilter);
                     LogOutsideLock($"over-capacity: filter-reject endpoint={endpoint}");
                     accepted.Dispose();
-                    throw new InvalidOperationException($"over-capacity: filter rejected endpoint {endpoint}.");
+                    throw new ConnectionRefusedByFilterException(remoteEndPoint);
+                }
+            }
+            else if (options.AcceptFilterV2 is { } filterV2)
+            {
+                AcceptDecision decision;
+                try
+                {
+                    decision = filterV2(remoteEndPoint);
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref rejectedFilter);
+                    LogOutsideLock($"over-capacity: filter-reject endpoint={endpoint} reason=filter-threw");
+                    System.Diagnostics.Debug.WriteLine(ex.Message);
+                    accepted.Dispose();
+                    throw new ConnectionRefusedByFilterException(remoteEndPoint, ex);
+                }
+
+                if (!decision.Allowed)
+                {
+                    string reason = string.IsNullOrEmpty(decision.Reason) ? "filter-reject" : decision.Reason;
+                    Interlocked.Increment(ref rejectedFilter);
+                    LogOutsideLock($"over-capacity: filter-reject endpoint={endpoint} reason={reason}");
+                    accepted.Dispose();
+                    throw new ConnectionRefusedByFilterException(remoteEndPoint, reason, null);
                 }
             }
 
@@ -352,7 +381,9 @@
 
                 LogOutsideLock($"over-capacity: {rejectReason} endpoint={endpoint}");
                 accepted.Dispose();
-                throw new InvalidOperationException($"over-capacity: {rejectReason} endpoint {endpoint}.");
+                throw rejectReason == "per-ip"
+                    ? new PerIpCapacityException(remoteEndPoint)
+                    : new SessionCapacityException(remoteEndPoint);
             }
 
 #pragma warning disable CA2000 // Ownership of the socket transfers to the session on success; the catch releases it otherwise (including the half-built TLS wrapper: its factory releases the SslStream on handshake failure, and the raw accept is always disposed below).

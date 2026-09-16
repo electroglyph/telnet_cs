@@ -38,8 +38,10 @@ namespace telnet_cs.Tests
                 streamA.ReadByte().Should().Be(42);
             }
 
-            // Session level: a Latin-1 ÿ (byte 255) doubles on the wire and
-            // undoubles on receipt, between two live sessions.
+            // Session level: ÿ (U+00FF, C3 BF in the UTF-8 default)
+            // round-trips between two live sessions. True 0xFF data bytes
+            // still double on the wire; that pin lives on
+            // SessionCounters_EscapedIacWrite_CountsBothWireBytes.
             var (writerSide, readerSide) = DuplexPipe.Create();
             using var writer = new ServerSession(writerSide, new TelnetServerOptions(), CancellationToken.None);
             using var reader = new ServerSession(readerSide, new TelnetServerOptions(), CancellationToken.None);

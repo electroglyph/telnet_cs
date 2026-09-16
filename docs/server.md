@@ -1,6 +1,6 @@
 # Server usage guide
 
-Last verified: 2026-09-16 (suite 1426/1426 green).
+Last verified: 2026-09-16 (suite 1444/1444 green).
 
 The server lives in the `telnet_cs.Server` namespace. `TelnetServer` owns
 only the listen socket; each accepted connection is a `ServerSession`
@@ -69,7 +69,12 @@ snapshotted per session — the table below marks which is which. Mutating
 to subsequently accepted sessions.
 
 The opening preset is just `DO TTYPE` (when `RequestTerminalType`, on by
-default). It is sent by `AcceptSessionAsync` before it returns.
+default). It is sent by `AcceptSessionAsync` before it returns. To silence
+all server negotiation at once, set `DisableAllNegotiation`: the opening
+preset sends nothing, the advanced preset / TTYPE probe / deferred
+ECHO+NEW-ENVIRON below are suppressed regardless of per-flag values, and
+inbound peer negotiation is silently ignored (no answers, no errors).
+Per-feature flags stay for progressive enablement.
 
 Everything else follows in the advanced preset once negotiation advances
 (any option enabled on either side; a peer that refuses everything gets
@@ -85,7 +90,8 @@ only if requested and `WILL MCCP2/3` only if offered and not over TLS.
 TSPEED auto-probes after the peer `WILL`s it, but explicit
 `RequestTerminalSpeedAsync` sends unconditionally; old ENVIRON is never
 requested unsolicited. `WILL ECHO` and `DO NewEnviron` are deferred until
-after TTYPE answers (an `"ANSI"` first answer defers NEW_ENVIRON past the
+after TTYPE answers (or suppressed entirely by `DisableAllNegotiation`; an
+`"ANSI"` first answer defers NEW_ENVIRON past the
 second report; `WONT`/timeout still need the advance gate; ECHO needs
 `OfferEcho`, NewEnviron needs `RequestNewEnvironment` plus no volunteered
 peer `WILL`) — and ECHO is suppressed entirely for MUD clients so
@@ -126,9 +132,10 @@ behavior and new limits only close or refuse, never alter framing:
 
 | Option | Default | Snapshot / live | Effect on breach |
 |---|---|---|---|
-| `MaxConcurrentSessions` | 256 (0 = unlimited) | live, per accept | TCP close before the preset; `RejectedCapacityCount++`, `over-capacity` log |
-| `MaxConnectionsPerIp` | 16 (0 = unlimited) | live, per accept | TCP close before the preset; `RejectedPerIpCount++` |
-| `AcceptFilter` | null (allow all) | live, per accept | TCP close; `RejectedFilterCount++` (a throwing filter also refuses) |
+| `MaxConcurrentSessions` | 256 (0 = unlimited) | live, per accept | TCP close before any TLS handshake or preset bytes; throws `SessionCapacityException`; `RejectedCapacityCount++`, `over-capacity` log |
+| `MaxConnectionsPerIp` | 16 (0 = unlimited) | live, per accept | TCP close before any TLS handshake or preset bytes; throws `PerIpCapacityException`; `RejectedPerIpCount++` |
+| `AcceptFilter` | null (allow all) | live, per accept | TCP close before any TLS handshake or preset bytes; throws `ConnectionRefusedByFilterException` (a throwing filter also refuses, inner preserved); `RejectedFilterCount++`. Wins over `AcceptFilterV2` when both are set |
+| `AcceptFilterV2` | null (no verdict) | live, per accept | Same close/throw/counter as `AcceptFilter`, but the refuse reason travels in the `over-capacity: filter-reject endpoint=…` log line and the exception; consulted only when `AcceptFilter` is null |
 | `HandshakeTimeout` | 10 s (Infinite/`<= 0` disables) | snapshot per accept | `\r\nHandshake timeout.\r\n`, then close; `handshake-timeout` log |
 | `IdleTimeout` | 300 s (Infinite/`<= 0` disables) | snapshot per session | `\r\nTimeout.\r\n`, then close |
 | `MaxBufferedTextChars` | 65536 (0 = unlimited) | live, per read | close; `buffer-cap:` log (pump + pending text combined) |
@@ -227,5 +234,5 @@ own loop for anything real.
   past the 64 KiB limit, and `OperationCanceledException` on cancel (plus a
   stashed pump wire error rethrows). `AuthenticateAsync` only fails closed
   (`false`) on a timed-out line.
-- `TextEncoding` defaults to legacy Latin-1; a negotiated CHARSET can
+- `TextEncoding` defaults to UTF-8; a negotiated CHARSET can
   override the read encoding per session.

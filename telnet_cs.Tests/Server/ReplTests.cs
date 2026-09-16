@@ -19,13 +19,24 @@ namespace telnet_cs.Tests
             return new ServerSession(stream, options ?? new TelnetServerOptions(), CancellationToken.None);
         }
 
+        private static string OutboundText(ScriptedStream stream)
+        {
+            // Session text is UTF-8 pre-encoded into byte writes (the
+            // options default). Dropping U+FFFD excises negotiation frames
+            // (e.g. the per-prompt IAC GA) and restores the text-channel
+            // view the old string-write path recorded; ASCII pins are
+            // unaffected.
+            return Encoding.UTF8.GetString(stream.ByteWrites.SelectMany(static w => w).ToArray())
+                .Replace("\uFFFD", string.Empty);
+        }
+
         [Fact]
         public async Task Repl_HelpAndQuit_PromptsTwiceWithGa()
         {
             using var stream = new ScriptedStream([.. Ascii("help\n"), .. Ascii("quit\n")]);
             using var session = NewSession(stream);
             await ServerShells.RunReplAsync(session, CancellationToken.None);
-            string all = string.Concat(stream.StringWrites);
+            string all = OutboundText(stream);
             all.Should().Contain("Ready.");
             all.Should().Contain("tel:sh> ");
             all.Should().Contain("quit/help/version/negotiation/stats/environ");
@@ -42,7 +53,7 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             session.IsTls = true;
             await ServerShells.RunReplAsync(session, CancellationToken.None);
-            string.Concat(stream.StringWrites).Should().Contain("Ready (secure: TLS).");
+            OutboundText(stream).Should().Contain("Ready (secure: TLS).");
         }
 
         [Fact]
@@ -52,8 +63,8 @@ namespace telnet_cs.Tests
             var options = new TelnetServerOptions { NeverSendGa = true };
             using var session = NewSession(stream, options);
             await ServerShells.RunReplAsync(session, CancellationToken.None);
-            stream.ByteWrites.Should().BeEmpty();
-            string.Concat(stream.StringWrites).Should().Contain("Goodbye.");
+            stream.ByteWrites.Count(w => w.SequenceEqual(new byte[] { 255, 249 })).Should().Be(0);
+            OutboundText(stream).Should().Contain("Goodbye.");
         }
 
         [Fact]
@@ -62,7 +73,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream(Ascii("bogus\nnegotiation\nstats\nenviron\nversion\nquit\n"));
             using var session = NewSession(stream);
             await ServerShells.RunReplAsync(session, CancellationToken.None);
-            string all = string.Concat(stream.StringWrites);
+            string all = OutboundText(stream);
             all.Should().Contain("no such command.");
             all.Should().Contain("Echo:");
             all.Should().Contain("rx=45");
@@ -77,7 +88,7 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             using var cts = new CancellationTokenSource(200);
             await ServerShells.RunReplAsync(session, cts.Token);
-            string.Concat(stream.StringWrites).Should().Contain("tel:sh> ");
+            OutboundText(stream).Should().Contain("tel:sh> ");
         }
 
         [Fact]

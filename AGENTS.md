@@ -25,6 +25,8 @@ Telnet client **and** server library for .NET 10 (C# 14).
 - NEVER reference audits in code or test comments (no finding IDs, no "audit-ordered" language). Audits are private documents; this repo is public code. Justify changes with plain technical reasons instead.
 - NEVER reference the "owner" (or yourself) in code or test comments — no diary entries or decision logs. Comments explain what the code does and why it must be that way (technical reason). Provenance belongs in the commit message, not the source.
 - If the user's command doesn't make sense, challenge them on it. Do not blindly execute instructions that contradict the repo's own rules or plain technical reality; push back with evidence (file paths, test results) and ask for clarification.
+- `docs/divergences.md` is only for behavior telnetlib3 actually has: every entry needs a reference counterpart. Never add entries for local-only features with no telnetlib3 behavior — document those in xmldoc + the usage guides instead.
+- `CHANGELOG.md`: add a very succinct entry for every new feature or fix (one or two lines each).
 
 ## Best practices (C# 14)
 

@@ -686,6 +686,11 @@
         /// cycles flush as usual either way.</param>
         private async Task FlushDeferredNegotiationAsync(CancellationToken cancellationToken, bool backgroundPass)
         {
+            if (Settings.DisableAllNegotiation)
+            {
+                return;
+            }
+
             bool sendTtypeProbe = false;
             int sendTtypeCycleSends = 0;
             bool sendTspeedProbe = false;

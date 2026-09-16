@@ -22,6 +22,17 @@
         public int Backlog { get; set; } = 32;
 
         /// <summary>
+        /// Gets or sets the master negotiation switch. When <c>true</c>, the
+        /// opening preset sends nothing and the advanced preset, the TTYPE /
+        /// TSPEED / XDisplay probes, and deferred ECHO / NEW-ENVIRON are all
+        /// suppressed regardless of the per-flag values below; inbound peer
+        /// negotiation is silently ignored (no answers, no errors). Defaults
+        /// to <c>false</c>. Per-feature flags stay for progressive
+        /// enablement, and every future default-on option must honor this.
+        /// </summary>
+        public bool DisableAllNegotiation { get; set; }
+
+        /// <summary>
         /// Gets or sets whether sessions offer <c>WILL ECHO</c> (RFC 857) in the
         /// opening preset. Agreement is negotiation state only: the read path
         /// never replays inbound bytes, so a session that wants remote echo
@@ -178,9 +189,12 @@
 
         /// <summary>
         /// Gets or sets the encoding for outbound strings and inbound decoding.
-        /// Null keeps the legacy Latin-1 mapping.
+        /// Defaults to UTF-8 (pre-1.0 change from the legacy Latin-1 null
+        /// default, matching <see cref="TelnetClientOptions.TextEncoding"/>).
+        /// Null keeps the legacy Latin-1 mapping. Agreed CHARSET still
+        /// overrides per session.
         /// </summary>
-        public Encoding? TextEncoding { get; set; }
+        public Encoding? TextEncoding { get; set; } = Encoding.UTF8;
 
         /// <summary>
         /// Gets or sets whether text read is echoed to the server console.
@@ -289,10 +303,29 @@
         /// return or a thrown exception disposes the accepted socket with no
         /// bytes sent, bumps the filter-reject counter, logs
         /// <c>over-capacity:</c> filter-reject, and throws
-        /// <see cref="InvalidOperationException"/> out of the accept path
-        /// (a filter-thrown exception is preserved as <c>InnerException</c>).
+        /// <see cref="ConnectionRefusedByFilterException"/> out of the accept
+        /// path (a filter-thrown exception is preserved as
+        /// <c>InnerException</c>). When both this and
+        /// <see cref="AcceptFilterV2"/> are set, this <c>bool</c> filter wins:
+        /// a <c>true</c> verdict accepts without consulting V2.
         /// </summary>
         public Func<System.Net.EndPoint?, bool>? AcceptFilter { get; set; }
+
+        /// <summary>
+        /// Gets or sets an optional accept filter that returns its own refuse
+        /// reason, evaluated at the same point as <see cref="AcceptFilter"/>
+        /// (after accept, before any TLS handshake or preset bytes). Null
+        /// (the default) means no V2 verdict. A refusing verdict disposes the
+        /// accepted socket with no bytes sent, bumps the filter-reject
+        /// counter, surfaces the decision reason in the
+        /// <c>over-capacity: filter-reject endpoint=…</c> log line, and throws
+        /// <see cref="ConnectionRefusedByFilterException"/> carrying that
+        /// reason (an empty reason normalizes to <c>filter-reject</c>). A
+        /// thrown exception refuses with reason <c>filter-threw</c> and the
+        /// throw preserved as <c>InnerException</c>. Consulted only when
+        /// <see cref="AcceptFilter"/> is null.
+        /// </summary>
+        public Func<System.Net.EndPoint?, AcceptDecision>? AcceptFilterV2 { get; set; }
 
         /// <summary>
         /// Gets or sets the pre-auth handshake deadline: the clock starts at
