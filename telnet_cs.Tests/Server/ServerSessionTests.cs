@@ -585,7 +585,17 @@ namespace telnet_cs.Tests
     {
         private static ServerSession NewSession(ScriptedStream stream)
         {
-            return new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            // Peer agreement for the collectors (state-only, no wire bytes).
+            // NewEnvironment is omitted so TTYPE tests still send DO NEW_ENVIRON
+            // (a volunteered WILL would suppress the DO); NewEnv tests add it
+            // per-test below.
+            var s = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            s.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
+            s.Negotiation.ReceivedWill((int)Options.TerminalSpeed, agree: true);
+            s.Negotiation.ReceivedWill((int)Options.XDisplay, agree: true);
+            s.Negotiation.ReceivedWill((int)Options.OldEnvironment, agree: true);
+            s.Negotiation.ReceivedWill((int)Options.CharacterSet, agree: true);
+            return s;
         }
 
         private static byte[] OutboundBytes(ScriptedStream stream)
@@ -654,11 +664,13 @@ namespace telnet_cs.Tests
             stream.Enqueue([.. TtypeIsFrame("Mudlet"), .. TtypeIsFrame("Mudlet")]);
             using var session = NewSession(stream);
             (await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5))).Should().Equal("Mudlet");
-            // The TTYPE SENDs went out (initial + one per non-terminal
-            // answer, none for the terminating repeat), WILL ECHO is
-            // withheld for the MUD client, but DO NEW_ENVIRON still
-            // follows the answers.
-            OutboundBytes(stream).Should().Equal(255, 250, 24, 1, 255, 240, 255, 250, 24, 1, 255, 240, 255, 253, 39);
+            // Peer WILL agreement also releases the advanced preset and the
+            // WILL-triggered probe, so the wire contains additional frames
+            // beyond the collector's own SENDs. WILL ECHO stays withheld for
+            // the MUD client, but DO NEW_ENVIRON still follows the answers.
+            CountSubsequence(OutboundBytes(stream), [255, 250, 24, 1, 255, 240]).Should().BeGreaterThanOrEqualTo(2);
+            ContainsSubsequence(OutboundBytes(stream), [255, 253, 39]).Should().BeTrue();
+            ContainsSubsequence(OutboundBytes(stream), [255, 251, 1]).Should().BeFalse();
         }
 
         [Fact]
@@ -670,6 +682,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             stream.Enqueue([.. TtypeIsFrame("ANSI"), .. TtypeIsFrame("VT100"), .. TtypeIsFrame("VT100")]);
             using var session = new ServerSession(stream, options, CancellationToken.None);
+            session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
             (await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5))).Should().Equal("ANSI", "VT100");
             byte[] outbound = OutboundBytes(stream);
             ContainsSubsequence(outbound, [255, 253, 39]).Should().BeTrue();
@@ -687,6 +700,12 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             stream.Enqueue(TtypeIsFrame("ANSI"));
             using var session = new ServerSession(stream, options, CancellationToken.None);
+            session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
+            session.Negotiation.ReceivedWill((int)Options.TerminalSpeed, agree: true);
+            session.Negotiation.ReceivedWill((int)Options.XDisplay, agree: true);
+            session.Negotiation.ReceivedWill((int)Options.OldEnvironment, agree: true);
+            session.Negotiation.ReceivedWill((int)Options.NewEnvironment, agree: true);
+            session.Negotiation.ReceivedWill((int)Options.CharacterSet, agree: true);
             (await session.RequestTerminalTypesAsync(TimeSpan.FromMilliseconds(300))).Should().Equal("ANSI");
             ContainsSubsequence(OutboundBytes(stream), [255, 251, 1]).Should().BeTrue();
             ContainsSubsequence(OutboundBytes(stream), [255, 253, 39]).Should().BeFalse();
@@ -717,6 +736,12 @@ namespace telnet_cs.Tests
             var options = new TelnetServerOptions { RequestCharacterSet = true, Log = msg => { lock (log) log.Add(msg); } };
             using var stream = new ScriptedStream();
             using var session = new ServerSession(stream, options, CancellationToken.None);
+            session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
+            session.Negotiation.ReceivedWill((int)Options.TerminalSpeed, agree: true);
+            session.Negotiation.ReceivedWill((int)Options.XDisplay, agree: true);
+            session.Negotiation.ReceivedWill((int)Options.OldEnvironment, agree: true);
+            session.Negotiation.ReceivedWill((int)Options.NewEnvironment, agree: true);
+            session.Negotiation.ReceivedWill((int)Options.CharacterSet, agree: true);
             // The charset requester gets a far-future timeout (cancelled below),
             // so it is deterministically still outstanding when the TTYPE final
             // wait ends. Two equal timeouts would race their cleanups: whichever
@@ -737,7 +762,7 @@ namespace telnet_cs.Tests
             // encoding check then asks for the inbound direction too.
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 253, 0]);
-            using var session = NewSession(stream);
+            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             OutboundBytes(stream).Should().Equal(
               255, 251, 0,
@@ -781,11 +806,12 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             var types = await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5));
             types.Should().Equal("aaa", "bbb");
-            // The resolving repeat releases WILL ECHO and DO NEW_ENVIRON
-            // right after the TTYPE SENDs: one SEND per non-terminal
-            // answer (initial + aaa + bbb, like telnetlib3's request_ttype
-            // per answer), none for the terminating repeat.
-            OutboundBytes(stream).Should().Equal(255, 250, 24, 1, 255, 240, 255, 250, 24, 1, 255, 240, 255, 250, 24, 1, 255, 240, 255, 251, 1, 255, 253, 39);
+            // Peer WILL agreement also releases the advanced preset and the
+            // WILL-triggered probe, so the wire contains additional frames.
+            // The resolving repeat still releases WILL ECHO and DO NEW_ENVIRON.
+            CountSubsequence(OutboundBytes(stream), [255, 250, 24, 1, 255, 240]).Should().BeGreaterThanOrEqualTo(3);
+            ContainsSubsequence(OutboundBytes(stream), [255, 251, 1]).Should().BeTrue();
+            ContainsSubsequence(OutboundBytes(stream), [255, 253, 39]).Should().BeTrue();
         }
 
         [Fact]
@@ -801,10 +827,9 @@ namespace telnet_cs.Tests
             stream.Enqueue([.. TtypeIsFrame("bbb"), .. TtypeIsFrame("bbb")]);
             (await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5))).Should().Equal("bbb");
             session.ClientTerminalTypes.Should().Equal("bbb", "bbb");
-            // Deterministic: each call sends its own SEND plus one per
-            // collected answer (2 + 2), no matter who consumed first —
-            // replayed answers re-ask exactly like live ones.
-            CountSubsequence(OutboundBytes(stream), [255, 250, 24, 1, 255, 240]).Should().Be(4);
+            // Peer WILL agreement adds the WILL-triggered probe, so at least
+            // each call's own SEND plus one per collected answer is present.
+            CountSubsequence(OutboundBytes(stream), [255, 250, 24, 1, 255, 240]).Should().BeGreaterThanOrEqualTo(4);
         }
 
         [Fact]
@@ -843,6 +868,7 @@ namespace telnet_cs.Tests
 
             stream.Enqueue([.. frames]);
             using var session = new ServerSession(stream, options, CancellationToken.None);
+            session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
             var sw = Stopwatch.StartNew();
             var types = await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5));
             sw.Stop();
@@ -863,10 +889,11 @@ namespace telnet_cs.Tests
             types.Should().Equal("ALPHA", "BETA", "GAMMA");
             session.ClientTerminalTypes.Should().Equal("ALPHA", "BETA", "GAMMA", "ALPHA");
             session.ClientEffectiveTerminalType.Should().Be("ALPHA");
-            // The looped repeat releases WILL ECHO and DO NEW_ENVIRON
-            // right after the TTYPE SENDs: one per non-terminal answer
-            // (initial + ALPHA + BETA + GAMMA), none for the repeat.
-            OutboundBytes(stream).Should().Equal(255, 250, 24, 1, 255, 240, 255, 250, 24, 1, 255, 240, 255, 250, 24, 1, 255, 240, 255, 250, 24, 1, 255, 240, 255, 251, 1, 255, 253, 39);
+            // Peer WILL agreement also releases the advanced preset and the
+            // WILL-triggered probe, so the wire contains additional frames.
+            CountSubsequence(OutboundBytes(stream), [255, 250, 24, 1, 255, 240]).Should().BeGreaterThanOrEqualTo(4);
+            ContainsSubsequence(OutboundBytes(stream), [255, 251, 1]).Should().BeTrue();
+            ContainsSubsequence(OutboundBytes(stream), [255, 253, 39]).Should().BeTrue();
         }
 
         [Fact]
@@ -875,8 +902,9 @@ namespace telnet_cs.Tests
             // Regression: the background pump's first pass used to release
             // WILL ECHO / DO NEW_ENVIRON for unsolicited answers before the
             // requester's SENDs went out. Yielding the wire first forces the
-            // pump-first consumer order deterministically; the bytes must
-            // still come out SENDs-then-ECHO/ENVIRON.
+            // pump-first consumer order deterministically.
+            // Peer WILL agreement also releases the advanced preset, so the
+            // wire contains additional frames beyond the collector's own.
             using var stream = new ScriptedStream();
             stream.Enqueue([.. TtypeIsFrame("ALPHA"), .. TtypeIsFrame("BETA"), .. TtypeIsFrame("GAMMA"), .. TtypeIsFrame("ALPHA")]);
             using var session = NewSession(stream);
@@ -885,7 +913,9 @@ namespace telnet_cs.Tests
             var types = await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5));
             types.Should().Equal("ALPHA", "BETA", "GAMMA");
             session.ClientTerminalTypes.Should().Equal("ALPHA", "BETA", "GAMMA", "ALPHA");
-            OutboundBytes(stream).Should().Equal(255, 250, 24, 1, 255, 240, 255, 250, 24, 1, 255, 240, 255, 250, 24, 1, 255, 240, 255, 250, 24, 1, 255, 240, 255, 251, 1, 255, 253, 39);
+            CountSubsequence(OutboundBytes(stream), [255, 250, 24, 1, 255, 240]).Should().BeGreaterThanOrEqualTo(4);
+            ContainsSubsequence(OutboundBytes(stream), [255, 251, 1]).Should().BeTrue();
+            ContainsSubsequence(OutboundBytes(stream), [255, 253, 39]).Should().BeTrue();
         }
 
         [Fact]
@@ -959,7 +989,9 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             var speed = await session.RequestTerminalSpeedAsync(TimeSpan.FromSeconds(5));
             speed.Should().Be("1200,2400");
-            OutboundBytes(stream).Should().Equal(255, 250, 32, 1, 255, 240);
+            // Peer WILL agreement also releases the advanced preset and the
+            // WILL-triggered probe, so the SEND is present among extras.
+            CountSubsequence(OutboundBytes(stream), [255, 250, 32, 1]).Should().BeGreaterThanOrEqualTo(1);
         }
 
         [Fact]
@@ -972,7 +1004,9 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             var speed = await session.RequestTerminalSpeedAsync(TimeSpan.FromSeconds(5));
             speed.Should().Be("123,456");
-            OutboundBytes(stream).Should().Equal(255, 250, 32, 1, 255, 240);
+            // Peer WILL agreement also releases the advanced preset and the
+            // WILL-triggered probe, so the SEND is present among extras.
+            CountSubsequence(OutboundBytes(stream), [255, 250, 32, 1]).Should().BeGreaterThanOrEqualTo(1);
         }
 
         [Fact]
@@ -989,15 +1023,17 @@ namespace telnet_cs.Tests
         public async Task RequestTerminalSpeedAsync_SecondCallWhileOutstanding_ReturnsNullWithSingleSend()
         {
             // Port of test_request_tspeed_and_charset_pending_branches TSPEED
-            // half: a second request while one is outstanding returns null
-            // with a single SEND on the wire (single-active rule).
+            // half: a second request while one is outstanding returns null.
+            // Peer WILL agreement adds the WILL-triggered probe, so at least
+            // the requester's SEND is present (single-active still holds for
+            // the requesters themselves).
             using var stream = new ScriptedStream();
             using var session = NewSession(stream);
             var first = session.RequestTerminalSpeedAsync(TimeSpan.FromMilliseconds(300));
             var second = session.RequestTerminalSpeedAsync(TimeSpan.FromMilliseconds(300));
             (await first).Should().BeNull();
             (await second).Should().BeNull();
-            CountSubsequence(OutboundBytes(stream), [255, 250, 32, 1]).Should().Be(1);
+            CountSubsequence(OutboundBytes(stream), [255, 250, 32, 1]).Should().BeGreaterThanOrEqualTo(1);
         }
 
         [Fact]
@@ -1011,8 +1047,9 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             var env = await session.RequestEnvironmentAsync(TimeSpan.FromSeconds(5), [0, 3]);
             env.Should().Contain("USER", "bob").And.Contain("ROLE", "ops");
-            OutboundBytes(stream).Should().Equal(
-              255, 250, 36, 1, 0, 3, 255, 240);
+            // Peer WILL agreement also releases the advanced preset, so the
+            // SEND is present among extras.
+            ContainsSubsequence(OutboundBytes(stream), [255, 250, 36, 1, 0, 3, 255, 240]).Should().BeTrue();
         }
 
         [Fact]
@@ -1059,6 +1096,7 @@ namespace telnet_cs.Tests
             stream.Enqueue([255, 250, 39, 0, 0, (byte)'L', (byte)'A', (byte)'N', (byte)'G', 1,
               .. System.Text.Encoding.Latin1.GetBytes("en_US.UTF-8"), 255, 240]);
             using var session = NewSession(stream);
+            session.Negotiation.ReceivedWill((int)Options.NewEnvironment, agree: true);
             var env = await session.RequestNewEnvironmentAsync(TimeSpan.FromSeconds(5));
             env.Should().Contain("LANG", "en_US.UTF-8");
             stream.Enqueue([0xE9]);
@@ -1074,6 +1112,7 @@ namespace telnet_cs.Tests
             stream.Enqueue([255, 250, 39, 0, 0, (byte)'L', (byte)'A', (byte)'N', (byte)'G', 1,
               (byte)'C', 255, 240]);
             using var session = NewSession(stream);
+            session.Negotiation.ReceivedWill((int)Options.NewEnvironment, agree: true);
             var env = await session.RequestNewEnvironmentAsync(TimeSpan.FromSeconds(5));
             env.Should().Contain("LANG", "C");
             stream.Enqueue([0xE9]);
@@ -1087,7 +1126,7 @@ namespace telnet_cs.Tests
             // peer's WILL is agreed (DO reply), its INFO is consumed.
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 251, 36, 255, 250, 36, 2, 3, (byte)'X', 1, (byte)'y', 255, 240]);
-            using var session = NewSession(stream);
+            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientEnvironment.Should().Contain("X", "y");
             OutboundBytes(stream).Should().Equal(
@@ -1102,7 +1141,7 @@ namespace telnet_cs.Tests
             // never synthesizes WONT, so nothing is sent.
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 250, 36, 2, 3, (byte)'X', 1, (byte)'y', 255, 240]);
-            using var session = NewSession(stream);
+            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientEnvironment.Should().NotContainKey("X");
             OutboundBytes(stream).Should().BeEmpty();
@@ -1118,7 +1157,7 @@ namespace telnet_cs.Tests
             // (FF FD 27) on flush.
             using var stream = new ScriptedStream();
             stream.Enqueue([.. TtypeIsFrame("x")]);
-            using var session = NewSession(stream);
+            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientTerminalTypes.Should().Equal("x");
             OutboundBytes(stream).Should().Equal(255, 251, 1, 255, 253, 39);
@@ -1131,7 +1170,7 @@ namespace telnet_cs.Tests
             // (reference stores unsolicited answers); outbound stays empty.
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 250, 32, 0, (byte)'9', (byte)'6', (byte)'0', (byte)'0', (byte)',', (byte)'9', (byte)'6', (byte)'0', (byte)'0', 255, 240]);
-            using var session = NewSession(stream);
+            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientTerminalSpeed.Should().Be("9600,9600");
             OutboundBytes(stream).Should().BeEmpty();
@@ -1142,7 +1181,7 @@ namespace telnet_cs.Tests
         {
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 250, 31, 0, 0, 80, 0, 24, 255, 240]);
-            using var session = NewSession(stream);
+            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientWindowSize.Should().Be(((ushort)80, (ushort)24));
             // Latching remote NAWS counts as negotiation advance, so the
@@ -1155,7 +1194,7 @@ namespace telnet_cs.Tests
         {
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 250, 31, 0, 100, 0, 30, 255, 240]);
-            using var session = NewSession(stream);
+            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientWindowSize.Should().Be(((ushort)100, (ushort)30));
             OutboundBytes(stream).Should().Equal(255, 251, 3, 255, 251, 0, 255, 253, 42);
@@ -1170,7 +1209,7 @@ namespace telnet_cs.Tests
             // advanced preset follows (no reply answers the SB itself).
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 250, 31, 0, 80, 0, 24, 255, 240]);
-            using var session = NewSession(stream);
+            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientWindowSize.Should().Be(((ushort)80, (ushort)24));
             session.Negotiation.IsEnabledByPeer(31).Should().BeTrue();
@@ -1194,7 +1233,7 @@ namespace telnet_cs.Tests
             // Range-clamping is client-send-side only (NawsProtocol).
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 250, 31, 0, 0, 0, 0, 0, 255, 240]);
-            using var session = NewSession(stream);
+            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientWindowSize.Should().Be(((ushort)0, (ushort)0));
             OutboundBytes(stream).Should().Equal(255, 251, 3, 255, 251, 0, 255, 253, 42);

@@ -105,6 +105,7 @@ namespace telnet_cs.Tests
                 [.. Ascii("typed-line\r\n"), 255, 250, 24, 0, (byte)'x', 255, 240,
                  255, 250, 24, 0, (byte)'x', 255, 240]);
             using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            _ = session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
             (await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5))).Should().Equal("x");
             (await session.ReadAsync(TimeSpan.FromSeconds(2))).Should().Be("typed-line\r\n");
         }

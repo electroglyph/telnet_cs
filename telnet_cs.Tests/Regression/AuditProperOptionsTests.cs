@@ -208,6 +208,7 @@ namespace telnet_cs.Tests
             // test is correct.
             using var stream = new ScriptedStream([.. TtypeIsFrame("xterm"), .. TtypeIsFrame(string.Empty)]);
             using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            _ = session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
             var sw = Stopwatch.StartNew();
             var result = await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(3));
             sw.Stop();
@@ -233,6 +234,7 @@ namespace telnet_cs.Tests
             var options = new TelnetServerOptions { RequestNewEnvironment = true };
             using var stream = new ScriptedStream([.. TtypeIsFrame("ANSI"), .. TtypeIsFrame(string.Empty)]);
             using var session = new ServerSession(stream, options, CancellationToken.None);
+            _ = session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
             var task = session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(3));
             await Task.Delay(800);
             byte[] mid = stream.ByteWrites.SelectMany(w => w).ToArray();
@@ -248,6 +250,7 @@ namespace telnet_cs.Tests
             var options = new TelnetServerOptions { RequestNewEnvironment = true };
             using var stream = new ScriptedStream([.. TtypeIsFrame("xterm"), .. TtypeIsFrame(string.Empty)]);
             using var session = new ServerSession(stream, options, CancellationToken.None);
+            _ = session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
             var task = session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(3));
             await Task.Delay(800);
             byte[] mid = stream.ByteWrites.SelectMany(w => w).ToArray();
@@ -271,6 +274,7 @@ namespace telnet_cs.Tests
             // correct.
             using var stream = new ScriptedStream(255, 250, 32, 0, 49, 44, 50, 44, 51, 255, 240);
             using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            _ = session.Negotiation.ReceivedWill((int)Options.TerminalSpeed, agree: true);
             (await session.RequestTerminalSpeedAsync(TimeSpan.FromSeconds(2))).Should().Be("1,2");
         }
 

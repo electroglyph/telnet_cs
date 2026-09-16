@@ -12,13 +12,21 @@ namespace telnet_cs.Tests
     using System.Threading.Tasks;
     using FluentAssertions;
     using Xunit;
+    using telnet_cs.Protocol;
     using telnet_cs.Server;
 
     public class ServerHardeningTests
     {
         private static ServerSession NewSession(ScriptedStream stream, TelnetServerOptions? options = null)
         {
-            return new ServerSession(stream, options ?? new TelnetServerOptions(), CancellationToken.None);
+            var s = new ServerSession(stream, options ?? new TelnetServerOptions(), CancellationToken.None);
+            s.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
+            s.Negotiation.ReceivedWill((int)Options.TerminalSpeed, agree: true);
+            s.Negotiation.ReceivedWill((int)Options.XDisplay, agree: true);
+            s.Negotiation.ReceivedWill((int)Options.OldEnvironment, agree: true);
+            s.Negotiation.ReceivedWill((int)Options.NewEnvironment, agree: true);
+            s.Negotiation.ReceivedWill((int)Options.CharacterSet, agree: true);
+            return s;
         }
 
         private static string OutboundText(ScriptedStream stream)

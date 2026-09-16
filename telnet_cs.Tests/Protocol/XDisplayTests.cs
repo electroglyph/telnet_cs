@@ -8,6 +8,7 @@ namespace telnet_cs.Tests
     using FluentAssertions;
     using Xunit;
     using telnet_cs.IO;
+    using telnet_cs.Protocol;
     using telnet_cs.Server;
 
     public class XDisplayTests
@@ -32,12 +33,40 @@ namespace telnet_cs.Tests
 
         private static ServerSession NewSession(ScriptedStream stream)
         {
-            return new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            // Peer agreement for XDisplay + OldEnvironment collectors (state-only).
+            var s = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            s.Negotiation.ReceivedWill((int)Options.XDisplay, agree: true);
+            s.Negotiation.ReceivedWill((int)Options.OldEnvironment, agree: true);
+            return s;
         }
 
         private static byte[] OutboundBytes(ScriptedStream stream)
         {
             return stream.ByteWrites.SelectMany(static b => b).ToArray();
+        }
+
+        private static int CountSubsequence(byte[] haystack, byte[] needle)
+        {
+            int count = 0;
+            for (int i = 0; i + needle.Length <= haystack.Length; i++)
+            {
+                bool match = true;
+                for (int j = 0; j < needle.Length; j++)
+                {
+                    if (haystack[i + j] != needle[j])
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+
+                if (match)
+                {
+                    count++;
+                }
+            }
+
+            return count;
         }
 
         [Fact]
@@ -77,7 +106,9 @@ namespace telnet_cs.Tests
             var value = await session.RequestXDisplayAsync(TimeSpan.FromSeconds(5));
             value.Should().Be("sri-nic.arpa:0.0");
             session.ClientXDisplay.Should().Be("sri-nic.arpa:0.0");
-            OutboundBytes(stream).Should().Equal(255, 250, 35, 1, 255, 240);
+            // Peer WILL agreement also releases the advanced preset, so the
+            // wire contains additional negotiation frames beyond the SEND.
+            CountSubsequence(OutboundBytes(stream), [255, 250, 35, 1, 255, 240]).Should().Be(1);
         }
 
         [Fact]
@@ -87,7 +118,7 @@ namespace telnet_cs.Tests
             // (reference stores unsolicited answers); no WONT is synthesized.
             using var stream = new ScriptedStream();
             stream.Enqueue([.. XDisplayIsFrame("x:0")]);
-            using var session = NewSession(stream);
+            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientXDisplay.Should().Be("x:0");
             session.ClientEffectiveDisplay.Should().Be("x:0");

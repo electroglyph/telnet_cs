@@ -170,6 +170,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             stream.Enqueue([.. TtypeIsFrame("ANSI"), .. TtypeIsFrame("VT100"), .. TtypeIsFrame("VT100")]);
             using var session = new ServerSession(stream, options, CancellationToken.None);
+            _ = session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
             (await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5))).Should().Equal("ANSI", "VT100");
             byte[] outbound = OutboundBytes(stream);
             ContainsSubsequence(outbound, [255, 251, 1]).Should().BeFalse();

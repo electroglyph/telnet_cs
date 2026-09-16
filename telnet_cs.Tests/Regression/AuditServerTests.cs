@@ -1,10 +1,12 @@
 namespace telnet_cs.Tests
 {
     using System;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using FluentAssertions;
     using Xunit;
+    using telnet_cs.Protocol;
     using telnet_cs.Server;
 
     public class AuditServerTests
@@ -15,7 +17,14 @@ namespace telnet_cs.Tests
 
         private static ServerSession NewSession(ScriptedStream stream)
         {
-            return new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            _ = session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
+            _ = session.Negotiation.ReceivedWill((int)Options.TerminalSpeed, agree: true);
+            _ = session.Negotiation.ReceivedWill((int)Options.XDisplay, agree: true);
+            _ = session.Negotiation.ReceivedWill((int)Options.OldEnvironment, agree: true);
+            _ = session.Negotiation.ReceivedWill((int)Options.NewEnvironment, agree: true);
+            _ = session.Negotiation.ReceivedWill((int)Options.CharacterSet, agree: true);
+            return session;
         }
 
         [Fact]
@@ -97,7 +106,10 @@ namespace telnet_cs.Tests
             await Task.Delay(100);
             var second = session.RequestXDisplayAsync(TimeSpan.FromMilliseconds(300));
             await Task.WhenAll(first, second);
-            stream.ByteWrites.Should().HaveCount(1);
+            // Request requires prior WILL XDISPLOC (enabled in NewSession helper);
+            // the agreement also arms the advanced preset and probes, so count
+            // only the XDISPLOC SEND frames for the single-active rule.
+            stream.ByteWrites.Where(w => w.SequenceEqual(new byte[] { 255, 250, 35, 1, 255, 240 })).Should().HaveCount(1);
         }
 
         [Fact]

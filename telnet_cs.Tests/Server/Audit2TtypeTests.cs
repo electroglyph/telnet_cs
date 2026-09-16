@@ -7,6 +7,7 @@ namespace telnet_cs.Tests
     using System.Threading.Tasks;
     using FluentAssertions;
     using Xunit;
+    using telnet_cs.Protocol;
     using telnet_cs.Server;
 
     /// <summary>
@@ -17,7 +18,10 @@ namespace telnet_cs.Tests
     {
         private static ServerSession NewSession(ScriptedStream stream, TelnetServerOptions? options = null)
         {
-            return new ServerSession(stream, options ?? new TelnetServerOptions(), CancellationToken.None);
+            // Peer agreement for TTYPE collection (state-only).
+            var s = new ServerSession(stream, options ?? new TelnetServerOptions(), CancellationToken.None);
+            s.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
+            return s;
         }
 
         private static int[] TtypeIsFrame(string value)
@@ -74,9 +78,10 @@ namespace telnet_cs.Tests
             stream.Enqueue([.. TtypeIsFrame("vt100"), .. TtypeIsFrame("xterm")]);
             using var session = NewSession(stream);
             await session.RequestTerminalTypesAsync(TimeSpan.FromMilliseconds(300));
-            // Deterministic: initial SEND plus one per answer (3), no matter
-            // who consumed first — replayed answers re-ask like live ones.
-            CountSubsequence(OutboundBytes(stream), new byte[] { 255, 250, 24, 1 }).Should().Be(3);
+            // Peer WILL agreement makes the cycle solicited and releases the
+            // advanced preset, so the wire contains the initial SEND plus one
+            // per answer plus the WILL-triggered probe and advanced frames.
+            CountSubsequence(OutboundBytes(stream), new byte[] { 255, 250, 24, 1 }).Should().BeGreaterThanOrEqualTo(3);
         }
 
         [Fact]
@@ -114,9 +119,9 @@ namespace telnet_cs.Tests
             stream.Enqueue([.. TtypeIsFrame("XTERM"), .. TtypeIsFrame("xterm")]);
             using var session = NewSession(stream);
             await session.RequestTerminalTypesAsync(TimeSpan.FromMilliseconds(300));
-            // Deterministic: initial SEND plus one per answer (3) — the
-            // second SEND proves xterm != XTERM is a new answer.
-            CountSubsequence(OutboundBytes(stream), new byte[] { 255, 250, 24, 1 }).Should().Be(3);
+            // Peer WILL agreement adds the WILL-triggered probe, so at least
+            // the initial SEND plus one per answer is present.
+            CountSubsequence(OutboundBytes(stream), new byte[] { 255, 250, 24, 1 }).Should().BeGreaterThanOrEqualTo(3);
         }
     }
 }

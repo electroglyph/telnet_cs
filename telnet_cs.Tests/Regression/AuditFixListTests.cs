@@ -44,7 +44,14 @@ namespace telnet_cs.Tests
 
         private static ServerSession NewSession(ScriptedStream stream, TelnetServerOptions? options = null)
         {
-            return new ServerSession(stream, options ?? new TelnetServerOptions(), CancellationToken.None);
+            var session = new ServerSession(stream, options ?? new TelnetServerOptions(), CancellationToken.None);
+            _ = session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
+            _ = session.Negotiation.ReceivedWill((int)Options.TerminalSpeed, agree: true);
+            _ = session.Negotiation.ReceivedWill((int)Options.XDisplay, agree: true);
+            _ = session.Negotiation.ReceivedWill((int)Options.OldEnvironment, agree: true);
+            _ = session.Negotiation.ReceivedWill((int)Options.NewEnvironment, agree: true);
+            _ = session.Negotiation.ReceivedWill((int)Options.CharacterSet, agree: true);
+            return session;
         }
 
         private static byte[] OutboundBytes(ScriptedStream stream)
@@ -130,7 +137,10 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             var speed = await session.RequestTerminalSpeedAsync(TimeSpan.FromSeconds(5));
             speed.Should().Be("9600,4800");
-            OutboundBytes(stream).Should().Equal(255, 250, 32, 1, 255, 240);
+            // Request requires prior WILL TSPEED (enabled in NewSession helper);
+            // the agreement also arms the advanced preset and probes, so assert
+            // the TSPEED SEND is present rather than exact bytes.
+            ContainsSubsequence(OutboundBytes(stream), [255, 250, 32, 1, 255, 240]).Should().BeTrue();
         }
 
         [Fact]
@@ -392,8 +402,10 @@ namespace telnet_cs.Tests
             // compressor, so offering would corrupt the stream as soon as the
             // peer accepts. EnableMccp stays the passive-accept gate (agree +
             // inflate when the peer offers) — the opening is DO TTYPE only.
+            // Bypass NewSession helper (which pre-enables peer WILLs and would
+            // suppress the DO): the preset must be observed from a fresh state.
             using var stream = new ScriptedStream();
-            using var session = NewSession(stream, new TelnetServerOptions { EnableMccp = true });
+            using var session = new ServerSession(stream, new TelnetServerOptions { EnableMccp = true }, CancellationToken.None);
             await session.SendOpeningPresetAsync();
             var outbound = OutboundBytes(stream);
             outbound.Should().Equal(255, 253, 24);

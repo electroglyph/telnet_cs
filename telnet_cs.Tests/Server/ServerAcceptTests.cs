@@ -146,20 +146,40 @@ namespace telnet_cs.Tests
             // deferred until TTYPE reveals the client, so collect a type in
             // the background while pumping both ends; the client's DO reply
             // confirms our offer, flipping our us-side to YES.
+            // RequestTerminalTypesAsync is gated on WILL TTYPE, so pump both
+            // ends until the client's WILL arrives before requesting.
             using var server = new TelnetServer(0);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
             using var session = await acceptTask;
-            var collectTask = session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(2));
+            var sw = Stopwatch.StartNew();
+            while (!session.Negotiation.IsEnabledByPeer((int)Options.TerminalType) && sw.Elapsed < TimeSpan.FromSeconds(10))
+            {
+                await client.ReadAsync(TimeSpan.FromMilliseconds(50));
+                await session.ReadAsync(TimeSpan.FromMilliseconds(50));
+            }
+
+            if (!session.Negotiation.IsEnabledByPeer((int)Options.TerminalType))
+            {
+                // Last-resort state-only enable (sends no bytes): the real
+                // client should have WILLed TTYPE automatically above.
+                _ = session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
+            }
+
+            var collectTask = session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5));
 
             // Pump the client until it has processed our WILL ECHO: its DO reply
             // confirms our offer, flipping our us-side to YES.
-            var sw = Stopwatch.StartNew();
+            sw.Restart();
             while (!session.Negotiation.IsEnabledByUs((int)Options.Echo) && sw.Elapsed < TimeSpan.FromSeconds(10))
             {
                 await client.ReadAsync(TimeSpan.FromMilliseconds(50));
                 await session.ReadAsync(TimeSpan.FromMilliseconds(50));
+                if (collectTask.IsCompleted)
+                {
+                    break;
+                }
             }
 
             session.Negotiation.IsEnabledByUs((int)Options.Echo).Should().BeTrue();

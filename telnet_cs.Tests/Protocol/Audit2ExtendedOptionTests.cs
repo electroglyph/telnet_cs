@@ -8,6 +8,7 @@ namespace telnet_cs.Tests
     using FluentAssertions;
     using Xunit;
     using telnet_cs.Client;
+    using telnet_cs.Protocol;
     using telnet_cs.Server;
 
     /// <summary>
@@ -196,6 +197,7 @@ namespace telnet_cs.Tests
             // second frame sent after IS.
             using var stream = new ScriptedStream();
             using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            _ = session.Negotiation.ReceivedWill((int)Options.OldEnvironment, agree: true);
             var types = Enumerable.Repeat((byte)0, 300).ToArray();
             await session.RequestEnvironmentAsync(TimeSpan.FromMilliseconds(300), types);
             var frames = stream.ByteWrites

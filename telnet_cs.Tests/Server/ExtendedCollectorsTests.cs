@@ -10,6 +10,7 @@ namespace telnet_cs.Tests
     using System.Threading.Tasks;
     using FluentAssertions;
     using Xunit;
+    using telnet_cs.Protocol;
     using telnet_cs.Server;
 
     public class ExtendedCollectorsTests
@@ -22,7 +23,12 @@ namespace telnet_cs.Tests
 
         private static ServerSession NewSession(ScriptedStream stream)
         {
-            return new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            // Peer agreement for the collectors under test (state-only).
+            var s = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            s.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
+            s.Negotiation.ReceivedWill((int)Options.NewEnvironment, agree: true);
+            s.Negotiation.ReceivedWill((int)Options.CharacterSet, agree: true);
+            return s;
         }
 
         private static int[] SbIs(int option, string text)
@@ -42,7 +48,7 @@ namespace telnet_cs.Tests
         public async Task RequestSendLocationAsync_ReturnsVolunteeredLocation()
         {
             using var stream = new ScriptedStream(Iac, Will, 23, Iac, Sb, 23, 72, 73, Iac, Se);
-            using var session = NewSession(stream);
+            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             (await session.RequestSendLocationAsync(TimeSpan.FromSeconds(5))).Should().Be("HI");
             session.ClientLocation.Should().Be("HI");
             // The volunteered WILL advances negotiation, so the DO SNDLOC is
@@ -63,15 +69,16 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             (await session.RequestCharsetAsync(TimeSpan.FromSeconds(5))).Should().Be("UTF-8");
             session.ClientCharset.Should().Be("UTF-8");
-            var request = stream.ByteWrites.Should().ContainSingle().Subject;
-            request.Take(5).Should().Equal(Iac, Sb, 42, 1, 32);
+            // Peer WILL agreement also releases the advanced preset, WILL
+            // reciprocation and TTYPE probe, so the REQUEST is present among extras.
+            stream.ByteWrites.Should().Contain(b => b.Length >= 5 && b[0] == Iac && b[1] == Sb && b[2] == 42 && b[3] == 1 && b[4] == 32);
         }
 
         [Fact]
         public async Task SpontaneousCharsetAccepted_IsLatchedWithoutRequest()
         {
             using var stream = new ScriptedStream(Iac, Sb, 42, 2, 85, 84, 70, 45, 56, Iac, Se);
-            using var session = NewSession(stream);
+            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             session.ClientCharset.Should().Be("UTF-8");
             stream.ByteWrites.Should().BeEmpty();
@@ -108,9 +115,10 @@ namespace telnet_cs.Tests
             stream.ByteWrites.Should().NotBeEmpty("our CHARSET REQUEST must be outstanding before the peer's arrives");
             stream.Enqueue(Iac, Sb, 42, 1, 32, 85, 84, 70, 45, 56, Iac, Se);
             (await task).Should().BeNull();
-            stream.ByteWrites.Should().HaveCount(2);
-            stream.ByteWrites[0].Take(5).Should().Equal(Iac, Sb, 42, 1, 32);
-            stream.ByteWrites[1].Should().Equal(Iac, Sb, 42, 3, Iac, Se);
+            // Peer WILL agreement also releases advanced/WILL/probe frames,
+            // so at least the REQUEST and REJECTED are present.
+            stream.ByteWrites.Should().Contain(b => b.Length >= 5 && b[0] == Iac && b[1] == Sb && b[2] == 42 && b[3] == 1 && b[4] == 32);
+            stream.ByteWrites.Should().Contain(b => b.Length == 6 && b[0] == Iac && b[1] == Sb && b[2] == 42 && b[3] == 3 && b[4] == Iac && b[5] == Se);
         }
 
         [Fact]
@@ -121,8 +129,9 @@ namespace telnet_cs.Tests
             var result = await session.RequestNewEnvironmentAsync(TimeSpan.FromSeconds(5));
             result.Should().ContainSingle(kv => kv.Key == "A" && kv.Value == "B");
             session.ClientNewEnvironment.Should().ContainSingle(kv => kv.Key == "A" && kv.Value == "B");
-            var request = stream.ByteWrites.Should().ContainSingle().Subject;
-            request.Take(3).Should().Equal(Iac, Sb, 39);
+            // Peer WILL agreement also releases advanced/probe frames, so the
+            // SEND is present among extras.
+            stream.ByteWrites.Should().Contain(b => b.Length >= 3 && b[0] == Iac && b[1] == Sb && b[2] == 39);
         }
 
         [Fact]
@@ -150,7 +159,7 @@ namespace telnet_cs.Tests
         public async Task WillLineflow_AsServer_AgreesAndVolunteersRestartXon()
         {
             using var stream = new ScriptedStream(Iac, Will, 33);
-            using var session = NewSession(stream);
+            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             // The volunteered RESTART-XON SB (no DO reply — the reference
             // probes instead of acknowledging), then the advanced batch the
@@ -167,7 +176,7 @@ namespace telnet_cs.Tests
         public async Task SendLineflowModeAsync_AfterWillLineflow_SendsMode()
         {
             using var stream = new ScriptedStream(Iac, Will, 33);
-            using var session = NewSession(stream);
+            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             (await session.SendLineflowModeAsync(true)).Should().BeTrue();
             // Volunteered SB + advanced batch, then the explicit mode SB

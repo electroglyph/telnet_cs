@@ -477,6 +477,12 @@
         /// <param name="cancellationToken">A token to cancel the wait.</param>
         public async Task<IReadOnlyList<string>> RequestTerminalTypesAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
         {
+            if (!Negotiation.IsEnabledByPeer((int)Options.TerminalType))
+            {
+                WriteLog("Cannot send SB TTYPE SEND without receipt of WILL TTYPE.");
+                return [];
+            }
+
             List<string> snapshot;
             int replayFrom;
             bool preDone;
@@ -1047,6 +1053,12 @@
         /// <param name="cancellationToken">A token to cancel the wait.</param>
         public async Task<string?> RequestTerminalSpeedAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
         {
+            if (!Negotiation.IsEnabledByPeer((int)Options.TerminalSpeed))
+            {
+                WriteLog("Cannot send SB TSPEED SEND without receipt of WILL TSPEED.");
+                return null;
+            }
+
             bool preStored;
             using (await AcquireWireForRequestAsync(cancellationToken).ConfigureAwait(false))
             {
@@ -1099,6 +1111,12 @@
         /// <param name="cancellationToken">A token to cancel the wait.</param>
         public async Task<string?> RequestXDisplayAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
         {
+            if (!Negotiation.IsEnabledByPeer((int)Options.XDisplay))
+            {
+                WriteLog("Cannot send SB XDISPLOC SEND without receipt of WILL XDISPLOC.");
+                return null;
+            }
+
             bool preStored;
             using (await AcquireWireForRequestAsync(cancellationToken).ConfigureAwait(false))
             {
@@ -1153,6 +1171,12 @@
         /// <param name="cancellationToken">A token to cancel the wait.</param>
         public async Task<IReadOnlyDictionary<string, string>> RequestEnvironmentAsync(TimeSpan timeout, byte[]? types = null, CancellationToken cancellationToken = default)
         {
+            if (!Negotiation.IsEnabledByPeer((int)Options.OldEnvironment))
+            {
+                WriteLog("Cannot send SB OLD_ENVIRON SEND without receipt of WILL OLD_ENVIRON.");
+                return new Dictionary<string, string>(StringComparer.Ordinal);
+            }
+
             bool preSatisfied;
             using (await AcquireWireForRequestAsync(cancellationToken).ConfigureAwait(false))
             {
@@ -1192,6 +1216,12 @@
         /// <param name="cancellationToken">A token to cancel the wait.</param>
         public async Task<IReadOnlyDictionary<string, string>> RequestNewEnvironmentAsync(TimeSpan timeout, byte[]? types = null, CancellationToken cancellationToken = default)
         {
+            if (!Negotiation.IsEnabledByPeer((int)Options.NewEnvironment))
+            {
+                WriteLog("Cannot send SB NEW_ENVIRON SEND without receipt of WILL NEW_ENVIRON.");
+                return new Dictionary<string, string>(StringComparer.Ordinal);
+            }
+
             bool preSatisfied;
             using (await AcquireWireForRequestAsync(cancellationToken).ConfigureAwait(false))
             {
@@ -1247,6 +1277,13 @@
         /// <param name="cancellationToken">A token to cancel the wait.</param>
         public async Task<string?> RequestCharsetAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
         {
+            if (!Negotiation.IsEnabledByPeer((int)Options.CharacterSet) &&
+                !Negotiation.IsEnabledByUs((int)Options.CharacterSet))
+            {
+                WriteLog("Cannot send SB CHARSET REQUEST without CHARSET being active.");
+                return null;
+            }
+
             bool preStored;
             using (await AcquireWireForRequestAsync(cancellationToken).ConfigureAwait(false))
             {
