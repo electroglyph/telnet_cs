@@ -7,7 +7,7 @@ namespace telnet_cs.Tests
     using Xunit;
     using telnet_cs.Protocol;
 
-    public class AuditProtocolTests
+    public class ProtocolParsingTests
     {
         private const byte Var = 1;
         private const byte Val = 2;

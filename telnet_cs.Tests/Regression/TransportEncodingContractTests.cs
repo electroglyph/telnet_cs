@@ -10,7 +10,7 @@ namespace telnet_cs.Tests
     using telnet_cs.IO;
     using telnet_cs.Transport;
 
-    public class AuditTransportEncodingTests
+    public class TransportEncodingContractTests
     {
         [Fact]
         public void RegisteredProvider_ResolvesAdvertisedCodepage()

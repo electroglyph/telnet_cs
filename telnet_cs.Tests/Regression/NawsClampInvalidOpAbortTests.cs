@@ -10,7 +10,7 @@
     using telnet_cs.IO;
     using telnet_cs.Transport;
 
-    public class AuditCoverageTopUp3Tests
+    public class NawsClampInvalidOpAbortTests
     {
         [Fact]
         public async Task NawsOutOfRangeDimensionsClampToUShortRange()

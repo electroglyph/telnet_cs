@@ -10,7 +10,7 @@ namespace telnet_cs.Tests
     using telnet_cs.IO;
     using telnet_cs.Transport;
 
-    public class AuditIoSplitTests
+    public class SplitIacSbFramingTests
     {
         private const int Iac = 255;
         private const int Sb = 250;

@@ -14,12 +14,11 @@ namespace telnet_cs.Tests
     using telnet_cs.Transport;
 
     /// <summary>
-    /// Audit §1 proper-behavior tests: data bytes must reach the reader
-    /// verbatim (telnetlib3 <c>_process_data_chunk</c> forwards every non-IAC
-    /// byte; RFC 854 NVT printer defines no expansions). Each test below
-    /// FAILS against current behavior and quotes its finding ID.
+    /// Data-path tests: data bytes must reach the reader verbatim
+    /// (telnetlib3 <c>_process_data_chunk</c> forwards every non-IAC
+    /// byte; RFC 854 NVT printer defines no expansions).
     /// </summary>
-    public class AuditProperCoreTests
+    public class ByteStreamDataPathTests
     {
         private static async Task<(string Output, byte[] Writes, byte[] Singles)> ReadScriptedAsync(params int[] reads)
         {
@@ -42,7 +41,7 @@ namespace telnet_cs.Tests
         [InlineData(31)]
         public async Task ControlBytes_ArriveVerbatim(int controlByte)
         {
-            // F-C1: no "^C" / "\n \n" / "NAK: ..." expansions, no drops, no
+            // No "^C" / "\n \n" / "NAK: ..." expansions, no drops, no
             // destructive backspace handling in the data path.
             var (output, _, _) = await ReadScriptedAsync(controlByte, 65);
             output.Should().Be(((char)controlByte).ToString() + "A");
@@ -51,7 +50,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Ayt_ConsumedWithoutReply()
         {
-            // F-C9: AYT earns no proof-alive bytes — answering would inject
+            // AYT earns no proof-alive bytes — answering would inject
             // peer-visible data outside any framing the caller controls.
             var (output, writes, _) = await ReadScriptedAsync(255, 246);
             output.Should().BeEmpty();
@@ -63,7 +62,7 @@ namespace telnet_cs.Tests
         [InlineData(248)]
         public async Task EraseCommands_LeaveBufferUntouched(int command)
         {
-            // F-C10: EC/EL are consumed without editing — the delivery buffer
+            // EC/EL are consumed without editing — the delivery buffer
             // is the application's byte record, not a terminal line.
             var (output, writes, _) = await ReadScriptedAsync(65, 66, 255, command);
             output.Should().Be("AB");
@@ -73,7 +72,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Enquiry_SendsNoAck()
         {
-            // F-C1: ENQ must not emit an unsolicited ACK wire byte.
+            // ENQ must not emit an unsolicited ACK wire byte.
             var (output, _, singles) = await ReadScriptedAsync(5);
             output.Should().Be("\u0005");
             singles.Should().BeEmpty();
@@ -109,7 +108,7 @@ namespace telnet_cs.Tests
         [InlineData(238)]
         public async Task OutOfBandSignals_ConsumedNotText(int command)
         {
-            // F-C3: BRK/EOF/SUSP/ABORT are consumed, never "[BRK]" text.
+            // BRK/EOF/SUSP/ABORT are consumed, never "[BRK]" text.
             var (output, _, _) = await ReadScriptedAsync(255, command);
             output.Should().BeEmpty();
         }
@@ -138,7 +137,7 @@ namespace telnet_cs.Tests
         [InlineData(12)]
         public async Task VerticalTabFormFeed_PreservedVerbatim(int controlByte)
         {
-            // F-C13: no platform-dependent Environment.NewLine mapping.
+            // No platform-dependent Environment.NewLine mapping.
             var (output, _, _) = await ReadScriptedAsync(controlByte);
             output.Should().Be(((char)controlByte).ToString());
         }

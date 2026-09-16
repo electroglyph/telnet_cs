@@ -9,7 +9,7 @@ namespace telnet_cs.Tests
     using telnet_cs.Client;
     using telnet_cs.Protocol;
 
-    public class AuditClientTests
+    public class ClientSendGaWaitGuardsTests
     {
         [Fact]
         public async Task SendGa_Disconnected_ReturnsFalse()

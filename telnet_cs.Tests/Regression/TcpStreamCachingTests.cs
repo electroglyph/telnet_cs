@@ -5,7 +5,7 @@
     using Xunit;
     using telnet_cs.Transport;
 
-    public class AuditStreamRegressionTests
+    public class TcpStreamCachingTests
     {
         [Fact]
         public void GetStreamReturnsCachedInstance()

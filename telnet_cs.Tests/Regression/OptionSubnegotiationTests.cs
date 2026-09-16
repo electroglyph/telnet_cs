@@ -14,11 +14,10 @@ namespace telnet_cs.Tests
     using telnet_cs.Transport;
 
     /// <summary>
-    /// Audit §3 proper-behavior tests. F-O1–O3/O5–O9/O11/O15 FAIL against
-    /// current behavior; the F-O16a/d/e pins PASS (that code is already
-    /// correct, some of it more correct than the reference).
+    /// Option subnegotiation tests: CHARSET, LINEMODE, NEW-ENVIRON, XDISPLOC,
+    /// TTYPE, TSPEED, NAWS, STATUS, and GA suppression.
     /// </summary>
-    public class AuditProperOptionsTests
+    public class OptionSubnegotiationTests
     {
         private static async Task<(string Output, byte[] Writes)> ReadScriptedAsync(params int[] reads)
         {
@@ -245,7 +244,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task TtypeKnownThenEmpty_ArmsEnvironWithoutTimeout()
         {
-            // F-O15: like the ANSI case, a known first answer followed by an
+            // Like the ANSI case, a known first answer followed by an
             // empty second answer releases DO NEW_ENVIRON immediately.
             var options = new TelnetServerOptions { RequestNewEnvironment = true };
             using var stream = new ScriptedStream([.. TtypeIsFrame("xterm"), .. TtypeIsFrame(string.Empty)]);
@@ -319,7 +318,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task NawsVerbFirst_Accepted()
         {
-            // F-O16a pin (already correct): our own 5-byte verb-first shape is
+            // Our own 5-byte verb-first shape is
             // accepted alongside the strict RFC 1073 shape.
             using var stream = new ScriptedStream();
             stream.Enqueue([255, 250, 31, 0, 0, 80, 0, 24, 255, 240]);
@@ -331,7 +330,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void CharsetSeparator_FallsBackFromSpace()
         {
-            // F-O16d pin (already correct, RFC 2066): spaceless names keep the
+            // RFC 2066: spaceless names keep the
             // space separator; names with spaces pick ';'/','/'/'.
             CharsetProtocol.BuildRequest(["US-ASCII", "LATIN-1"])[1].Should().Be((byte)' ');
             CharsetProtocol.BuildRequest(["A B", "C"])[1].Should().NotBe((byte)' ');
@@ -340,7 +339,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void EnvironEscapes_RoundTripValueByte()
         {
-            // F-O16e pin (already correct, RFC 1408 §4.3): a VALUE byte inside
+            // RFC 1408 §4.3: a VALUE byte inside
             // a value is escaped and survives the round trip.
             var entries = EnvironmentProtocol.ParseEntries(new byte[] { 0, 0, (byte)'A', 1, (byte)'x', 2, 1, (byte)'y' });
             entries.Should().ContainSingle().Which.Should().Be((false, "A", "x\u0001y"));

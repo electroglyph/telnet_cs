@@ -13,10 +13,12 @@ namespace telnet_cs.Tests
     using telnet_cs.Server;
 
     /// <summary>
-    /// Round-2 audit (§6) server pins: each test asserts the telnetlib3
-    /// behavior, so every test here fails against the current code.
+    /// Server behavior pins: opening negotiation preset, defaults, idle/timeout
+    /// accounting, session shutdown, inbound processing, authentication echo
+    /// handling, REPL editing, and client waiting, pinned against the
+    /// telnetlib3 server behavior.
     /// </summary>
-    public class Audit2ServerTests
+    public class ServerReferenceBehaviorTests
     {
         private static byte[] OutboundBytes(ScriptedStream stream)
         {
@@ -49,7 +51,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task OpeningPreset_MatchesReference()
         {
-            // audit2 §6 F2-PRESET (corrected; verified live).
+            // Opening preset sends only DO TTYPE, then advances after the TTYPE ack
+            // without unsolicited TSPEED/OLD_ENVIRON/LINEMODE.
             // Reference: server.py:251-256 (begin_negotiation sends only
             // iac(DO,TTYPE)); server_base.py:295-309
             // (negotiation_should_advance = any remote/local option
@@ -80,20 +83,21 @@ namespace telnet_cs.Tests
         [Fact]
         public void RequestLinemode_DefaultFalse()
         {
-            // audit2 §6 6.7 (verified live).
+            // Line mode is off by default (char mode); defaulting RequestLinemode
+            // to true would emit DO LINEMODE.
             // Reference: server.py:75 (CONFIG.line_mode: bool = False),
             // :106 (TelnetServer.__init__ line_mode=False), :1100
             // (create_server line_mode=False) — char mode by default.
             // Defaulting RequestLinemode to true inverts it to DO LINEMODE.
-            // CONFLICT: ServerAcceptTests.TelnetServerOptions_HasDocumentedDefaults
-            // pins the current default — owner to triage.
+            // Note: ServerAcceptTests.TelnetServerOptions_HasDocumentedDefaults
+            // pins the current default; this test pins the reference default (false).
             new TelnetServerOptions().RequestLinemode.Should().BeFalse();
         }
 
         [Fact]
         public void DefaultCharsetOffers_MatchReference()
         {
-            // audit2 §6 6.4 (verified live).
+            // Default charset offers match the reference order.
             // Reference: server.py:557-592, executable return :574-591 =
             // ["UTF-8","UTF-16","LATIN1","CP1252","ISO-8859-15","CP437",
             // "SHIFT_JIS","CP932","BIG5","CP950","GBK","GB2312","CP936",
@@ -110,7 +114,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task IacOnlyTraffic_ResetsIdle()
         {
-            // audit2 §6 6.9 (verified live).
+            // IAC-only traffic still counts as peer activity and resets the idle stamp.
             // Reference: server_base.py:204-211 (data_received
             // unconditionally stamps _last_received = now() and counts
             // _rx_bytes += len(data) BEFORE _process_data_chunk).
@@ -127,7 +131,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void SetTimeout_NotCountedAsActivity()
         {
-            // audit2 §6 6.9 (verified live).
+            // Arming a timeout does not itself count as peer activity.
             // Reference: server.py:428-447 (set_timeout cancels the old
             // timer, call_later's a new one, stores
             // _extra["timeout"]=duration; never touches _last_received).
@@ -144,15 +148,14 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Stop_ClosesAcceptedSessions()
         {
-            // audit2 §6 6.10 (verified live).
+            // Stop closes accepted sessions.
             // Reference: server.py:957-963 (Server.close():
             // self._server.close(); for protocol in list(self._protocols):
             // protocol._transport.close()).
             // Repro (live create_server + raw socket): 1 protocol
             // registered, is_closing()==False pre-close; after close()
             // the transport is None/closing (True). Leaving sessions past
-            // Stop strands them until GC/Dispose. (By design today —
-            // owner to triage.)
+            // Stop would strand them until GC/Dispose.
             using var server = new TelnetServer(0);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
@@ -167,7 +170,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task InboundProcessed_WithoutCallerRead()
         {
-            // audit2 §6 6.11 push-vs-pull (verified live).
+            // Inbound negotiation is processed without requiring a caller read (push path).
             // Reference: server_base.py:204-246 (data_received ->
             // _process_data_chunk :237-239 -> cmd_received ->
             // _check_negotiation_timer :245-246 -> check_negotiation
@@ -187,7 +190,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task AuthenticateAsync_SendsNoWillEcho()
         {
-            // audit2 §6 6.2 (verified live).
+            // Authentication sends no WILL ECHO; ECHO stays deferred.
             // Reference: no Authenticate/authenticate/login symbol exists
             // in server.py/server_base.py/server_shell.py (grep empty);
             // WILL ECHO is emitted only at server.py:709 inside
@@ -205,11 +208,11 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task ReplSlcCommand_Handled()
         {
-            // audit2 §6 6.6 (verified live).
+            // The REPL "slc" command prints the special-line-characters table instead of "no such command".
             // Reference: server_shell.py:235-237 (command=="slc" ->
             // _write(get_slcdata)), :238-243 (linemode/toggle/dump),
             // :283-284 ("no such command." only on fallthrough).
-            // Repro (live telnet_server_shell, "slc\rquit\r" fakes):
+            // Repro ("slc\rquit\r" input):
             // output is the "Special Line Characters:..." table and
             // 'no such command' not in output.
             using var stream = new ScriptedStream("slc\nquit\n");
@@ -222,7 +225,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task ReplBackspace_EditsLine()
         {
-            // audit2 §6 6.6 (verified live).
+            // The REPL backspace edits the current line (grapheme delete).
             // Reference: server_shell.py:122-130 (_backspace_grapheme ->
             // "\b \b" * width), :139-174 (_LineEditor.feed), :162-167
             // (char in ("\b","\x7f") -> grapheme delete).
@@ -239,7 +242,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void Server_ExposesWaitForClient()
         {
-            // audit2 §6 6.12 (verified live).
+            // A wait-for-next-client primitive is exposed (C# shape: WaitForClientAsync).
             // Reference: server.py:993-1005 (async def wait_for_client:
             // return await self._new_client.get()), :955
             // (Queue(maxsize=1000)), :922-937 (_enqueue_client,
@@ -247,8 +250,7 @@ namespace telnet_cs.Tests
             // _waiter_connected callback).
             // Repro: hasattr(Server,"wait_for_client")==True; live
             // create_server + WILL TTYPE client -> await wait_for_client()
-            // returns a TelnetServer. Callers must hand-roll it here.
-            // (Exact C# API shape is owner's choice.)
+            // returns a TelnetServer. Callers must hand-roll it here without this API.
             typeof(TelnetServer).GetMethod("WaitForClientAsync").Should().NotBeNull();
         }
     }

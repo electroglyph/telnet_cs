@@ -11,7 +11,7 @@
     using telnet_cs.Client;
     using telnet_cs.IO;
 
-    public class AuditCoverageTopUpTests
+    public class Utf8ControlRegexNawsTests
     {
         [Fact]
         public async Task Utf8TextEncodingDecodesMultibyteRead()

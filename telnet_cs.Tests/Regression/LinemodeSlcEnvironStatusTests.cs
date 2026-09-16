@@ -20,7 +20,7 @@ namespace telnet_cs.Tests
     /// mark places where this library still diverges from the reference;
     /// passing tests pin intentional behavior that must not change silently.
     /// </summary>
-    public class AuditFixListTests
+    public class LinemodeSlcEnvironStatusTests
     {
         private static byte[] L(string text) => Encoding.Latin1.GetBytes(text);
 

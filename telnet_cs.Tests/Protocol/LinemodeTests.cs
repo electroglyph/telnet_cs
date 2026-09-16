@@ -404,7 +404,7 @@
             // still at 9 and stays silent (one SLC reply total, not two).
             // No LINEMODE agreement exists on this bare handler, so no
             // forwardmask request goes out (reference suppresses DO
-            // FORWARDMASK without receipt of WILL LINEMODE; see A6-3).
+            // FORWARDMASK without receipt of WILL LINEMODE).
             using var stream = new ScriptedStream();
             using var cts = new CancellationTokenSource();
             using var sut = new ByteStreamHandler(stream, cts, 1);

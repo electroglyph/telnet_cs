@@ -13,11 +13,10 @@ namespace telnet_cs.Tests
     using telnet_cs.Transport;
 
     /// <summary>
-    /// Audit §2 proper-behavior tests. F-N1–N4/N10 FAIL against current
-    /// behavior; the F-N5–N9 pins PASS (ours is already RFC 1143-correct there
-    /// and must stay that way).
+    /// Negotiation behavior tests (RFC 1143 Q-method, TIMING-MARK, LOGOUT,
+    /// stray subnegotiation, and role-directional refusals).
     /// </summary>
-    public class AuditProperNegotiationTests
+    public class Rfc1143NegotiationTests
     {
         private static async Task<(string Output, byte[] Writes)> ReadScriptedAsync(params int[] reads)
         {
@@ -344,7 +343,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void SimultaneousDisableThenWill_StaysDisabledSilent()
         {
-            // F-N6 pin (ours correct): WANTNO EMPTY + WILL resolves to NO
+            // WANTNO EMPTY + WILL resolves to NO
             // with no reply ("DONT answered by WILL").
             var state = new NegotiationState();
             state.ReceivedWill(1, agree: true).Should().Be(Commands.Do);
@@ -356,7 +355,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void DuplicateWill_NoReplyNoSideEffects()
         {
-            // F-N8 pin (ours correct): redundant WILL in YES is ignored.
+            // Redundant WILL in YES is ignored.
             var state = new NegotiationState();
             state.ReceivedWill(31, agree: true).Should().Be(Commands.Do);
             state.ReceivedWill(31, agree: true).Should().BeNull();
@@ -365,7 +364,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void FreshDisable_Silent()
         {
-            // F-N9 pin (ours correct): never initiate DONT/WONT for disabled.
+            // Never initiate DONT/WONT for disabled.
             var state = new NegotiationState();
             state.OfferDisable(3).Should().BeNull();
             state.RequestDisable(3).Should().BeNull();

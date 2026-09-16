@@ -11,10 +11,10 @@ namespace telnet_cs.Tests
     using telnet_cs.Protocol;
 
     /// <summary>
-    /// Round-2 audit (§2) pins: each test asserts the telnetlib3 negotiation
-    /// behavior, so every test here fails against the current code.
+    /// Negotiation reply pins: each test asserts the telnetlib3 negotiation
+    /// behavior.
     /// </summary>
-    public class Audit2NegotiationTests
+    public class NegotiationBehaviorTests
     {
         private static async Task<string> ReadClientOnceAsync(Client client)
         {
@@ -71,7 +71,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task DontWhileEnabled_SendsNoReply()
         {
-            // audit2 §2 F2-DONT-WONT.
+            // DONT while enabled sends no reply: a DONT cannot be declined.
             // Reference: stream_writer.py:2129-2144, esp. :2140-2143 ("a
             // DONT can not be declined ... no need to affirm"); :858-863
             // (DONT only clears state).
@@ -86,7 +86,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task WontWhileEnabled_SendsNoReply()
         {
-            // audit2 §2 F2-DONT-WONT, symmetric.
+            // WONT while enabled sends no reply (symmetric): a WONT cannot be declined.
             // Reference: stream_writer.py:2325-2349, esp. :2333-2334 and
             // :2348-2349 ("not possible to decline WONT": only
             // remote[opt]=False, no send).
@@ -101,7 +101,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task ClientWillLogout_SendsNoReply()
         {
-            // audit2 §2 F2-LOGOUT-CLIENT.
+            // Client WILL LOGOUT sends no reply: the client end rejects it.
             // Reference: stream_writer.py:2253-2256 (client WILL LOGOUT
             // raises ValueError), :885-888 (negotiation toggle), _base.py
             // :75-78 (except ValueError -> debug, swallowed).
@@ -117,8 +117,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task ClientDoLogout_DoesNotClose()
         {
-            // audit2 §2 F2-LOGOUT-CLIENT.
-            // Reference: stream_writer.py:2036-2037 (client DO LOGOUT
+            // Client DO LOGOUT does not close: the client end rejects it.
             // raises ValueError, ignored — bypasses :2048-2049/:1968-1970
             // close()), _base.py:77-78 (swallow).
             // Repro (client writer): feed FF FD 12 -> direct raises
@@ -151,7 +150,8 @@ namespace telnet_cs.Tests
         [Fact]
         public void DisableWhileEnableOutstanding_SendsDontImmediately()
         {
-            // audit2 §2 2.7 race.
+            // Disable while enable outstanding sends DONT immediately (DONT/WONT
+            // are never pending-gated).
             // Reference: stream_writer.py:1052-1103, esp. :1073-1079
             // (pending-gate covers only DO/WILL), :1089-1099 (DONT/WONT
             // never pending-gated — only remote==False skips).
@@ -166,7 +166,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task ServerWillNaws_SendsDoWithoutSbVolunteer()
         {
-            // audit2 §2 F2-NAWS.
+            // Server WILL NAWS sends DO without SB volunteer.
             // Reference: stream_writer.py:2229-2234 (WILL NAWS -> iac(DO)
             // + remote=True + pending[SB+NAWS], no send) vs :2100-2101
             // (DO NAWS -> _send_naws); :2627-2647 (_send_naws def).
@@ -186,7 +186,7 @@ namespace telnet_cs.Tests
         [InlineData(33)] // LFLOW
         public async Task ClientWill_ServerOnlyOption_IsRefused(int option)
         {
-            // audit2 §2 F2-CLIENT-WILL.
+            // Client WILL of a server-only option is refused.
             // Reference: stream_writer.py:2264-2277, esp. :2273-2277 (non-
             // server client DONTs every WILL except CHARSET:
             // XDISPLOC/TTYPE/TSPEED/NEW_ENVIRON/LFLOW); telopt.py:15-18
@@ -203,7 +203,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task ClientWillComport_SendsSignatureProbe()
         {
-            // audit2 §2 F2-COMPORT-PROBE.
+            // Client WILL COMPORT sends a signature probe.
             // Reference: stream_writer.py:2238-2239 (COM_PORT + client ->
             // request_comport_signature()), :1217-1234 esp. :1224 (gate on
             // remote[COM_PORT]) + :1231 ([IAC,SB,COM_PORT,0x00,IAC,SE]).
@@ -217,7 +217,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task ClientWillMccp3_SendsStartSb()
         {
-            // audit2 §2/§8 F2-MCCP3-START.
+            // Client WILL MCCP3 sends the start SB.
             // Reference: stream_writer.py:2240-2245 esp. :2243 (send
             // IAC SB MCCP3 IAC SE) + :2244 (mccp3_active=True), gated by
             // :2225-2228 (compression False -> DONT).

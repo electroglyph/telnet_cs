@@ -14,7 +14,7 @@
     using telnet_cs.IO;
     using telnet_cs.Transport;
 
-    public class AuditCoverageTopUp2Tests
+    public class SubnegFramingTransportOverloadTests
     {
         [Fact]
         public async Task IOExceptionDuringSubnegotiationAbortsItSilently()
@@ -208,7 +208,7 @@
         {
             // Cancel() on the disposed internal source throws; CancelPendingReads swallows.
             using var stream = new ScriptedStream();
-            var probe = new AuditClientRegressionTests.ProbeClient(stream);
+            var probe = new ClientTerminatorConnectTests.ProbeClient(stream);
             probe.Dispose();
             Action act = () => probe.ExposeCancelPendingReads();
             act.Should().NotThrow();

@@ -9,7 +9,7 @@ namespace telnet_cs.Tests
     using telnet_cs.Protocol;
     using telnet_cs.Server;
 
-    public class AuditServerTests
+    public class ServerSessionBehaviorTests
     {
         private const int Iac = 255;
         private const int Sb = 250;

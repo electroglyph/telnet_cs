@@ -13,10 +13,10 @@ namespace telnet_cs.Tests
     using telnet_cs.Transport;
 
     /// <summary>
-    /// Audit §6 proper-behavior tests. F-L1–L4/L7/L9/L10/L13/L16 FAIL
-    /// against current behavior.
+    /// Session lifecycle tests: GA gating, negotiation waiters, idle timeout,
+    /// session counters, client defaults, linemode defaults, and REPL text.
     /// </summary>
-    public class AuditProperLifecycleTests
+    public class SessionLifecycleTests
     {
         private static int[] Ascii(string text) => text.Select(c => (int)c).ToArray();
 

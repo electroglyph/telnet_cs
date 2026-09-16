@@ -12,10 +12,11 @@ namespace telnet_cs.Tests
     using telnet_cs.Protocol;
 
     /// <summary>
-    /// Round-2 audit (§5) client pins: each test asserts the telnetlib3
-    /// behavior, so every test here fails against the current code.
+    /// Client behavior pins: EOR sending, option waiters, MUD opt-in, charset
+    /// offers, binary gating, environment handling, defaults, read semantics,
+    /// and NAWS encoding, pinned against the telnetlib3 client behavior.
     /// </summary>
-    public class Audit2ClientTests
+    public class ClientReferenceBehaviorTests
     {
         private static async Task<string> ReadClientOnceAsync(Client client)
         {
@@ -63,7 +64,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void Client_ExposesSendEor()
         {
-            // audit2 §5 F2-EOR-SEND (corrected; verified live).
+            // EOR is only sent when the EOR option was agreed; otherwise sending reports false with no bytes.
             // Reference: stream_writer.py:1123-1136 (:1131 gate "if not
             // local_option EOR: return False", :1134-1136 send IAC CMD_EOR,
             // return True); telopt.py:19,194 (IAC=FF, CMD_EOR=EF).
@@ -79,8 +80,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task WaitForOptionEnabledAsync_Timeout_ReturnsFalse()
         {
-            // audit2 §5 F2-WAITER — pins the C# documented contract, NOT a
-            // telnetlib3 behavior (verified live: stream_writer.py:564-620
+            // Pins the C# documented contract, NOT a telnetlib3 behavior
+            // (verified live: stream_writer.py:564-620
             // wait_for returns True, raises CancelledError on close (:579),
             // and has no timeout/False path — callers use asyncio.wait_for,
             // which raises TimeoutError; repro awaited wait_for with a 0.2 s
@@ -98,7 +99,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task ClientWillGmcp_SendsHello()
         {
-            // audit2 §5/§8 B13 (client half, corrected; verified live).
+            // WILL GMCP with MUD opt-in agrees with DO plus a Core.Hello payload; without opt-in it refuses.
             // Reference: client.py:166-172 (setup_gmcp via passive_do),
             // :174-182 (on_will_gmcp), :199-209 (Core.Hello+Supports.Set);
             // stream_writer.py:110 (_MUD_PROTOCOL_OPTIONS), :2209-2224
@@ -121,7 +122,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task ClientWillZmp_SendsIdent()
         {
-            // audit2 §5/§8 B13 (client half, corrected; verified live).
+            // WILL ZMP with MUD opt-in agrees with DO plus a zmp.ident payload; without opt-in it refuses.
             // Reference: client.py:184-197 (setup_zmp/on_will_zmp),
             // :211-219 (send_zmp_ident "zmp.ident"); same
             // stream_writer.py:2209-2224 opt-in gate.
@@ -142,7 +143,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void DefaultCharsetOffers_MatchReference()
         {
-            // audit2 §5 F2-INFO (offers half; verified live).
+            // Default charset offers match the reference order.
             // Reference: client.py:436-445 (on_request_charset returns
             // ["UTF-8","LATIN1","US-ASCII"]; bare-server :1958 returns
             // ["UTF-8"] only).
@@ -154,8 +155,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task WriteHighByte_BeforeBinary_Throws()
         {
-            // audit2 §5 F2-INFO (BINARY-gate half; verified live;
-            // deliberate-deviation pin, type maps Py->.NET).
+            // Writing a non-ASCII character before BINARY is negotiated throws (strict encoding).
+            // (Deliberate deviation; Python-to-.NET type mapping.)
             // Reference: client.py:466-502 (:502 returns US-ASCII unless
             // force_binary/may_encode; :68 force_binary=False),
             // stream_writer.py:950-956 (inbinary/outbinary default False),
@@ -175,16 +176,16 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task EnvironmentDisplay_NeverSent()
         {
-            // audit2 §5 F2-INFO (DISPLAY half; verified live — title
-            // overstates: "never" holds for the volunteered path, not an
-            // explicit SEND DISPLAY which yields an empty value).
+            // Volunteered environment data omits DISPLAY; an explicit SEND DISPLAY
+            // yields an empty value (the "never" scope is the volunteered path only).
             // Reference: client.py:280-307 (:304 "DISPLAY intentionally not
             // available", no DISPLAY in all_env; :307 filter).
             // Repro: send_env([]) has no DISPLAY; explicit
             // send_env(['DISPLAY'])=={DISPLAY:''} (empty). This test uses
             // SEND-all (FF FA 27 01 FF F0) -> no DISPLAY bytes.
-            // CONFLICT: AuditFixListTests.EnvironInfo_ExplicitDisplay_IsVolunteered
-            // pins the Cs superset as deliberate — owner to triage.
+            // Note: a separate test pins the C# superset (volunteering an explicit
+            // DISPLAY value) as deliberate; this test pins the volunteered SEND-all
+            // path which omits DISPLAY.
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
@@ -199,7 +200,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task DefaultTerminalType_MatchesReference()
         {
-            // audit2 §5 5.2 statics (verified live).
+            // Default terminal type matches the reference ("unknown").
             // Reference: client.py:59 (term="unknown"), :114, :556, :978
             // (--term default unknown); server.py:96,1104 same. (--ttype
             // VT100 at client.py:1231-1233 is fingerprint-tool only.)
@@ -217,7 +218,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void DefaultTextEncoding_MatchesReference()
         {
-            // audit2 §5 5.2 statics (verified live).
+            // Default text encoding matches the reference (UTF-8).
             // Reference: client.py:66,553 (encoding="utf8");
             // server.py:64,102,1096 same; client.py:909 CLI default=utf8.
             // Repro: TelnetClient()._extra['charset']=='utf8',
@@ -228,7 +229,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task CancelledRead_Throws()
         {
-            // audit2 §5 5.4 cancel (verified live).
+            // A cancelled pending read raises cancellation.
             // Reference: stream_reader.py:147 (_wait_for_data), :379/:422
             // (read/readexactly await it); stream_writer.py:564-579
             // (wait_for raises CancelledError).
@@ -245,7 +246,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task TerminatedRead_WithoutTerminator_Throws()
         {
-            // audit2 §5 5.4 partial-on-timeout (verified live).
+            // A terminated read with no terminator before the timeout throws instead of returning partial data.
             // Reference: stream_reader.py:175-260 (readuntil never returns
             // empty; :253 IncompleteReadError on EOF, :242/:259
             // LimitOverrunError, else pends).
@@ -263,13 +264,13 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task TerminatedRead_OverlongLine_Throws()
         {
-            // audit2 §5 5.4 no-limit (verified live).
+            // An overlong line beyond the read limit throws instead of returning a silent partial.
             // Reference: stream_reader.py:17 (_DEFAULT_LIMIT=65536), :32,
             // :242/:259 (LimitOverrunError).
             // Repro: 70000 x 'A' at the default limit ->
             // LimitOverrunError ("Separator is not found, and chunk exceed
-            // the limit"). (Exact C# exception type is owner's choice; any
-            // raise beats a silent partial.)
+            // the limit"). (Any exception type satisfies this pin; the point
+            // is a raise beats a silent partial.)
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream(new string('A', 70000));
@@ -282,7 +283,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void Client_ExposesReadExactly()
         {
-            // audit2 §1 1.28 read-primitives gap (verified live).
+            // An exact-length read with end-of-stream semantics is exposed.
             // Reference: stream_reader.py:388-420 (readexactly; :420
             // IncompleteReadError), :653-675 (unicode variant); :338
             // (read), :175 (readuntil), :470/:600 (readline).
@@ -296,7 +297,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void NawsZero_SentAsIs()
         {
-            // audit2 §5 F2-NAWS-ZERO (verified live).
+            // A zero NAWS dimension is sent as-is per RFC 1073 ("unspecified"), not mapped to console/80x24.
             // Reference: stream_writer.py:2627-2646 (:2638
             // max(min(65535),0) preserves 0; struct.pack '!HH' cols,rows).
             // Repro: (0,0) -> FF FA 1F 00 00 00 00 FF F0 (payload

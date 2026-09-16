@@ -11,10 +11,11 @@ namespace telnet_cs.Tests
     using telnet_cs.Server;
 
     /// <summary>
-    /// Round-2 audit (§3/§6/§8) TTYPE pins: each test asserts the telnetlib3
-    /// cycling behavior, so every test here fails against the current code.
+    /// Terminal-type collection pins: SEND is resent per answer, unsolicited IS
+    /// is stored, and case-variant repeats continue cycling, pinned against the
+    /// telnetlib3 TTYPE behavior.
     /// </summary>
-    public class Audit2TtypeTests
+    public class TerminalTypeCyclingTests
     {
         private static ServerSession NewSession(ScriptedStream stream, TelnetServerOptions? options = null)
         {
@@ -64,7 +65,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task TerminalTypeCollection_ResendsSendPerAnswer()
         {
-            // audit2 §3/§6 F2-TTYPE (High).
+            // Each TTYPE answer triggers another SEND until the cycle terminates.
             // Reference: server.py:650-653 (else branch: _ttype_count+=1,
             // writer.request_ttype()); :630,635,640,646 (loop / empty+MTTS
             // / LOOPMAX=90 / repeat stops); stream_writer.py:1397-1413
@@ -87,7 +88,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task UnsolicitedTerminalTypeIs_Stored()
         {
-            // audit2 §8 F2-PENDING-SB.
+            // An unsolicited TTYPE IS is stored even with no prior SEND outstanding.
             // Reference: stream_writer.py:2537-2551 (_handle_sb_ttype IS
             // branch: server check only, decode + _ext_callback[TTYPE], no
             // pending check — cf. environ :2592-2594 which logs unsolicited
@@ -107,14 +108,13 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task CaseVariantRepeat_ContinuesCycling()
         {
-            // audit2 §3 TTYPE-CASE.
+            // A case-variant repeat counts as a new answer and continues cycling (case-sensitive compare).
             // Reference: server.py:630 (ttype == ttype1) and :646
             // (ttype == _lastval) use case-sensitive ==.
             // Repro (same harness): IS XTERM -> FF FA 18 01 FF F0
             // (ttype1=XTERM); IS xterm -> FF FA 18 01 FF F0 (ttype2=xterm).
             // The second SEND proves xterm != XTERM is a new answer.
-            // (Also needs the F2-TTYPE continuation; passes only when both
-            // hold.)
+            // (This also needs the per-answer SEND continuation; both must hold.)
             using var stream = new ScriptedStream();
             stream.Enqueue([.. TtypeIsFrame("XTERM"), .. TtypeIsFrame("xterm")]);
             using var session = NewSession(stream);

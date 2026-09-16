@@ -11,7 +11,7 @@
     using Xunit;
     using telnet_cs.IO;
 
-    public class AuditHandlerRegressionTests
+    public class HandlerNegotiationDataBytesTests
     {
         private static ByteStreamHandler MakeHandler(ScriptedStream stream, out CancellationTokenSource cts, int readDelayMs = 1)
         {

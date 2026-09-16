@@ -15,9 +15,9 @@ namespace telnet_cs.Tests
     using telnet_cs.Transport;
 
     /// <summary>
-    /// Audit §4 proper-behavior tests. F-M1/M4/M7 FAIL against current behavior.
+    /// MCCP compression arming/failure-verb tests plus MSDP key-parsing tests.
     /// </summary>
-    public class AuditProperMudTests
+    public class MccpMsdpTests
     {
         private static bool ContainsFrame(byte[] writes, byte[] frame)
         {

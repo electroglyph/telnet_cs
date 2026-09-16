@@ -5,7 +5,7 @@
          CS1591 is muted: tests are not a documented public surface. -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <!-- Newtonsoft.Json arrives only transitively via the test packages;
-         no direct reference to upgrade. Test-only scope, so the audit warning
+         no direct reference to upgrade. Test-only scope, so the NU1903 warning
          is suppressed here rather than in Directory.Build.props. -->
     <NoWarn>$(NoWarn);NU1903;CS1591</NoWarn>
   </PropertyGroup>

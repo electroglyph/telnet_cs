@@ -13,7 +13,7 @@
     using telnet_cs.Client;
     using telnet_cs.Transport;
 
-    public class AuditClientRegressionTests
+    public class ClientTerminatorConnectTests
     {
         internal sealed class ProbeClient : Client
         {

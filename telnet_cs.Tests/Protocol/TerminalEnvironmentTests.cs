@@ -12,13 +12,13 @@ namespace telnet_cs.Tests
     using telnet_cs.Server;
 
     /// <summary>
-    /// Round-2 audit (§3) extended-option pins: each test asserts the
-    /// telnetlib3 behavior, so every test here fails against current code.
+    /// Extended terminal/environment option pins: each test asserts the
+    /// telnetlib3 behavior.
     /// Serial: EnvironmentInfo_IncludesColorterm mutates the process-wide
     /// COLORTERM variable (the only channel the reference reads it from).
     /// </summary>
     [Collection("Serial")]
-    public class Audit2ExtendedOptionTests
+    public class TerminalEnvironmentTests
     {
         private static async Task<string> ReadClientOnceAsync(Client client)
         {
@@ -56,7 +56,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task LongTerminalType_SentVerbatim()
         {
-            // audit2 §3 TTYPE-LEN.
+            // Long terminal types are sent verbatim.
             // Reference: client.py:265-268 (send_ttype returns _extra["term"]
             // verbatim); stream_writer.py:2537-2557 (_handle_sb_ttype :2553
             // encode("ascii"), no truncation); server.py:602-616 (on_ttype
@@ -78,7 +78,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task DefaultTerminalSpeed_MatchesReference()
         {
-            // audit2 §3 F2-TSPEED (values half).
+            // Default terminal speed matches the reference.
             // Reference: client.py:62 (tspeed=(38400,38400)), :115
             // ("38400,38400"), :270-273 (send_tspeed); server.py:598-600
             // (on_tspeed(rx,tx)); stream_writer.py:1887-1890 (bare 9600,9600
@@ -99,7 +99,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task StatusSnapshot_IncludesRefusedOptions()
         {
-            // audit2 §3 F2-STATUS-SNAPSHOT.
+            // STATUS snapshot covers refused options too.
             // Reference: stream_writer.py:2781-2805 (_send_status: :2793
             // WILL/WONT for all local_option, :2802/:2804 DO/DONT for all
             // remote_option; only STATUS itself skipped).
@@ -121,7 +121,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task EnvironmentInfo_IncludesColorterm()
         {
-            // audit2 §5 F2-INFO (COLORTERM half).
+            // Environment INFO includes COLORTERM.
             // Reference: client.py:55 (DEFAULT_SEND_ENVIRON =
             // TERM,LANG,COLUMNS,LINES,COLORTERM), :99, :280-307 (:300 reads
             // os.environ COLORTERM), :953 (CLI default).
@@ -138,7 +138,7 @@ namespace telnet_cs.Tests
                 using var client = new Client(stream, new CancellationToken());
                 stream.Enqueue(255, 253, 39);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
-                client.Settings.EnvironmentDisplay = "audit2:0";
+                client.Settings.EnvironmentDisplay = "display:0";
                 Environment.SetEnvironmentVariable("COLORTERM", "24bit");
                 try
                 {
@@ -156,7 +156,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task LangSpelling_AgreesAcrossSbAndInfo()
         {
-            // audit2 §3 F2-LANG-DASH.
+            // SB and INFO LANG spellings agree.
             // Reference: client.py:52 (DEFAULT_LOCALE=en_US), :111
             // (lang=en_US.+encoding -> en_US.utf8), :295 (send_env uses the
             // single _extra["lang"] source for SB+INFO), :405/:416/:428
@@ -175,7 +175,7 @@ namespace telnet_cs.Tests
                 client.ApplyOptions(new TelnetClientOptions { TextEncoding = Encoding.UTF8 });
                 stream.Enqueue(255, 253, 39, 255, 250, 39, 1, 255, 240);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
-                client.Settings.EnvironmentDisplay = "audit2:0";
+                client.Settings.EnvironmentDisplay = "display:0";
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 var text = Encoding.ASCII.GetString(OutboundBytes(stream));
                 bool stripped = text.Contains("en_US.utf8", StringComparison.Ordinal);
@@ -187,7 +187,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task ExtendedEnvironmentRequest_BatchedAt240()
         {
-            // audit2 §3 F2-ENV-BATCH.
+            // Extended environment requests batch at 240 bytes.
             // Reference: stream_writer.py:1295 (_ENVIRON_SB_MAX=240),
             // :1297-1323 (request_environ), :1326-1360 (_batch_environ_keys,
             // :1349 >240 split), :1362-1380 (_send_environ_batch),

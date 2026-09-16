@@ -9,10 +9,11 @@ namespace telnet_cs.Tests
     using telnet_cs.IO;
 
     /// <summary>
-    /// Round-2 audit (§1) pins: each test asserts the telnetlib3 framing
-    /// behavior, so every test here fails against the current code.
+    /// Byte-stream framing edge cases: split subnegotiation buffers, interrupted
+    /// subnegotiation, and IAC handling in option positions, pinned against the
+    /// telnetlib3 framing behavior.
     /// </summary>
-    public class Audit2FramingTests
+    public class IacSbFramingTests
     {
         private static async Task<(string Output, byte[] Writes)> ReadScriptedAsync(params int[] reads)
         {
@@ -26,7 +27,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SplitEmptySbProbe_DiscardsWithoutPhantomData()
         {
-            // audit2 §1 F2-SB-SPLIT.
+            // Split empty SB across feed boundaries is discarded without phantom data.
             // Reference: stream_writer.py:767 (cmd persists while in
             // iac_mbs), :769-776 (IAC toggle + SB-escape path), :795-828
             // (SB kept across feed_byte calls; :808-816 discards
@@ -48,7 +49,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task InterruptedSb_DispatchesInnerNegotiationWithoutDataLeak()
         {
-            // audit2 §1 F2-SB-INTERRUPT.
+            // An SB interrupted by IAC dispatches the inner negotiation without leaking buffered data.
             // Reference: stream_writer.py:795-807 (warns "interrupted by
             // IAC", clears _sb_buffer), :847-888 (dispatches the inner
             // verb; :852-857 DO path + pending clear), :2096-2097
@@ -64,7 +65,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task InterruptProcess_DoesNotTruncatePendingRead()
         {
-            // audit2 §1 1.23.
+            // IAC IP is consumed and logged without truncating the pending read.
             // Reference: stream_writer.py:1609-1611 (handle_ip only
             // log.debug — no send, no state change).
             // Repro (both roles): feed FF F4 41 42 (IAC IP "AB") ->
@@ -78,7 +79,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task IacInOptionPosition_SixByteForm_AnswersWont()
         {
-            // audit2 §1 1.27.
+            // IAC in option position (six-byte form) dispatches and answers WONT, parking the trailing IAC.
             // Reference: stream_writer.py:847-850 (3rd byte -> cmd,opt),
             // :852-854 (handle_do dispatch), :2118-2125 (unknown option ->
             // WONT + rejected_do).

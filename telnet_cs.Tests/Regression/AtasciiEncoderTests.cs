@@ -6,9 +6,9 @@ namespace telnet_cs.Tests
     using telnet_cs.Encodings;
 
     /// <summary>
-    /// Audit §5 proper-behavior tests. F-E1–E3/E5 FAIL against current behavior.
+    /// Encoding behavior tests for ATASCII folding and binary-mode detection.
     /// </summary>
-    public class AuditProperEncodingTests
+    public class AtasciiEncoderTests
     {
         [Theory]
         [InlineData("atari-8bit")]

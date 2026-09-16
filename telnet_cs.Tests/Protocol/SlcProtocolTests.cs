@@ -12,10 +12,9 @@ namespace telnet_cs.Tests
     using telnet_cs.Server;
 
     /// <summary>
-    /// Round-2 audit (§4) pins: each test asserts the telnetlib3 LINEMODE/SLC
-    /// behavior, so every test here fails against the current code.
+    /// LINEMODE/SLC behavior pins: each test asserts the telnetlib3 behavior.
     /// </summary>
-    public class Audit2SlcTests
+    public class SlcProtocolTests
     {
         private static async Task<(string Output, ScriptedStream Stream)> ReadConfiguredAsync(Action<ByteStreamHandler> configure, params int[] reads)
         {
@@ -30,7 +29,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void AckedDifferentLevelTriplet_IsDroppedWithoutReply()
         {
-            // audit2 §4 F2-SLC-ACK.
+            // ACKed triplet at a different level is dropped without reply.
             // Reference: stream_writer.py:3050-3054 (same-level+ACK ->
             // return; any-ACK -> return — dropped, never stored/replied);
             // levels via slc.py:54,113-116 (mask & LEVELBITS).
@@ -45,7 +44,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void AckedSameLevelTriplet_ClientDoesNotAdopt()
         {
-            // audit2 §4 F2-SLC-ACK role split.
+            // ACKed same-level triplet is not adopted (no client/server split).
             // Reference: stream_writer.py:3050-3051 (same-level+ACK ->
             // return); no client/server split in 3003-3055.
             // Repro (client writer): _slc_process(0x03, SLC(0x82, 0x04))
@@ -58,7 +57,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void ValuedCantChange_AdoptsPeerValueWithAck()
         {
-            // audit2 §4 F2-SLC-CANTCHANGE.
+            // Valued CANTCHANGE row adopts the peer value with ACK.
             // Reference: stream_writer.py:3092-3099 (valued row: val !=
             // theNULL -> set_value+set_mask, set ACK, _slc_add).
             // Repro: slctab[3]=(01,05), _slc_process(03,(02,07)) ->
@@ -74,8 +73,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void OutOfRangeFunction_AnsweredNosupportWithDisableValue()
         {
-            // audit2 §4 F2-SLC-NOSUPPORT.
-            // Reference: stream_writer.py:3016-3018 (ord(func) > NSLC ->
+            // Out-of-range function answered NOSUPPORT with the disable value.
             // _slc_add(func, SLC_nosupport())); slc.py:55 (NSLC=30),
             // slc.py:185-190,200 (SLC_nosupport=(NOSUPPORT, 0xFF)).
             // Repro: _slc_process(0x1F,(00,00)) -> buffer 1F 00 FF
@@ -90,8 +88,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void NosupportReceipt_AnsweredWithDisableValue()
         {
-            // audit2 §4 F2-SLC-NOSUPPORT.
-            // Reference: stream_writer.py:3067-3073 (hislevel==NOSUPPORT
+            // NOSUPPORT receipt answered with the disable value.
             // -> SLC_nosupport()+ACK, _slc_add).
             // Repro: slctab[9]=(00,00), _slc_process(09,(00,7F)) ->
             // buffer 09 80 FF — 0xFF, peer 0x7F not echoed.
@@ -105,7 +102,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void DefaultImport_OmitsNosupportRows()
         {
-            // audit2 §4 F2-SLC-IMPORT.
+            // Default import omits NOSUPPORT rows.
             // Reference: stream_writer.py:2979-2981 (if
             // slctab.get(...).nosupport: continue); same _slc_send serves
             // the func-0 DEFAULT-import path (:3022-3030).
@@ -129,9 +126,8 @@ namespace telnet_cs.Tests
         [Fact]
         public void FlushOnlyChange_IsIgnoredWithoutReply()
         {
-            // audit2 §4 F2-SLC-FLUSH (direction corrected against the
-            // reference source; audit2.md:317-319 wording "falls through
-            // to _slc_change (stores+ACKs)" is stale).
+            // FLUSH-only change is ignored without reply (value-only triplets
+            // return early; FLUSH bits ignored).
             // Reference: stream_writer.py:3047-3049 (mylevel/level + value
             // only -> return early; FLUSH bits ignored).
             // Repro: _slc_process(03, mask 02|20=0x22, val 03) ->
@@ -145,7 +141,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void LoneForw2_IsAccepted()
         {
-            // audit2 §4 F2-SLC-FORW2.
+            // Lone FORW2 is accepted (no rule gates FORW2 on FORW1).
             // Reference: no FORW1-gates-FORW2 rule anywhere (grep FORW
             // only slc.py:206-207,244-272); func 18 default is nosupport
             // (00,FF), and _slc_change:3094 adopts since FF != theNULL.
@@ -161,7 +157,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void ReservedModifierBits_PreservedInReply()
         {
-            // audit2 §4 F2-SLC-RESBITS.
+            // Reserved modifier bits are preserved in the reply.
             // Reference: stream_writer.py:3094-3098 (set_mask(full mask),
             // set_flag(ACK), _slc_add); slc.py:157-163 (full mask kept).
             // Repro: _slc_process(03,(02|10=0x12,05)) -> buffer 03 92 05
@@ -175,7 +171,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task ServerWillLinemode_SendsModeProposal()
         {
-            // audit2 §4 F2-SLC-MODETRIG (server half).
+            // Server WILL LINEMODE sends a mode proposal (server half).
             // Reference: stream_writer.py:2229-2237 (iac(DO) + pending SB
             // + send_linemode(default_linemode)); :1470-1492 frames
             // FF FA 22 01 <mask> FF F0.
@@ -190,7 +186,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task NonAckedMode_DoesNotPublishSlc()
         {
-            // audit2 §4 F2-SLC-MODETRIG (publish half).
+            // Non-ACKed MODE does not publish SLC (publish half).
             // Reference: stream_writer.py:2851-2882 (non-ACK branch:
             // send_linemode(ACK) + early return) vs :2884-2924 (ACK branch
             // only: server and not _slc_sent -> _slc_start/_slc_send/
