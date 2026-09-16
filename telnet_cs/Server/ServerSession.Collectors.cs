@@ -496,10 +496,13 @@
                     // like a live one, so the wire count is deterministic no
                     // matter who consumed first.
                     // preDone: the pump already finished a cycle (e.g. an empty
-                    // answer) — replay it without polling for more.
+                    // answer) — replay it without polling for more. A merely
+                    // partial filing (cycle still open) is not done: it is
+                    // replayed as solicited below and the wait continues for
+                    // the rest, so a slow peer can never truncate the chain.
                     snapshot = [.. terminalTypeChain];
                     replayFrom = terminalTypesConsumedUpTo;
-                    preDone = !expectingTerminalType && snapshot.Count > replayFrom;
+                    preDone = !expectingTerminalType && terminalTypesCycleComplete && snapshot.Count > replayFrom;
                     terminalTypeChain.Clear();
                     expectingTerminalType = true;
                     // Our initial SEND covers the WILL-triggered probe too.

@@ -51,3 +51,11 @@ green gates, not from member-name diffing.
 - Handshake-timeout accepts released their capacity reservation twice,
   over-freeing one slot per timed-out handshake. Each accept now releases
   exactly once.
+- `RequestTerminalTypesAsync` could return a one-answer chain when the
+  background pump filed the opening-probe answer between the caller's last
+  pump and the collect start. The already-finished shortcut now also
+  requires a completed TTYPE cycle.
+- An MCCP read stalled mid-stream with an empty wire consumed the next
+  arriving byte raw instead of feeding the inflater, desyncing inflation
+  (spurious decompression failure, refusal, and trailing garbage as text).
+  A stalled read now awaits the next byte and feeds it to the inflater.

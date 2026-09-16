@@ -8,7 +8,9 @@ name: publish
 # One-time nuget.org setup (outside this repo): an account-level trusted
 # publisher policy scoped to telnet_cs* (new-package scope to claim the
 # free telnet_cs ID first, new-version scope after), bound to this account
-# + repo + workflow; NUGET_USER is the bound profile name.
+# + repo + workflow. The username below is public (it is on every package
+# page); untrusted forks cannot mint tokens because the OIDC subject will
+# not match the bound policy.
 on:
   push:
     branches: [master]
@@ -33,6 +35,6 @@ jobs:
         uses: NuGet/login@v1
         id: login
         with:
-          user: ${{ secrets.NUGET_USER }}
+          user: electroglyph
       - name: Push to nuget.org
         run: dotnet nuget push ./nupkg/*.nupkg --source https://api.nuget.org/v3/index.json --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --skip-duplicate

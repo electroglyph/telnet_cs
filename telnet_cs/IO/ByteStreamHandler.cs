@@ -1024,7 +1024,11 @@
         /// (fakes and real sockets alike may report 0 mid-sequence), mapping I/O
         /// and over-read failures to -1. While an MCCP stream is armed, serves
         /// decompressed output (feeding whatever the wire reports available);
-        /// after a clean stream end serves the queued post-stream plaintext.
+        /// when the stream stalls mid-flow with an empty wire, the next wire
+        /// byte is awaited and fed to the inflater too — it belongs to the
+        /// compressed stream, and consuming it raw would desync inflation
+        /// (the inflater misses a byte and fails on the one after).
+        /// After a clean stream end serves the queued post-stream plaintext.
         /// </summary>
         private int TryReadByteCore()
         {
@@ -1038,7 +1042,58 @@
 
                 if (Mccp2Active || Mccp3Active)
                 {
-                    DrainMccp(mccp);
+                    // A stall with an empty wire must not fall through to the
+                    // raw read below: sync-flushed MCCP chunks arrive
+                    // separately, and the byte that ends the stall is still
+                    // compressed. Loop until output, end, failure, or I/O
+                    // timeout/close; the blocking feed waits exactly as long
+                    // as the raw read would have.
+                    while (true)
+                    {
+                        DrainMccp(mccp);
+                        if (mccp.Failed)
+                        {
+                            break;
+                        }
+
+                        if (mccp.StreamEnded)
+                        {
+                            FinishMccpStream();
+                        }
+
+                        if (mccp.TryTakeReady(out inflated))
+                        {
+                            return inflated;
+                        }
+
+                        if (!mccp.IsActive)
+                        {
+                            break;
+                        }
+
+                        int next;
+                        try
+                        {
+                            next = byteStream.ReadByte();
+                        }
+                        catch (System.IO.IOException)
+                        {
+                            return -1;
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            return -1;
+                        }
+
+                        if (next == -1)
+                        {
+                            return -1;
+                        }
+
+                        NoteInboundByte(next);
+                        mccp.Feed((byte)next);
+                    }
+
                     if (mccp.Failed)
                     {
                         ShutdownMccpCorrupt();
@@ -1069,18 +1124,6 @@
                             }
 
                             NoteInboundByte(dropped);
-                        }
-                    }
-                    else
-                    {
-                        if (mccp.StreamEnded)
-                        {
-                            FinishMccpStream();
-                        }
-
-                        if (mccp.TryTakeReady(out inflated))
-                        {
-                            return inflated;
                         }
                     }
                 }
