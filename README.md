@@ -12,8 +12,7 @@ clanker port over most of the applicable features from telnetlib3.
 
 I left a lot of telnetlib3's stuff out of scope, because it does A LOT.
 
-There are known divergences from telnetlib3 (including wire-visible ones
-such as terminal-speed field order) listed here: [divergences](docs/divergences.md)
+There are known divergences from telnetlib3 listed here: [divergences](docs/divergences.md)
 
 Thanks and respect to jquast and all the other contributors of telnetlib3.
 
