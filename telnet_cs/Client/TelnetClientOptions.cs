@@ -74,6 +74,18 @@
         public Encoding? TextEncoding { get; set; } = Encoding.UTF8;
 
         /// <summary>
+        /// Gets or sets the maximum terminated-read length in chars (see
+        /// <c>TerminatedReadAsync</c>): a buffer past this without the
+        /// terminator throws <c>InvalidOperationException</c> naming the
+        /// limit. The overlong line is consumed and the next line reads
+        /// clean. Defaults to 65536 (the historical 64 KiB reference
+        /// limit); <c>0</c> means unlimited. Negative values are rejected
+        /// when applied via <c>Client.ApplyOptions</c>. Read live per read
+        /// (a per-instance <c>Client</c> override wins).
+        /// </summary>
+        public int MaxTerminatedReadChars { get; set; } = 65536;
+
+        /// <summary>
         /// Gets or sets the terminal width reported via NAWS. Zero is sent
         /// as-is (RFC 1073 "unspecified").
         /// </summary>

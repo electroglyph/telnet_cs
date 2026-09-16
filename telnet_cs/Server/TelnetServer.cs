@@ -140,6 +140,7 @@
             ArgumentOutOfRangeException.ThrowIfNegative(options.MaxConcurrentSessions);
             ArgumentOutOfRangeException.ThrowIfNegative(options.MaxConnectionsPerIp);
             ArgumentOutOfRangeException.ThrowIfNegative(options.MaxBufferedTextChars);
+            ArgumentOutOfRangeException.ThrowIfNegative(options.MaxTerminatedReadChars);
             ArgumentOutOfRangeException.ThrowIfNegative(options.MaxReplLineLength);
             ArgumentOutOfRangeException.ThrowIfNegative(options.MaxEnvironVars);
             ArgumentOutOfRangeException.ThrowIfNegative(options.MaxEnvironValueChars);
@@ -251,10 +252,50 @@
         /// <c>handshake-timeout:</c>; the socket is disposed).
         /// Throws <see cref="InvalidOperationException"/> if the listener was
         /// never started.
+        /// This is <see cref="AcceptTcpAsync"/> followed by
+        /// <see cref="NegotiateAsync"/>; use the split path to inspect or
+        /// configure the session between admission and the first preset byte.
         /// </summary>
         /// <param name="cancellationToken">A token to cancel the accept.</param>
         /// <returns>The accepted session.</returns>
         public async Task<ServerSession> AcceptSessionAsync(CancellationToken cancellationToken = default)
+        {
+            var session = await AcceptTcpAsync(cancellationToken).ConfigureAwait(false);
+            return await NegotiateAsync(session, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Accepts one inbound TCP connection and wraps it in an unnegotiated
+        /// <see cref="ServerSession"/> that owns its stream. Admission control
+        /// (<c>MaxConcurrentSessions</c>, <c>MaxConnectionsPerIp</c>,
+        /// <c>AcceptFilter</c>, <c>AcceptFilterV2</c>) runs before any bytes
+        /// are sent — refused accepts dispose the socket with no bytes sent
+        /// and throw <see cref="SessionCapacityException"/>,
+        /// <see cref="PerIpCapacityException"/>, or
+        /// <see cref="ConnectionRefusedByFilterException"/> (all deriving
+        /// from <see cref="InvalidOperationException"/>) — then the TLS
+        /// handshake runs where a <c>ServerCertificate</c> is configured. No
+        /// negotiation or preset bytes are sent; call
+        /// <see cref="NegotiateAsync"/> to send the opening preset, or
+        /// dispose the session to abandon it (disposal releases the admission
+        /// reservation, so capacity is not leaked).
+        /// Throws <see cref="TimeoutException"/> when the TLS handshake
+        /// exceeds <c>HandshakeTimeout</c> (logged as
+        /// <c>handshake-timeout:</c>; the socket is disposed).
+        /// Throws <see cref="InvalidOperationException"/> if the listener was
+        /// never started.
+        /// </summary>
+        /// <example>
+        /// <code>
+        /// var pending = await server.AcceptTcpAsync(ct);
+        /// Console.WriteLine($"incoming from {pending.RemoteEndPoint}");
+        /// var session = await server.NegotiateAsync(pending, ct);
+        /// </code>
+        /// </example>
+        /// <param name="cancellationToken">A token to cancel the accept.</param>
+        /// <returns>The accepted but unnegotiated session.</returns>
+#pragma warning disable CA2000 // Ownership of the socket transfers to the session on success; the catch releases it otherwise (including the half-built TLS wrapper: its factory releases the SslStream on handshake failure, and the raw accept is always disposed below).
+        public async Task<ServerSession> AcceptTcpAsync(CancellationToken cancellationToken = default)
         {
             ObjectDisposedException.ThrowIf(disposed, this);
             var accepted = await listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
@@ -411,6 +452,7 @@
                             if (left <= TimeSpan.Zero)
                             {
                                 ReleaseReservation(reservationIpKey!);
+                                reservationIpKey = null;
                                 LogOutsideLock($"handshake-timeout: endpoint={endpoint}");
                                 accepted.Dispose();
                                 throw new TimeoutException($"handshake-timeout: endpoint {endpoint}.");
@@ -429,6 +471,7 @@
                         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && handshakeEnabled && DateTime.UtcNow >= handshakeDeadlineUtc)
                         {
                             ReleaseReservation(reservationIpKey!);
+                            reservationIpKey = null;
                             LogOutsideLock($"handshake-timeout: endpoint={endpoint}");
                             accepted.Dispose();
                             throw new TimeoutException($"handshake-timeout: endpoint {endpoint}.");
@@ -453,6 +496,7 @@
                         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && handshakeEnabled && DateTime.UtcNow >= handshakeDeadlineUtc)
                         {
                             ReleaseReservation(reservationIpKey!);
+                            reservationIpKey = null;
                             LogOutsideLock($"handshake-timeout: endpoint={endpoint}");
                             accepted.Dispose();
                             throw new TimeoutException($"handshake-timeout: endpoint {endpoint}.");
@@ -464,54 +508,20 @@
                 session.IsTls = isTls;
                 session.RemoteEndPoint = endpoint;
                 session.ResetHandshakeDeadline(handshakeDeadlineUtc, endpoint);
-                // The session emits the server opening preset before the accept
-                // completes; a fully toggled-off preset sends nothing.
-                try
-                {
-                    if (handshakeEnabled)
-                    {
-                        TimeSpan left = handshakeDeadlineUtc - DateTime.UtcNow;
-                        if (left <= TimeSpan.Zero)
-                        {
-                            LogOutsideLock($"handshake-timeout: endpoint={endpoint}");
-                            throw new TimeoutException($"handshake-timeout: endpoint {endpoint}.");
-                        }
-
-                        using var presetCts = new CancellationTokenSource(left);
-                        using var presetLinked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, presetCts.Token);
-                        await session.SendOpeningPresetAsync(presetLinked.Token).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        await session.SendOpeningPresetAsync(cancellationToken).ConfigureAwait(false);
-                    }
-                }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && handshakeEnabled && DateTime.UtcNow >= handshakeDeadlineUtc)
-                {
-                    LogOutsideLock($"handshake-timeout: endpoint={endpoint}");
-                    throw new TimeoutException($"handshake-timeout: endpoint {endpoint}.");
-                }
-
-                ConvertReservation(reservationIpKey!, session, endpoint, isTls);
-                if (!newClients.Writer.TryWrite(session))
-                {
-                    Interlocked.Increment(ref queueDropped);
-                    LogOutsideLock($"over-capacity: queue-drop endpoint={endpoint}");
-                }
-
+                // The preset goes out in NegotiateAsync, not here: the
+                // caller owns the session from this point and may inspect it
+                // (or abandon it via Dispose, releasing the reservation).
+                string key = reservationIpKey!;
+                session.SetPendingNegotiation(
+                    this,
+                    new PendingNegotiation(key, endpoint, isTls, handshakeDeadlineUtc, handshakeEnabled),
+                    () => ReleaseReservation(key));
                 return session;
             }
             catch
             {
-                if (reservationIpKey is not null && session is null)
+                if (reservationIpKey is not null)
                 {
-                    ReleaseReservation(reservationIpKey);
-                }
-                else if (reservationIpKey is not null && session is not null)
-                {
-                    // Preset failed after session construction: the session
-                    // was never tracked, so release the reservation and
-                    // dispose the half-built session (which owns the socket).
                     ReleaseReservation(reservationIpKey);
                 }
 
@@ -524,6 +534,83 @@
                 throw;
             }
 #pragma warning restore CA2000
+        }
+
+        /// <summary>
+        /// Sends the opening preset on a session from
+        /// <see cref="AcceptTcpAsync"/> and hands it to the accept queue.
+        /// This is the <see cref="ServerSession.SendOpeningPresetAsync"/>
+        /// path, not a second preset variant: the same deadline budget,
+        /// <c>TimeoutException</c> mapping, reservation conversion, and
+        /// queue offer <see cref="AcceptSessionAsync"/> always ran.
+        /// Throws <see cref="InvalidOperationException"/> when
+        /// <paramref name="session"/> is not a pending accept from this
+        /// server (foreign session, or already negotiated).
+        /// </summary>
+        /// <example>
+        /// <code>
+        /// var pending = await server.AcceptTcpAsync(ct);
+        /// var session = await server.NegotiateAsync(pending, ct);
+        /// </code>
+        /// </example>
+        /// <param name="session">The unnegotiated session from <see cref="AcceptTcpAsync"/>.</param>
+        /// <param name="cancellationToken">A token to cancel the preset send.</param>
+        /// <returns>The negotiated session (same instance).</returns>
+        public async Task<ServerSession> NegotiateAsync(ServerSession session, CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(session);
+            ObjectDisposedException.ThrowIf(disposed, this);
+            if (!session.TryClaimPendingNegotiation(this, out PendingNegotiation pending))
+            {
+                throw new InvalidOperationException("Session is not a pending accept from this server: obtain it from AcceptTcpAsync and negotiate each session once.");
+            }
+
+            try
+            {
+                // The session emits the server opening preset before the
+                // accept completes; a fully toggled-off preset sends nothing.
+                if (pending.HandshakeEnabled)
+                {
+                    TimeSpan left = pending.HandshakeDeadlineUtc - DateTime.UtcNow;
+                    if (left <= TimeSpan.Zero)
+                    {
+                        LogOutsideLock($"handshake-timeout: endpoint={pending.Endpoint}");
+                        throw new TimeoutException($"handshake-timeout: endpoint {pending.Endpoint}.");
+                    }
+
+                    using var presetCts = new CancellationTokenSource(left);
+                    using var presetLinked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, presetCts.Token);
+                    await session.SendOpeningPresetAsync(presetLinked.Token).ConfigureAwait(false);
+                }
+                else
+                {
+                    await session.SendOpeningPresetAsync(cancellationToken).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && pending.HandshakeEnabled && DateTime.UtcNow >= pending.HandshakeDeadlineUtc)
+            {
+                LogOutsideLock($"handshake-timeout: endpoint={pending.Endpoint}");
+                ReleaseReservation(pending.ReservationIpKey);
+                session.Dispose();
+                throw new TimeoutException($"handshake-timeout: endpoint {pending.Endpoint}.");
+            }
+            catch
+            {
+                // The claim consumed the dispose hook, so this release is
+                // exactly once; disposal cannot re-release.
+                ReleaseReservation(pending.ReservationIpKey);
+                session.Dispose();
+                throw;
+            }
+
+            ConvertReservation(pending.ReservationIpKey, session, pending.Endpoint, pending.IsTls);
+            if (!newClients.Writer.TryWrite(session))
+            {
+                Interlocked.Increment(ref queueDropped);
+                LogOutsideLock($"over-capacity: queue-drop endpoint={pending.Endpoint}");
+            }
+
+            return session;
         }
 
         /// <summary>

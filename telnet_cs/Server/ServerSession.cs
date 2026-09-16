@@ -27,6 +27,27 @@
         public TelnetServerOptions Settings { get; }
 
         /// <summary>
+        /// Gets or sets the per-session terminated-read length override in
+        /// chars. Null (the default) follows
+        /// <see cref="TelnetServerOptions.MaxTerminatedReadChars"/>; any
+        /// non-negative value wins for this session only (<c>0</c> disables
+        /// the limit). Negative values are rejected.
+        /// </summary>
+        public int? MaxTerminatedReadChars
+        {
+            get;
+            set
+            {
+                if (value < 0)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(value), "MaxTerminatedReadChars must be >= 0 (0 disables the limit).");
+                }
+
+                field = value;
+            }
+        }
+
+        /// <summary>
         /// Gets the persistent RFC 1143 negotiation state for this connection,
         /// fed to every per-read <see cref="ByteStreamHandler"/> so repeats are
         /// not re-answered and refusals are remembered for the life of the
@@ -36,7 +57,7 @@
 
         /// <summary>
         /// Gets or sets whether the accepted socket runs over TLS. Set by
-        /// <see cref="TelnetServer.AcceptSessionAsync"/>; gates MCCP
+        /// <see cref="TelnetServer.AcceptTcpAsync"/>; gates MCCP
         /// (refused over TLS, CRIME/BREACH).
         /// </summary>
         internal bool IsTls { get; set; }

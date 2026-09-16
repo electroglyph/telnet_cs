@@ -362,6 +362,19 @@
         public int MaxBufferedTextChars { get; set; } = 65536;
 
         /// <summary>
+        /// Optional hook invoked alongside the <c>buffer-cap:</c> log line
+        /// when buffered inbound text passes <c>MaxBufferedTextChars</c>
+        /// (pump appends and collector stash-backs alike). Informational
+        /// only, carrying the same values the log line carries: the
+        /// fail-closed close is unchanged and there is no silent-drop mode.
+        /// Fires at most once per buffered-text accumulation, never per byte
+        /// over. Exceptions are swallowed to <c>Debug</c>; the callback runs
+        /// on the pump/collector path and must not call back into the
+        /// session. Read live per fire.
+        /// </summary>
+        public Action<BufferCapEvent>? OnBufferCap { get; set; }
+
+        /// <summary>
         /// Gets or sets the maximum REPL line length in chars (see
         /// <see cref="ServerShells"/>). Pipelined bytes stashed for future
         /// lines are not charged against the current line. Checked after
@@ -373,6 +386,19 @@
         /// first. Defaults to 4096; <c>0</c> means unlimited. Read live per line.
         /// </summary>
         public int MaxReplLineLength { get; set; } = 4096;
+
+        /// <summary>
+        /// Gets or sets the maximum terminated-read length in chars (see
+        /// <c>TerminatedReadAsync</c>): a buffer past this without the
+        /// terminator throws <c>InvalidOperationException</c> naming the
+        /// limit (the C# analog of the reference
+        /// <c>LimitOverrunError</c>). The overlong line is consumed, the
+        /// session survives, and the next line reads clean. Defaults to
+        /// 65536 (the historical 64 KiB reference limit); <c>0</c> means
+        /// unlimited. Negative values are rejected at <c>Start</c>. Read
+        /// live per read (a per-session <c>ServerSession</c> override wins).
+        /// </summary>
+        public int MaxTerminatedReadChars { get; set; } = 65536;
 
         /// <summary>
         /// Gets or sets the maximum distinct ENVIRON variables stored per

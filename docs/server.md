@@ -1,6 +1,6 @@
 # Server usage guide
 
-Last verified: 2026-09-16 (suite 1444/1444 green).
+Last verified: 2026-09-16 (suite 1484/1484 green).
 
 The server lives in the `telnet_cs.Server` namespace. `TelnetServer` owns
 only the listen socket; each accepted connection is a `ServerSession`
@@ -57,6 +57,16 @@ async Task HandleAsync(ServerSession session)
 
 Task<bool> ValidateAsync(string user, string password) =>
     Task.FromResult(user == "admin" && password == "secret");
+```
+
+To split admission from negotiation (inspect the peer before the first
+preset byte), use `AcceptTcpAsync` + `NegotiateAsync` — the same steps
+`AcceptSessionAsync` runs, so the wire behavior is identical:
+
+```csharp
+var pending = await server.AcceptTcpAsync(ct);
+Console.WriteLine($"incoming from {pending.RemoteEndPoint}");
+var session = await server.NegotiateAsync(pending, ct);
 ```
 
 `Stop()` stops the listener and the status timer, closes accepted
@@ -122,8 +132,9 @@ closes; default `false`). Between attempts it waits `LoginAttemptDelay`
 failed attempt is logged as `auth-exhausted: <endpoint> attempt <n> <reason>`
 (`bad-credentials` / `timeout` / `exhausted`; never the secrets).
 The background pump stands down for the whole exchange, so typed input is
-never double-consumed. A credential buffer past the 64 KiB `TerminatedReadLimit` throws
-`InvalidOperationException` and cancel throws `OperationCanceledException` instead of returning `false`.
+never double-consumed. A credential buffer past `MaxTerminatedReadChars`
+(64 KiB default, `0` disables) throws `InvalidOperationException` and cancel
+throws `OperationCanceledException` instead of returning `false`.
 
 ## Resource limits
 
@@ -138,7 +149,8 @@ behavior and new limits only close or refuse, never alter framing:
 | `AcceptFilterV2` | null (no verdict) | live, per accept | Same close/throw/counter as `AcceptFilter`, but the refuse reason travels in the `over-capacity: filter-reject endpoint=…` log line and the exception; consulted only when `AcceptFilter` is null |
 | `HandshakeTimeout` | 10 s (Infinite/`<= 0` disables) | snapshot per accept | `\r\nHandshake timeout.\r\n`, then close; `handshake-timeout` log |
 | `IdleTimeout` | 300 s (Infinite/`<= 0` disables) | snapshot per session | `\r\nTimeout.\r\n`, then close |
-| `MaxBufferedTextChars` | 65536 (0 = unlimited) | live, per read | close; `buffer-cap:` log (pump + pending text combined) |
+| `MaxBufferedTextChars` | 65536 (0 = unlimited) | live, per read | close; `buffer-cap:` log (pump + pending text combined) plus the `OnBufferCap` hook with the same values, at most once per accumulation |
+| `OnBufferCap` | null (log only) | live, per fire | informational `BufferCapEvent` (`EndPoint`, `Buffered`, `Cap`) alongside the `buffer-cap:` log; exceptions swallowed to `Debug`; must not call back into the session |
 | `MaxReplLineLength` | 4096 (0 = unlimited) | live, per line | `\r\nLine too long.\r\n`, then close; `buffer-cap:` log |
 | `MaxEnvironVars` / `MaxEnvironValueChars` / `MaxEnvironKeyChars` | 128 / 4096 / 256 (0 = unlimited) | live, per frame | extras dropped, first-N-wins; `environ-cap:` log (rate-limited) |
 | `MaxTtypeChars` | 256 (0 = unlimited) | live, per frame | overlong TTYPE answer dropped; `environ-cap:` log |
@@ -153,9 +165,22 @@ The negotiation storm guard is fixed at 100 inbound negotiation
 frames/second: past that, duplicate/refused replies are dropped
 (`storm-guard:` log) while agreements and TTYPE replies are never
 suppressed. The `WaitForClientAsync` queue is bounded (1000,
-`DropWrite`); overflows count in `QueueDroppedCount`. `StatusInterval`
-logs per-session `rx/tx/idle/tls` lines only when counters changed, plus
-aggregate `sessions=` / `rejected` counts.
+`DropWrite`); overflows count in `QueueDroppedCount`.
+
+### Stable log codes
+
+The following `Settings.Log` prefixes are the stable observability
+contract: `over-capacity:`, `handshake-timeout:`, `buffer-cap:`,
+`storm-guard:`, `auth-exhausted:`, `environ-cap:`, `mud-cap:`,
+`mccp-output-cap:`. Downstream log parsing may key on these prefixes;
+their `key=value` hyphen-space shape stays byte-stable.
+`StatusInterval` (default 20 s, null or `<= 0` disables, needs `Log` or it
+stays silent) logs per-session `rx/tx/idle/tls` lines only when counters
+changed, plus aggregate `sessions=` / `rejected` counts. Volume caveat:
+the status aggregate logs *every* tick while per-session detail lines fire
+on change only; idle logged sessions also emit per-pass `Timeout exceeded`
++ pump/frame chatter, so volume assertions tolerate chatter and only pin
+the aggregate line.
 
 ## Querying the client
 
@@ -223,15 +248,22 @@ own loop for anything real.
 
 ## Gotchas
 
-- Inbound negotiation only advances inside caller-driven reads
-  (`ReadAsync` / `TerminatedReadAsync` / `Request*Async`): a handler that
-  accepts then writes without reading stalls TTYPE/ENVIRON/CHARSET.
+- The background pump answers negotiation and buffers text even when the
+  caller never reads: 50 ms wire slices once quiet past 50 ms (20 ms
+  recheck while standing down; first pass exempt so connect-time bytes are
+  answered immediately), 20/100/500 ms idle backoff, under the same
+  `ReadRateLimit` as reads. It stands down during active reads and for the
+  whole `AuthenticateAsync` exchange. Pump-buffered text merges into the
+  next `ReadAsync` (never lost, never duplicated); a stashed pump wire
+  error rethrows only on an otherwise-empty `ReadAsync`. Only live wire
+  errors are stashed (`OperationCanceled` / `Socket` / `ObjectDisposed`
+  outcomes are never stashed); dead-peer/disposed outcomes never stash.
 - `Request*Async` collectors are not re-entrant: don't call them
   concurrently on one session.
 - `SendSynchAsync` / `ReceiveUrgentAsync` need a real `TcpByteStream`.
 - Plain `ReadAsync` never throws for no data (`""`); `TerminatedReadAsync`
   throws `TimeoutException` on a missed deadline, `InvalidOperationException`
-  past the 64 KiB limit, and `OperationCanceledException` on cancel (plus a
+  past `MaxTerminatedReadChars`, and `OperationCanceledException` on cancel (plus a
   stashed pump wire error rethrows). `AuthenticateAsync` only fails closed
   (`false`) on a timed-out line.
 - `TextEncoding` defaults to UTF-8; a negotiated CHARSET can

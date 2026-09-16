@@ -39,6 +39,7 @@ namespace telnet_cs.Tests
             options.LoginUserPrompt.Should().Be("login: ");
             options.LoginPasswordPrompt.Should().Be("Password: ");
             options.MaxLoginAttempts.Should().Be(3);
+            options.MaxTerminatedReadChars.Should().Be(65536);
             options.TextEncoding.Should().Be(Encoding.UTF8);
             options.IsWriteConsole.Should().BeNull();
             options.Log.Should().BeNull();

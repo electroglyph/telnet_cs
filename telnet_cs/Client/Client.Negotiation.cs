@@ -17,6 +17,27 @@
         public TelnetClientOptions Settings { get; private set; } = new();
 
         /// <summary>
+        /// Gets or sets the per-instance terminated-read length override in
+        /// chars. Null (the default) follows
+        /// <see cref="TelnetClientOptions.MaxTerminatedReadChars"/>; any
+        /// non-negative value wins for this client only (<c>0</c> disables
+        /// the limit). Negative values are rejected.
+        /// </summary>
+        public int? MaxTerminatedReadChars
+        {
+            get;
+            set
+            {
+                if (value < 0)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(value), "MaxTerminatedReadChars must be >= 0 (0 disables the limit).");
+                }
+
+                field = value;
+            }
+        }
+
+        /// <summary>
         /// Snapshots <paramref name="options"/> into <see cref="Settings"/> via
         /// a compiler-generated <c>with</c>-clone: every current and future
         /// member flows automatically, so a new member can never be silently
@@ -28,6 +49,7 @@
         internal void ApplyOptions(TelnetClientOptions options)
         {
             ArgumentNullException.ThrowIfNull(options);
+            ArgumentOutOfRangeException.ThrowIfNegative(options.MaxTerminatedReadChars);
             // Collections are re-seated, not shared: the client owns its copies,
             // so later mutations on either side stay independent.
             Settings = options with

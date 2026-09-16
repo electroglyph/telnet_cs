@@ -457,6 +457,7 @@
                 TlsValidationCallback = Validate,
                 TlsClientCertificates = certs,
                 TlsProtocols = SslProtocols.Tls13,
+                MaxTerminatedReadChars = 1024,
             };
             options.TerminalTypes.Add("a");
             options.EnvironmentUserVars["K"] = "v";
@@ -487,6 +488,14 @@
             sut.Settings.TlsClientCertificates.Should().NotBeSameAs(certs);
             sut.Settings.TlsClientCertificates.Should().BeEquivalentTo(certs);
             sut.Settings.TlsProtocols.Should().Be(SslProtocols.Tls13);
+            sut.Settings.MaxTerminatedReadChars.Should().Be(1024);
+        }
+
+        [Fact]
+        public void ApplyOptions_NegativeTerminatedReadLimit_Throws()
+        {
+            using var sut = new Client(ConnectedFake(), TimeSpan.FromMilliseconds(1), default);
+            Assert.Throws<ArgumentOutOfRangeException>(() => sut.ApplyOptions(new TelnetClientOptions { MaxTerminatedReadChars = -1 }));
         }
 
         [Fact]

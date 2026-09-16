@@ -115,6 +115,9 @@ namespace telnet_cs.Server
         {
             if (disposing)
             {
+                // An unnegotiated split accept abandoned here hands its
+                // admission reservation back (claimed sessions no-op).
+                ReleasePendingNegotiation();
                 ShutdownPump();
                 StopHandshakeTimer();
                 StopIdleTimer();

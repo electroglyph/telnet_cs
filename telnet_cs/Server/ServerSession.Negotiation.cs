@@ -683,8 +683,9 @@
         // The readuntil/readline replacement (see PendingText): poll plain
         // reads until the predicate holds or the timeout lapses. Reference
         // readuntil parity: never returns a partial — a missed deadline
-        // throws TimeoutException (not "") and a buffer past the 64 KiB
-        // reference limit throws (the C# analog of LimitOverrunError).
+        // throws TimeoutException (not "") and a buffer past the configured
+        // terminated-read limit (64 KiB default, 0 disables) throws (the C#
+        // analog of LimitOverrunError).
         private async Task<string> TerminatedReadAsync(Func<string, bool> isTerminated, TimeSpan timeout, int millisecondSpin, CancellationToken cancellationToken)
         {
             var endTimeout = DateTime.UtcNow.Add(timeout);
@@ -694,9 +695,10 @@
                 cancellationToken.ThrowIfCancellationRequested();
                 var read = await ReadAsync(TimeSpan.FromMilliseconds(millisecondSpin), cancellationToken).ConfigureAwait(false);
                 s += read;
-                if (!isTerminated(s) && s.Length > TerminatedReadLimit)
+                int limit = MaxTerminatedReadChars ?? Settings.MaxTerminatedReadChars;
+                if (limit > 0 && !isTerminated(s) && s.Length > limit)
                 {
-                    throw new InvalidOperationException(string.Format("Terminated read exceeded the {0}-character limit without locating the terminator.", TerminatedReadLimit));
+                    throw new InvalidOperationException(string.Format("Terminated read exceeded the {0}-character limit without locating the terminator.", limit));
                 }
             }
 
