@@ -1,0 +1,3 @@
+offerEnable => reply=251
+offerDisable => reply=null us=WantYes
+receivedDo => reply=252 us=WantNo

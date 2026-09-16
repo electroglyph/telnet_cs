@@ -1,0 +1,2 @@
+payload= 014b020504
+RESULT: HANG -- msdp_decode did not return within 3s (stalled delimiter in _parse_array forever)

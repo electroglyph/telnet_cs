@@ -1,4 +1,4 @@
-"""Shared helper for audit4 repros: drive real telnetlib3 TelnetWriter."""
+"""Shared helper for repros: drive a real telnetlib3 TelnetWriter with stub I/O."""
 import sys
 import os
 from pathlib import Path

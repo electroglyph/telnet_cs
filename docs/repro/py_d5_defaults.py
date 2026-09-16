@@ -1,4 +1,4 @@
-"""Fresh probe D5: defaults + tables that audits flagged, now re-checked.
+"""Fresh probe D5: client defaults + SLC table spot-checks.
 
 - client defaults: term / tspeed / winsize
 - SLC default table live-function count + IP row value (stable bytes)
@@ -21,7 +21,7 @@ IAC, SB, SE = telnetlib3.IAC, telnetlib3.SB, telnetlib3.SE
 def main():
     import inspect
     sig = inspect.signature(telnetlib3.TelnetClient.__init__)
-    print('TelnetClient params=', {k: (v.default if v.default is not inspect.Parameter.empty else '<req>') for k, v in sig.parameters.items() if k in ('term', 'tspeed', 'winsize', 'encoding')})
+    print('TelnetClient params=', {k: (v.default if v.default is not inspect.Parameter.empty else '<req>') for k, v in sig.parameters.items() if k in ('term', 'tspeed', 'winsize', 'cols', 'rows', 'encoding')})
     tab = slcmod.generate_slctab()
     live = [(f, bytes(tab[f])[:1].hex() if False else '') for f in range(1, 17)]
     print('slc funcs 1..16 present=', [k.hex() if isinstance(k, bytes) else repr(k) for k in sorted(tab.keys(), key=repr)][:22])

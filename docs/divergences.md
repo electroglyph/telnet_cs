@@ -1,7 +1,7 @@
 # Divergences from telnetlib3 (verified by execution)
 
-Date: 2026-09-14. Baseline: `dotnet test telnet_cs.sln -c Release` →
-Passed 1296/1296, 0 failed. Every divergence below was re-proven live on
+Date: 2026-09-16. Baseline: `dotnet test telnet_cs.sln -c Release` →
+Passed 1422/1422, 0 failed. Every divergence below was re-proven live on
 both sides during this pass; nothing is carried over on authority.
 
 Method: fresh probes only, kept in [`repro/`](repro/) next to this
@@ -15,11 +15,12 @@ C# paths below are relative to the repository root; the leading
 unambiguous.
 
 Update 2026-09-14 (second pass): entries D6–D21 below, same method — fresh
-probes only, Python in
-`repro/py_d{6,7,8,10,11,12,13,14,15,16,17,18,19,20,21}_*.py`
+probes only, Python in `repro/py_d*.py`
 (plus the earlier [`repro/py_d4_raisevssilent.py`](repro/py_d4_raisevssilent.py)), C# in
 [`repro/cs_wire.log`](repro/cs_wire.log) (labeled `read`/`readS` runs of
-[`repro/csdiv`](repro/csdiv), rebuilt against current sources) and the named xUnit
+[`repro/csdiv`](repro/csdiv), rebuilt against current sources), the per-divergence
+[`repro/cs_d*.log`](repro/) runs (`d6`, `d7`, `d14`, `d16`, `d18`, `d19`, `d20`,
+`msdparray` modes of [`repro/csdiv`](repro/csdiv)) and the named xUnit
 pins, all executed. Baseline: `dotnet test telnet_cs.sln -c Release` →
 Passed 1317/1317, 0 failed. Four former divergences were fixed rather than
 documented (ungated EOR surfacing, ZMP handler-OR-list answers, masked SLC
@@ -50,7 +51,7 @@ re-checked unchanged.
   shape, so telnetlib3 itself is non-compliant here — telnetlib3-vs-RFC
   conflict. Interop impact is negligible (a deferred WONT, never a wrong
   byte). Pinned by `NegotiationStateTests.UsSide_QueueMirrorsHimSide`; kept
-  by design, change only on an owner decision.
+  by design.
 
 ## D2 — simultaneous CHARSET REQUEST answered REJECTED on server role (wire)
 
@@ -95,12 +96,13 @@ re-checked unchanged.
 - Why it exists: deliberate RFC 854 Synch extension — telnetlib3 never
   discards. Gated on a pending TCP-urgent byte, so rare in practice, but
   genuinely wire-visible when triggered. Pinned by `SynchDiscardTests`;
-  kept by design, change only on an owner decision.
+  kept by design.
 
 ## D4 — NAWS size default 0,0 vs 80x25 (wire default content only)
 
-- Proof: [`repro/py_d6_repeatrefuse.log`](repro/py_d6_repeatrefuse.log) (same run prints
-  `TelnetClient.__init__` defaults): `cols: int = 80, rows: int = 25`.
+- Proof: [`repro/py_d5_defaults.py`](repro/py_d5_defaults.py) →
+  [`repro/py_d5_defaults.log`](repro/py_d5_defaults.log) (`TelnetClient params`:
+  `term='unknown'`, `cols=80, rows=25`, `tspeed=(38400, 38400)`).
   [`repro/cs_nawsdefault.log`](repro/cs_nawsdefault.log): `effective0x0=0x0`,
   `frame=FFFA1F00000000FFF0` (0,0 sent as-is).
 - Code: [`telnet_cs/Protocol/NawsProtocol.cs:18-21`](../telnet_cs/Protocol/NawsProtocol.cs#L18-L21) (`GetEffectiveSize`
@@ -113,11 +115,8 @@ re-checked unchanged.
   `WindowWidth/WindowHeight` default 0.
 - Why it exists: 0 is a legitimate wire value — RFC 1073 says a zero
   dimension means "no character width (or height) is being sent", leaving
-  the assumed size OS-specific — so sending it as-is is honest; the rest of the old ENVIRON-volunteering finding was refuted
-  (a real `TelnetClient` volunteers TERM/LANG/COLUMNS/LINES/COLORTERM and
-  answers TTYPE/TSPEED just like Cs — the bare-writer `{}`/empty values
-  that drove it are not what real peers see). Configurable both sides;
-  kept as accepted variance.
+  the assumed size OS-specific — so sending it as-is is honest.
+  Configurable both sides; kept as accepted variance.
 
 ## D5 — TSPEED fields assigned in opposite order (wire semantics)
 
@@ -146,7 +145,7 @@ re-checked unchanged.
   against the RFC's transmit-first order, and Cs kept the RFC order.
   Invisible with the symmetric defaults (`38400,38400` on both sides, so
   the stock handshake agrees byte-for-byte); only asymmetric speeds cross.
-  Kept by design, change only on an owner decision (matching telnetlib3
+  Kept by design (matching telnetlib3
   would break RFC-reading peers, and vice versa).
 
 ## D6 — RFC 1143 collision queue vs forget-and-resend (negotiation state)
@@ -160,8 +159,11 @@ re-checked unchanged.
   leaves the buffer unchanged at `writes= ['fffb03', 'fffc03']` — no new
   bytes for the `DO` (silent), only because the
   stale `WILL`-pending flag suppresses the re-`WILL` while `local` is
-  latched `False`. C# answers the same stale `DO` with `WONT`:
-  `NegotiationStateTests.UsSide_QueueMirrorsHimSide` (`OfferEnable` →
+   latched `False`. C# answers the same stale `DO` with `WONT`
+   ([`repro/cs_d6_qbit.log`](repro/cs_d6_qbit.log), `d6` mode of
+   [`repro/csdiv`](repro/csdiv): `offerEnable` → 251, `offerDisable` →
+   null/queued, `receivedDo` → 252):
+   `NegotiationStateTests.UsSide_QueueMirrorsHimSide` (`OfferEnable` →
   `Will`, `OfferDisable` → null/queued, `ReceivedDo` → `Wont`), and the
   him-side shape (`DONT` goes out immediately, no queue left behind) is
   pinned by `QueuedDisable_DrainsWhenEnableCompletes`,
@@ -185,7 +187,7 @@ re-checked unchanged.
   intent we just withdrew, and rapid toggles can ping-pong. telnetlib3
   converges too, but only after extra bytes and a window where each side
   believes the opposite. Interop impact is a deferred or withheld byte,
-  never a wrong byte. Kept by design, change only on an owner decision.
+  never a wrong byte. Kept by design.
 
 ## D7 — ENVIRON `ESC` escapes the full RFC 1408 set (wire decode)
 
@@ -197,7 +199,9 @@ re-checked unchanged.
   `0200`. C# decodes the same value as `a\x01b` (escape consumed,
   literal byte) and drops a trailing `ESC`: pinned by
   `EnvironmentTests.ParseEntries_EscapedValue_StaysLiteral` (and the
-  send side by `EnvironSend_ValueByte_Escaped`).
+   send side by `EnvironSend_ValueByte_Escaped`).
+   C# side: [`repro/cs_d7_environ.log`](repro/cs_d7_environ.log) (`d7` mode:
+   `esc-value` decodes to `a\x01b`, trailing `ESC` contributes no byte).
 - Code: [`telnet_cs/Protocol/EnvironmentProtocol.cs:498-517`](../telnet_cs/Protocol/EnvironmentProtocol.cs#L498-L517) (escape
   `VAR`/`VALUE`/`ESC`/`USERVAR`), [`:244-273`](../telnet_cs/Protocol/EnvironmentProtocol.cs#L244-L273) (unescape; trailing `ESC`
   contributes no byte at [`:283`](../telnet_cs/Protocol/EnvironmentProtocol.cs#L283); only unescaped bytes delimit).
@@ -250,12 +254,10 @@ re-checked unchanged.
    misaligned SLC triplet tail is logged and ignored as a whole, pinned by
    `LinemodeTests.SlcTruncated_Ignored` and
    `SplitIacSbFramingTests.MisalignedSlc_IgnoredOutOfRead`). There are no
-   deliberate exceptions left in this set: the SLC shape check was once
-   kept throwing because both sides raise at the feed boundary (telnetlib3
-   `stream_writer.py:2934-2935` raises `ValueError` on the same shape), but
-   end-to-end the reference contains per-byte `ValueError` in its chunk
-   loop (`_base.py`), so a ragged SLC tail is a no-op there too — throwing
-   here would leave the one remote kill switch this section exists to ban.
+   deliberate exceptions left in this set: end-to-end the reference
+   contains per-byte `ValueError` in its chunk loop (`_base.py`), so a
+   ragged SLC tail is a no-op there too — throwing here would leave the
+   one remote kill switch this section exists to ban.
    telnetlib3: `_handle_sb_lflow`
   (`stream_writer.py:2677-2694`), `LINEMODE` dispatch (`:2816-2834`)
   and `MODE` missing-byte gate (`:2836-2846`), `STATUS` (`:2781-2812`,
@@ -395,8 +397,10 @@ re-checked unchanged.
 - Proof: [`repro/py_d14_tspeed.py`](repro/py_d14_tspeed.py) →
   [`repro/py_d14_tspeed.log`](repro/py_d14_tspeed.log): the `signed-plus` case (`+9600,9600`)
   reports `[(9600, 9600)]` and `signed-minus` (`-1,0`) reports
-  `[(-1, 0)]` — `int()` accepts both. C# rejects both: pinned by
-  `TerminalTypeSpeedTests.SpeedValidate_SignedRates_Rejected`; a
+   `[(-1, 0)]` — `int()` accepts both. C# rejects both
+   ([`repro/cs_d14_tspeed.log`](repro/cs_d14_tspeed.log), `d14` mode: signed
+   inputs → null, plain → `9600,9600`): pinned by
+   `TerminalTypeSpeedTests.SpeedValidate_SignedRates_Rejected`; a
   rejected `IS` leaves `ClientTerminalSpeed` null (doc at
   `ServerSession.Collectors.cs:139-143`).
 - Code: [`telnet_cs/Protocol/TerminalSpeedProtocol.cs:30-42`](../telnet_cs/Protocol/TerminalSpeedProtocol.cs#L30-L42)
@@ -418,7 +422,8 @@ re-checked unchanged.
   `014b02282761272c2027622729` — `VAR K VAL "('a', 'b')"`, the Python
   `repr` on the wire; `{'K': ['a', 'b']}` uses `ARRAY` framing
   (`...02050261026206`). C# encodes a ValueTuple as its display form
-  `"(a, b)"`: pinned by `MudProtocolTests.MsdpEncode_ValueTuple_UsesDisplayForm`.
+  `"(a, b)"` ([`repro/cs_d16_msdp.log`](repro/cs_d16_msdp.log), `d16` mode:
+  tuple → `014B0228612C206229`, list keeps `ARRAY` framing): pinned by `MudProtocolTests.MsdpEncode_ValueTuple_UsesDisplayForm`.
 - Code: [`telnet_cs/Protocol/MudProtocol.cs:243-257`](../telnet_cs/Protocol/MudProtocol.cs#L243-L257) (non-enumerable
   values fall through to `Convert.ToString`; a non-list `IEnumerable`
   still takes `ARRAY`); lists agree (`ARRAY` both sides). telnetlib3
@@ -436,7 +441,8 @@ re-checked unchanged.
   `None`, and — worse — `\x1b[0;10000 D\x1b[0;0 D` also detects as
   `None`: first-match wins, so a poison id shadows the valid later
   reply (`0` alone → `cp437`). C# skips the oversize id and matches the
-  later one: pinned by
+  later one ([`repro/cs_d18_syncterm.log`](repro/cs_d18_syncterm.log),
+  `d18` mode: `10000-then-0` → `cp437`): pinned by
   `PolicyAccessoriesTests.SyncTermFont_DetectEncoding_SkipsOversizedId`.
 - Code: [`telnet_cs/Protocol/SyncTermFont.cs:121-137`](../telnet_cs/Protocol/SyncTermFont.cs#L121-L137) (accumulate,
   reject above 9999) with `DetectEncoding` at [`:68-101`](../telnet_cs/Protocol/SyncTermFont.cs#L68-L101) continuing the
@@ -456,7 +462,9 @@ re-checked unchanged.
   `[('zmp.no-support', 'look')]`; with a handler returning true (and
   nothing listed), `zmp.check look` answers
   `[('zmp.support', 'look')]`. C# answers `support` in both listed
-  cases: pinned by `MudDispatchTests.SbZmpCheck_HandlerApproved_SendsSupport`,
+  cases ([`repro/cs_d19_zmp.log`](repro/cs_d19_zmp.log), `d19` mode: listed
+  `look` with no handler → `writes` carry `zmp.support`, `support=True`):
+  pinned by `MudDispatchTests.SbZmpCheck_HandlerApproved_SendsSupport`,
   `SbZmpCheck_ListedWithoutHandler_SendsSupport`,
   `SbZmpCheck_Unapproved_SendsNoSupport`,
   `SbZmpSendSupport_HandlerApproved_SendsSupport`,
@@ -530,7 +538,8 @@ The entry below is informational: it records an API-shape difference with no wir
   overwritten again) before stopping. C# drops empties, strips the
   terminating duplicate repeat, keeps the third-slot `MTTS` vector, and
   records the over-cap answer once into the overflow slot before
-  stopping: pinned
+  stopping ([`repro/cs_d20_ttype.log`](repro/cs_d20_ttype.log), `d20` mode:
+  `ALPHA` + empty → `types=[ALPHA]`, `effective=ALPHA`): pinned
   by `ServerSessionTests.RequestTerminalTypesAsync_SkipsEmptyAnswers`,
   `RequestTerminalTypesAsync_CollectsChainUntilRepeat`,
   `RequestTerminalTypesAsync_NonConsecutiveRepeat_StopsAtFirstRepeat`,
@@ -559,10 +568,15 @@ The entry below is informational: it records an API-shape difference with no wir
 
 ## D22 — MSDP stalled array delimiters terminate (robustness)
 
-- Proof: a delimiter where an array value was expected (e.g. `VAR K VAL
-  ARRAY_OPEN TABLE_CLOSE`) spins `MsdpParser.ParseArray` forever —
-  `ParseValue` consumes nothing while the loop condition still holds, so
-  the reader appends until OOM. telnetlib3 `mud.py`
+- Proof: [`repro/py_d22_msdparray.py`](repro/py_d22_msdparray.py) →
+  [`repro/py_d22_msdparray.log`](repro/py_d22_msdparray.log): the payload
+  `014B020504` (`VAR K VAL ARRAY_OPEN TABLE_CLOSE`) never returns — the
+  3 s watchdog fires because `ParseValue` consumes nothing while the
+  `ParseArray` loop condition still holds, so the reader would append
+  until OOM. C# decodes the same payload and returns (`count=1`,
+  [`repro/cs_d22_msdparray.log`](repro/cs_d22_msdparray.log) run
+  `msdparray` in [`repro/csdiv/Program.cs`](repro/csdiv/Program.cs)).
+  telnetlib3 `mud.py`
   (`MsdpParser.parse_value` + `_parse_array`) has the identical structure
   and hangs the same way, so this deliberately diverges from the
   reference. Pinned by

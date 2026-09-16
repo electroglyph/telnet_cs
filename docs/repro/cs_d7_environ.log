@@ -1,0 +1,2 @@
+esc-value -> userVar=True name='K' value='a\x01b'
+trailing-esc -> userVar=False name='A' value=null

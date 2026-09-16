@@ -1,4 +1,4 @@
-TelnetClient params= {'term': 'unknown', 'tspeed': (38400, 38400), 'encoding': 'utf8'}
+TelnetClient params= {'term': 'unknown', 'cols': 80, 'rows': 25, 'tspeed': (38400, 38400), 'encoding': 'utf8'}
 slc funcs 1..16 present= ['0a', '0d', '09', '01', '02', '03', '04', '05', '06', '07', '08', '0b', '0c', '0e', '0f', '10', '11', '12', '13', '14', '15', '16']
 slc IP row= mask=62 val=03
 TTABLE-IS -> RAISED NotImplementedError Translation table command received but not supported: b'\x04' writes= []

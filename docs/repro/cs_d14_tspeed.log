@@ -1,0 +1,3 @@
+validate('+9600,9600')=null
+validate('-1,0')=null
+validate('9600,9600')=9600,9600

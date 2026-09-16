@@ -212,7 +212,113 @@ switch (mode)
         Console.WriteLine($"value={res["K"]} correct={Equals(res["K"], "é")}");
         break;
     }
-    default: Console.WriteLine("modes: negqueue read readS charsetSim clientSim synch slcdefaults nawsdefault negseq tspeed status snoop"); break;
+    case "d6":
+    {
+        // D6: a stale DO behind an outstanding disable is refused (RFC 1143
+        // queue); the reference forgets the withdrawal and resends DO.
+        static string R(object? r) => r is null ? "null" : ((int)r).ToString();
+        var ns = new NegotiationState();
+        Console.WriteLine($"offerEnable => reply={R(ns.OfferEnable(3))}");
+        Console.WriteLine($"offerDisable => reply={R(ns.OfferDisable(3))} us={ns.GetStates(3).Us}");
+        Console.WriteLine($"receivedDo => reply={R(ns.ReceivedDo(3, true))} us={ns.GetStates(3).Us}");
+        break;
+    }
+    case "d7":
+    {
+        // D7: ESC VALUE decodes to a literal 0x01 (RFC 1408); a trailing
+        // ESC contributes no byte. The reference keeps the ESC and splits.
+        var asm = typeof(NegotiationState).Assembly;
+        var et = asm.GetType("telnet_cs.Protocol.EnvironmentProtocol")!;
+        var parse = et.GetMethod("ParseEntries", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)!;
+        static string Esc(object? s) => s is null ? "null" : "'" + string.Concat(((string)s).Select(c => c < 32 ? $"\\x{(int)c:X2}" : c.ToString())) + "'";
+        foreach (var (label, payload) in new[] {
+            ("esc-value", new byte[] { 0, 3, (byte)'K', 1, (byte)'a', 2, 1, (byte)'b' }),
+            ("trailing-esc", new byte[] { 0, 0, (byte)'A', 2 }),
+        })
+        {
+            var entries = (System.Collections.IEnumerable)parse.Invoke(null, new object[] { payload, int.MaxValue })!;
+            foreach (var e in entries)
+            {
+                var t = e.GetType();
+                Console.WriteLine($"{label} -> userVar={t.GetField("Item1")!.GetValue(e)} name='{t.GetField("Item2")!.GetValue(e)}' value={Esc(t.GetField("Item3")!.GetValue(e))}");
+            }
+        }
+        break;
+    }
+    case "d14":
+    {
+        // D14: signed rates are rejected (RFC 1079 rates are unsigned
+        // decimals); the reference coerces them through int().
+        var asm = typeof(NegotiationState).Assembly;
+        var tt = asm.GetType("telnet_cs.Protocol.TerminalSpeedProtocol")!;
+        var val = tt.GetMethod("Validate", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)!;
+        foreach (var s in new[] { "+9600,9600", "-1,0", "9600,9600" })
+            Console.WriteLine($"validate('{s}')={val.Invoke(null, new object[] { s }) ?? "null"}");
+        break;
+    }
+    case "d16":
+    {
+        // D16: a tuple has no MSDP structured form, so it encodes as its
+        // display string; a list uses ARRAY framing. The reference str()s
+        // the tuple into a scalar too, but with Python repr spelling.
+        var tup = new Dictionary<string, object?>(StringComparer.Ordinal) { ["K"] = ("a", "b") };
+        var lst = new Dictionary<string, object?>(StringComparer.Ordinal) { ["K"] = new List<string> { "a", "b" } };
+        Console.WriteLine("tuple -> " + Hex(MudProtocol.MsdpEncode(tup)));
+        Console.WriteLine("list -> " + Hex(MudProtocol.MsdpEncode(lst)));
+        break;
+    }
+    case "d18":
+    {
+        // D18: an oversize font id is skipped so a later valid reply still
+        // resolves; the reference first-matches and reports None.
+        var poison = new byte[] { 0x1B, (byte)'[', (byte)'0', (byte)';', (byte)'1', (byte)'0', (byte)'0', (byte)'0', (byte)'0', 0x20, (byte)'D' };
+        var valid = new byte[] { 0x1B, (byte)'[', (byte)'0', (byte)';', (byte)'0', 0x20, (byte)'D' };
+        Console.WriteLine("10000 -> " + (SyncTermFont.DetectEncoding(poison) ?? "null"));
+        Console.WriteLine("10000-then-0 -> " + (SyncTermFont.DetectEncoding([.. poison, .. valid]) ?? "null"));
+        Console.WriteLine("0 -> " + (SyncTermFont.DetectEncoding(valid) ?? "null"));
+        break;
+    }
+    case "d19":
+    {
+        // D19: a listed command earns zmp.support with no check hook
+        // (handler OR list); the reference consults only the hook.
+        var ms = new MemStream(Array.Empty<byte>());
+        using var h = new ByteStreamHandler(ms);
+        h.GetType().GetProperty("ZmpSupportedCommands", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!.SetValue(h, new List<string> { "look" });
+        var body = System.Text.Encoding.Latin1.GetBytes("zmp.check\0look\0");
+        ms.Enqueue([0xFF, 0xFB, 93, 0xFF, 0xFA, 93, .. body, 0xFF, 0xF0]);
+        try { Console.WriteLine("data=" + HexStr(await h.ReadAsync(TimeSpan.FromMilliseconds(500)))); }
+        catch (Exception e) { Console.WriteLine("EX:" + e.GetType().Name); }
+        var writes = Hex(ms.AllWrites());
+        Console.WriteLine("writes=" + writes);
+        Console.WriteLine("support=" + writes.Contains(HexStr("zmp.support\0look\0")));
+        break;
+    }
+    case "d20":
+    {
+        // D20: an empty answer ends the TTYPE cycle; only prior answers are
+        // kept. The reference stores the empty answer and keeps overwriting.
+        static byte[] IsFrame(string v) => [0xFF, 0xFA, 24, 0, .. System.Text.Encoding.Latin1.GetBytes(v), 0xFF, 0xF0];
+        var ms = new MemStream([.. IsFrame("ALPHA"), .. IsFrame(string.Empty)]);
+        using var sess = new telnet_cs.Server.ServerSession(ms, new telnet_cs.Server.TelnetServerOptions(), CancellationToken.None);
+        sess.Negotiation.ReceivedWill(24, agree: true);
+        var types = await sess.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5));
+        Console.WriteLine("types=[" + string.Join(",", types) + "]");
+        Console.WriteLine("effective=" + (sess.ClientEffectiveTerminalType ?? "null"));
+        break;
+    }
+    case "msdparray":
+    {
+        // D22: a delimiter where an array value was expected terminates
+        // (the reference spins in ParseArray until OOM).
+        var payload = new byte[] { 1, (byte)'K', 2, 5, 4 };
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var res = telnet_cs.Protocol.MudProtocol.MsdpDecode(payload);
+        sw.Stop();
+        Console.WriteLine($"count={res.Count} elapsedMs={sw.ElapsedMilliseconds} returned=True");
+        break;
+    }
+    default: Console.WriteLine("modes: negqueue read readS charsetSim clientSim synch slcdefaults nawsdefault negseq tspeed status snoop d6 d7 d14 d16 d18 d19 d20 msdparray"); break;
 }
 
 sealed class MemStream : telnet_cs.Transport.IByteStream
