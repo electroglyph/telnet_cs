@@ -1553,9 +1553,9 @@
         private bool TryConsumeStatus(List<byte> payload)
         {
             // RFC 859: IS followed by WILL/WONT/DO/DONT <opt> pairs and
-            // SB <opt> <data> SE blocks. Anything else (including a trailing
-            // lone byte, which the reference logs and stops at) ends the
-            // parse; the frame is still consumed.
+            // SB <opt> <data> SE blocks. Unknown single bytes are skipped so
+            // following valid pairs still parse; only a trailing lone byte
+            // ends the parse. The frame is still consumed either way.
             if (payload.Count == 0 || payload[0] != StatusProtocol.Is)
             {
                 return false;
@@ -1594,7 +1594,7 @@
                     continue;
                 }
 
-                break;
+                i++;
             }
 
             lock (collectorLock)

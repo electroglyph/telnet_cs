@@ -121,5 +121,52 @@
             ascii.EncoderFallback.Should().BeOfType<EncoderReplacementFallback>();
             ascii.GetBytes("é").Should().Equal(new byte[] { (byte)'?' });
         }
+
+        [Theory]
+        [InlineData("atascii")]
+        [InlineData("petscii")]
+        [InlineData("atarist")]
+        [InlineData("big5bbs")]
+        public void ConvertStringToByteArray_RetroCodecWithReplacementFallback_Throws(string name)
+        {
+            // The wire gate is always strict, even for retro codecs with a
+            // caller-installed replacement fallback: their encode path reads
+            // a shadowed fallback property, which the strict clone must also
+            // force to throwing instead of emitting 0x3F.
+            var replacement = Encoding.GetEncoding(
+                name,
+                new EncoderReplacementFallback("?"),
+                DecoderFallback.ReplacementFallback);
+            Action act = () => ByteStringConverter.ConvertStringToByteArray("💉", replacement);
+            act.Should().Throw<EncoderFallbackException>();
+        }
+
+        [Theory]
+        [InlineData("atascii")]
+        [InlineData("petscii")]
+        [InlineData("atarist")]
+        [InlineData("big5bbs")]
+        public void ConvertStringToByteArray_RetroCodecDefault_Throws(string name)
+        {
+            // Control: freshly resolved retro codecs are already strict, so
+            // the gate throws for them with no fallback installed either.
+            var encoding = Encoding.GetEncoding(name);
+            Action act = () => ByteStringConverter.ConvertStringToByteArray("💉", encoding);
+            act.Should().Throw<EncoderFallbackException>();
+        }
+
+        [Fact]
+        public void ConvertStringToByteArray_RetroStrictClone_DoesNotMutateInputEncoding()
+        {
+            // The strict clone takes the throwing fallback; the caller's
+            // replacement-installed encoding keeps substituting afterwards.
+            var atascii = Encoding.GetEncoding(
+                "atascii",
+                new EncoderReplacementFallback("?"),
+                DecoderFallback.ReplacementFallback);
+            Action act = () => ByteStringConverter.ConvertStringToByteArray("💉", atascii);
+            act.Should().Throw<EncoderFallbackException>();
+            atascii.GetBytes("💉").Should().Equal(new byte[] { (byte)'?' });
+        }
     }
 }

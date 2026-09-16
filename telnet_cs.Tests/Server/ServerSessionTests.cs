@@ -2091,6 +2091,53 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public async Task StatusIs_UnknownBytesSkipped_PairsStillRecorded()
+        {
+            // Unknown single bytes inside STATUS IS are skipped so following
+            // valid pairs still parse (reference _receive_status logs and
+            // continues): WILL SGA, two garbage bytes, WILL BINARY records
+            // both pairs with no reply and no state change.
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            stream.Enqueue([255, 250, 5, 0, 251, 3, 153, 0, 251, 0, 255, 240]);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+            session.PeerStatusReport.Should().Equal(
+                new ServerSession.StatusReportItem(Commands.Will, 3, null),
+                new ServerSession.StatusReportItem(Commands.Will, 0, null));
+            session.Negotiation.GetStates(3).Should().Be((NegotiationState.SideState.No, NegotiationState.SideState.No));
+        }
+
+        [Fact]
+        public async Task StatusIs_LeadingUnknownBytesSkipped()
+        {
+            // Garbage before the first valid pair does not truncate the
+            // report: the leading bytes are skipped and WILL SGA is recorded.
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            stream.Enqueue([255, 250, 5, 0, 153, 0, 251, 3, 255, 240]);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+            session.PeerStatusReport.Should().Equal(
+                new ServerSession.StatusReportItem(Commands.Will, 3, null));
+        }
+
+        [Fact]
+        public async Task StatusIs_TrailingLoneByte_EndsParseKeepsPairs()
+        {
+            // A trailing lone byte still ends the parse (reference logs a
+            // trailing byte and stops): the preceding WILL SGA is kept and
+            // nothing is replied.
+            using var stream = new ScriptedStream();
+            using var session = NewSession(stream);
+            stream.Enqueue([255, 250, 5, 0, 251, 3, 251, 255, 240]);
+            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
+            stream.ByteWrites.Should().BeEmpty();
+            session.PeerStatusReport.Should().Equal(
+                new ServerSession.StatusReportItem(Commands.Will, 3, null));
+        }
+
+        [Fact]
         public async Task TimingMarkDo_AnsweredWill()
         {
             using var stream = new ScriptedStream();

@@ -2,6 +2,7 @@
 {
     using System;
     using System.Text;
+    using telnet_cs.Encodings;
     using telnet_cs.Protocol;
 
     /// <summary>
@@ -60,11 +61,24 @@
         /// the wire. The input encoding is never mutated (a clone takes the
         /// strict fallback). Callers that genuinely want replacement semantics
         /// encode beforehand and pass bytes via the byte-level write paths.
+        /// Retro codecs shadow the non-virtual base fallback property with
+        /// their own, which their encode path reads, so the clone's shadowed
+        /// fallback is forced to strict as well.
         /// </summary>
         private static byte[] StrictGetBytes(Encoding encoding, string value)
         {
             var strict = (Encoding)encoding.Clone();
             strict.EncoderFallback = EncoderFallback.ExceptionFallback;
+            switch (strict)
+            {
+                case CharmapEncoding charmap:
+                    charmap.EncoderFallback = EncoderFallback.ExceptionFallback;
+                    break;
+                case Big5BbsEncoding big5bbs:
+                    big5bbs.EncoderFallback = EncoderFallback.ExceptionFallback;
+                    break;
+            }
+
             return strict.GetBytes(value);
         }
 

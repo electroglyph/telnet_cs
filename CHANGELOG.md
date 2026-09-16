@@ -6,7 +6,7 @@ All notable changes to this project are documented here. The format follows
 called out explicitly. Behavioral reviews start from this file plus the
 green gates, not from member-name diffing.
 
-## [Unreleased]
+## [0.11.0] - 2026-09-16
 
 ### Added
 
@@ -48,6 +48,13 @@ green gates, not from member-name diffing.
 
 ### Fixed
 
+- Outbound wire encoding is strict for retro codecs with a replacement
+  fallback installed: unrepresentable characters throw
+  `EncoderFallbackException` for `atascii`/`petscii`/`atarist`/`big5bbs`
+  instead of silently emitting `?`.
+- `ServerSession.PeerStatusReport` no longer drops valid pairs after unknown
+  bytes in STATUS IS: unknown single bytes are skipped and parsing continues,
+  so the stored report stays complete.
 - Handshake-timeout accepts released their capacity reservation twice,
   over-freeing one slot per timed-out handshake. Each accept now releases
   exactly once.
