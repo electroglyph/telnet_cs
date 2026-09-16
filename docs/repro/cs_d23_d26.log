@@ -1,0 +1,7 @@
+count=1 elapsedMs=3 returned=True
+===
+reply=(0,255) no-throw=True
+===
+siblingBefore=SlcEntry { Level = 2, Value = 15, Flags = 32 } siblingAfter=SlcEntry { Level = 2, Value = 15, Flags = 32 } fresh=SlcEntry { Level = 2, Value = 15, Flags = 32 } isolated=True
+===
+value=é correct=True

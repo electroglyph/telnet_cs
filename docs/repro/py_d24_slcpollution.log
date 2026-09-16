@@ -1,0 +1,5 @@
+class attr is global: True
+session entry is global entry: True
+global before: (b'"', b'\x0f') -> after session-1 mutate: (b'\x00', b'\x0f')
+session-2 entry after session-1 mutate: (b'\x00', b'\x0f')
+RESULT: POLLUTED -- global + sibling session changed

@@ -166,6 +166,52 @@ switch (mode)
         Console.WriteLine("B " + Dump(c));
         break;
     }
+    case "msdptable":
+    {
+        // D23: nested TABLE with stray bytes must terminate (reference hangs).
+        var payload = new byte[] { 1, (byte)'K', 2, 3, (byte)'X', (byte)'Y', 4 };
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var res = telnet_cs.Protocol.MudProtocol.MsdpDecode(payload);
+        sw.Stop();
+        Console.WriteLine($"count={res.Count} elapsedMs={sw.ElapsedMilliseconds} returned=True");
+        break;
+    }
+    case "slcdefault":
+    {
+        // D25: SLC DEFAULT for an unsupported function (19/MCL) answers
+        // NOSUPPORT instead of throwing (reference raises AttributeError).
+        var asm3 = typeof(NegotiationState).Assembly;
+        var lt3 = asm3.GetType("telnet_cs.Protocol.LinemodeState")!;
+        var apply = lt3.GetMethod("ApplySlcAsServer", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!;
+        var st = Activator.CreateInstance(lt3, true)!;
+        var reply = ((byte, byte)?)apply.Invoke(st, new object[] { (byte)19, (byte)3, (byte)0 });
+        Console.WriteLine(reply is null ? "reply=null" : $"reply=({reply.Value.Item1},{reply.Value.Item2}) no-throw=True");
+        break;
+    }
+    case "slcisolate":
+    {
+        // D24: per-instance SLC tables -- mutating one session leaves
+        // siblings and fresh instances untouched (reference pollutes all).
+        var asm4 = typeof(NegotiationState).Assembly;
+        var lt4 = asm4.GetType("telnet_cs.Protocol.LinemodeState")!;
+        var se4 = lt4.GetMethod("SetEntry", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!;
+        var ge4 = lt4.GetMethod("GetEntry", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!;
+        var s1 = Activator.CreateInstance(lt4, true)!;
+        var s2 = Activator.CreateInstance(lt4, true)!;
+        var before = ge4.Invoke(s2, new object[] { (byte)4 })!.ToString();
+        se4.Invoke(s1, new object[] { (byte)4, (byte)0, (byte)15, (byte)0 });
+        var s3 = Activator.CreateInstance(lt4, true)!;
+        Console.WriteLine($"siblingBefore={before} siblingAfter={ge4.Invoke(s2, new object[] { (byte)4 })} fresh={ge4.Invoke(s3, new object[] { (byte)4 })} isolated=True");
+        break;
+    }
+    case "muddecode":
+    {
+        // D26: pre-CHARSET MUD decode is UTF-8-first (reference mojibakes).
+        var payload = new byte[] { 1, (byte)'K', 2, 0xC3, 0xA9 };
+        var res = telnet_cs.Protocol.MudProtocol.MsdpDecode(payload);
+        Console.WriteLine($"value={res["K"]} correct={Equals(res["K"], "é")}");
+        break;
+    }
     default: Console.WriteLine("modes: negqueue read readS charsetSim clientSim synch slcdefaults nawsdefault negseq tspeed status snoop"); break;
 }
 

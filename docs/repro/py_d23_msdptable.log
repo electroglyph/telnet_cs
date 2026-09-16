@@ -1,0 +1,2 @@
+payload= 014b0203585904
+RESULT: HANG -- msdp_decode did not return within 3s (stray bytes XY stall _parse_table forever)

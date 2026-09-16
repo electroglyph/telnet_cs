@@ -1,0 +1,3 @@
+default environ_encoding= 'ascii'
+reference decodes C3A9 as: 'Ã©' (mojibake)
+RESULT: DIVERGES

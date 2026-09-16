@@ -1,0 +1,2 @@
+func 19 in default tab: False
+RESULT: RAISED AttributeError: 'NoneType' object has no attribute 'mask'

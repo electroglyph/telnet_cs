@@ -578,3 +578,104 @@ The entry below is informational: it records an API-shape difference with no wir
   Inputs that terminated before parse identically — the old code only
   completed when `ParseValue` progressed — so conformant peers are
   unaffected. Kept by design.
+
+## D23 — MSDP nested TABLE stray bytes are skipped (robustness)
+
+- Proof: [`repro/py_d23_msdptable.py`](repro/py_d23_msdptable.py) →
+  [`repro/py_d23_msdptable.log`](repro/py_d23_msdptable.log): the payload
+  `014B0203585904` (`VAR K VAL TABLE_OPEN 'XY' TABLE_CLOSE`) never
+  returns — the 3 s watchdog fires because `_parse_table` only advances
+  the cursor on `VAR` and spins forever on the stray `XY` bytes. (The
+  top-level `parse()` has an `else`-advance, so only nested tables hang;
+  the stalled-array sibling is D22.) C# decodes the same payload and
+  returns (`count=1`, [`repro/cs_d23_d26.log`](repro/cs_d23_d26.log) run
+  `msdptable`: `csdiv/msdptable` in
+  [`repro/csdiv/Program.cs`](repro/csdiv/Program.cs)).
+- Code: [`telnet_cs/Protocol/MudProtocol.cs:330-354`](../telnet_cs/Protocol/MudProtocol.cs#L330-L354)
+  (`ParseTable`: a non-`VAR` byte is skipped as garbage at
+  [` :346-351`](../telnet_cs/Protocol/MudProtocol.cs#L346-L351) so the
+  loop always progresses). telnetlib3 `mud.py` (`MsdpParser._parse_table`)
+  loops `while ... != MSDP_TABLE_CLOSE` with only the `MSDP_VAR` branch
+  advancing `idx` — any other byte stalls the parse, wedging the pump
+  thread on a few peer bytes.
+- Why it exists: a hostile or buggy peer must never hang the session
+  pump (and with it every session on the thread) with two stray bytes.
+  Conformant tables contain only `VAR`-led entries, so well-formed peers
+  are unaffected. Kept by design.
+
+## D24 — SLC tables are per-instance (no shared-mutable defaults)
+
+- Proof: [`repro/py_d24_slcpollution.py`](repro/py_d24_slcpollution.py) →
+  [`repro/py_d24_slcpollution.log`](repro/py_d24_slcpollution.log): the
+  class attribute `default_slc_tab` **is** the `slc.BSD_SLC_TAB` global,
+  session entries **are** the global's `SLC` objects
+  (`generate_slctab` copies the dict, not the entries), and mutating one
+  session's row rewrites the global and a sibling session's row
+  (`global before: ... -> after session-1 mutate: ...`, sibling changed
+  identically). C# mutating one instance leaves a sibling and a fresh
+  instance untouched ([`repro/cs_d23_d26.log`](repro/cs_d23_d26.log) run
+  `slcisolate`: `siblingBefore == siblingAfter == fresh`).
+- Code: [`telnet_cs/Protocol/LinemodeState.cs:15`](../telnet_cs/Protocol/LinemodeState.cs#L15)
+  (`SlcEntry` is a `readonly record struct`, so rows copy by value);
+  per-instance working table at [`:27`](../telnet_cs/Protocol/LinemodeState.cs#L27)
+  and configured defaults at [`:81`](../telnet_cs/Protocol/LinemodeState.cs#L81),
+  both seeded in the constructor at
+  [` :56-73`](../telnet_cs/Protocol/LinemodeState.cs#L56-L73), with
+  `ResetToDefaults` copying (not aliasing) at
+  [` :499`](../telnet_cs/Protocol/LinemodeState.cs#L499).
+  telnetlib3: `stream_writer.py:156` binds the class attribute to the
+  global, `slc.py:228` (`generate_slctab`) and `stream_writer.py:3027`
+  (`dict(self.default_slc_tab)`) copy only the dict, and `_slc_change`
+  mutates entries in place (`set_mask`/`set_value`).
+- Why it exists: cross-session corruption — one peer's negotiation
+  rewriting every current and future session's defaults — is a
+  correctness bug, not a policy. Per-instance value-type tables give
+  each session its own negotiation memory. Kept by design.
+
+## D25 — SLC DEFAULT for an unsupported function answers NOSUPPORT (no throw)
+
+- Proof: [`repro/py_d25_slcdefault.py`](repro/py_d25_slcdefault.py) →
+  [`repro/py_d25_slcdefault.log`](repro/py_d25_slcdefault.log): func 19
+  (MCL) is absent from the default tab and `_slc_change` with a
+  `DEFAULT` level raises `AttributeError: 'NoneType' object has no
+  attribute 'mask'`. C# answers `(0,255)` — `NOSUPPORT` with the disable
+  value — without throwing
+  ([`repro/cs_d23_d26.log`](repro/cs_d23_d26.log) run `slcdefault`).
+- Code: [`telnet_cs/Protocol/LinemodeState.cs:351-364`](../telnet_cs/Protocol/LinemodeState.cs#L351-L364)
+  (`ApplySlcCore` `LevelDefault` branch restores the configured row and
+  replies it; functions without a configured row default to
+  `NOSUPPORT`/`255` per the constructor at
+  [` :61-65`](../telnet_cs/Protocol/LinemodeState.cs#L61-L65)).
+  telnetlib3 `stream_writer.py:3084` reads
+  `self.default_slc_tab.get(func).mask` with no fallback (the very next
+  line at `:3087` already uses `.get(func, slc.SLC_nosupport())`
+  defensively — only the `.mask` line is unguarded).
+- Why it exists: a single peer triplet must never raise out of the read
+  pump; `NOSUPPORT` with the disable value is the RFC 1184-conformant
+  refusal for a function we do not implement. Kept by design.
+
+## D26 — MUD payloads decode UTF-8-first before CHARSET negotiates
+
+- Proof: [`repro/py_d26_muddecode.py`](repro/py_d26_muddecode.py) →
+  [`repro/py_d26_muddecode.log`](repro/py_d26_muddecode.log): with the
+  default `environ_encoding` of `'ascii'`, the UTF-8 bytes `C3 A9`
+  (`é`) fail ASCII and fall back to latin-1, decoding as `'Ã©'`
+  (mojibake). C# decodes the same payload as `'é'`
+  ([`repro/cs_d23_d26.log`](repro/cs_d23_d26.log) run `muddecode`).
+- Code: [`telnet_cs/Protocol/MudProtocol.cs:67-78`](../telnet_cs/Protocol/MudProtocol.cs#L67-L78)
+  (`DecodeBestEffort`: strict UTF-8 first, latin-1 fallback) with a null
+  encoding meaning UTF-8; [`telnet_cs/IO/ByteStreamHandler.cs:2202-2220`](../telnet_cs/IO/ByteStreamHandler.cs#L2202-L2220)
+  (`MudEncoding` returns null until a charset is negotiated, so MUD
+  payloads are UTF-8-first pre-CHARSET). telnetlib3 decodes MUD
+  subnegotiations with `self.environ_encoding or "utf-8"`
+  (`stream_writer.py:3268,3280,3292,3324,3348`), but
+  `environ_encoding` defaults to `"ascii"` (`:234`), so pre-CHARSET
+  payloads try ASCII first and any non-ASCII UTF-8 value mojibakes via
+  the latin-1 fallback in `mud.py` (`_decode_best_effort`).
+- Why it exists: modern MUD servers send UTF-8; ASCII-first guarantees
+  mojibake for every non-ASCII value until (and unless) CHARSET is
+  negotiated, while the UTF-8-first order still absorbs legacy
+  single-byte payloads through the latin-1 fallback. The accepted
+  residual — latin-1 payloads that also parse as valid UTF-8 decode as
+  UTF-8 — is documented on `MudEncoding`; peers are expected to
+  negotiate a charset. Kept by design.
