@@ -65,7 +65,7 @@ re-checked unchanged.
   (REJECTED). A client in the same situation answers ACCEPTED like
   telnetlib3 ([`repro/cs_clientsim.log`](repro/cs_clientsim.log), `clientSim` mode:
   `writes=FFFA2A025554462D38FFF0`).
-- Code: [`telnet_cs/IO/ByteStreamHandler.cs:2341-2348`](../telnet_cs/IO/ByteStreamHandler.cs#L2341-L2348)
+- Code: [`telnet_cs/IO/ByteStreamHandler.cs:2651-2658`](../telnet_cs/IO/ByteStreamHandler.cs#L2651-L2658)
   (`ReplyCharsetRequestAsync`: `if (CharsetRequestPending && IsServerRole)`
   → REJECTED). telnetlib3: `_handle_sb_charset`
   (`stream_writer.py:2441-2463`) answers via the send callback regardless
@@ -109,7 +109,7 @@ re-checked unchanged.
   `_terminalTypeDefault = "unknown"` and [`:300`](../telnet_cs/Client/Client.Connect.cs#L300)
   `_terminalSpeedDefault = "38400,38400"` already match telnetlib3's
   (`term='unknown'`, `tspeed=(38400,38400)` per
-  [`repro/py_d5_defaults.log`](repro/py_d5_defaults.log)); [`TelnetClientOptions.cs:78-84`](../telnet_cs/Client/TelnetClientOptions.cs#L78-L84)
+  [`repro/py_d5_defaults.log`](repro/py_d5_defaults.log)); [`TelnetClientOptions.cs:80-86`](../telnet_cs/Client/TelnetClientOptions.cs#L80-L86)
   `WindowWidth/WindowHeight` default 0.
 - Why it exists: 0 is a legitimate wire value — RFC 1073 says a zero
   dimension means "no character width (or height) is being sent", leaving
@@ -139,8 +139,8 @@ re-checked unchanged.
   `"tspeed": f"{tspeed[0]},{tspeed[1]}"` (`:115`). Cs documents
   `"<tx>,<rx>"` ([`TerminalSpeedProtocol.cs:4-6`](../telnet_cs/Protocol/TerminalSpeedProtocol.cs#L4-L6); `Validate` names
   `parts[0]` tx and `parts[1]` rx at [`:34-35`](../telnet_cs/Protocol/TerminalSpeedProtocol.cs#L34-L35); SEND-reply log at
-  [`ByteStreamHandler.cs:1870-1878`](../telnet_cs/IO/ByteStreamHandler.cs#L1870-L1878); `ClientTerminalSpeed` doc at
-  [`ServerSession.Collectors.cs:136-140`](../telnet_cs/Server/ServerSession.Collectors.cs#L136-L140)), matching RFC 1079 §4
+  [`ByteStreamHandler.cs:2017-2025`](../telnet_cs/IO/ByteStreamHandler.cs#L2017-L2025); `ClientTerminalSpeed` doc at
+  [`ServerSession.Collectors.cs:139-143`](../telnet_cs/Server/ServerSession.Collectors.cs#L139-L143)), matching RFC 1079 §4
   ("transmit and receive speeds ... separated by a comma").
 - Why it exists: telnetlib3-vs-RFC conflict — telnetlib3 puts rx first
   against the RFC's transmit-first order, and Cs kept the RFC order.
@@ -198,9 +198,9 @@ re-checked unchanged.
   literal byte) and drops a trailing `ESC`: pinned by
   `EnvironmentTests.ParseEntries_EscapedValue_StaysLiteral` (and the
   send side by `EnvironSend_ValueByte_Escaped`).
-- Code: [`telnet_cs/Protocol/EnvironmentProtocol.cs:323-340`](../telnet_cs/Protocol/EnvironmentProtocol.cs#L323-L340) (escape
+- Code: [`telnet_cs/Protocol/EnvironmentProtocol.cs:498-517`](../telnet_cs/Protocol/EnvironmentProtocol.cs#L498-L517) (escape
   `VAR`/`VALUE`/`ESC`/`USERVAR`), [`:244-273`](../telnet_cs/Protocol/EnvironmentProtocol.cs#L244-L273) (unescape; trailing `ESC`
-  contributes no byte at [`:252`](../telnet_cs/Protocol/EnvironmentProtocol.cs#L252); only unescaped bytes delimit).
+  contributes no byte at [`:283`](../telnet_cs/Protocol/EnvironmentProtocol.cs#L283); only unescaped bytes delimit).
   telnetlib3 `_escape_environ` (`stream_writer.py:3540-3547`) replaces
   only `VAR`/`USERVAR`, `_unescape_environ` (`:3550-3557`) unescapes
   only those, and `_decode_env_buf` (`:3603-3631`) finds delimiters at
@@ -240,16 +240,16 @@ re-checked unchanged.
    (malformed GMCP JSON: the reference debug-logs the `ValueError` in its
    feed loop, so the typed hook stays silent while the raw hook still
    fires and the session survives).
-- Code: [`telnet_cs/IO/ByteStreamHandler.cs:2303-2315`](../telnet_cs/IO/ByteStreamHandler.cs#L2303-L2315)
-  (`ReplyLineflowAsync`: shape and agreement gates), [`:2635-2673`](../telnet_cs/IO/ByteStreamHandler.cs#L2635-L2673)
-  (`ReplyLinemodeAsync` dispatch at [`:2635-2651`](../telnet_cs/IO/ByteStreamHandler.cs#L2635-L2651), `MODE` shape and
-  agreement gates in `ReplyModeAsync`), [`:2422-2468`](../telnet_cs/IO/ByteStreamHandler.cs#L2422-L2468)
+- Code: [`telnet_cs/IO/ByteStreamHandler.cs:2607-2625`](../telnet_cs/IO/ByteStreamHandler.cs#L2607-L2625)
+  (`ReplyLineflowAsync`: shape and agreement gates), [`:2952-2996`](../telnet_cs/IO/ByteStreamHandler.cs#L2952-L2996)
+  (`ReplyLinemodeAsync` dispatch at [`:2952-2975`](../telnet_cs/IO/ByteStreamHandler.cs#L2952-L2975), `MODE` shape and
+  agreement gates in `ReplyModeAsync`), [`:2733-2785`](../telnet_cs/IO/ByteStreamHandler.cs#L2733-L2785)
   (`ReplyCharsetAnswerAsync`: ACCEPTED/REJECTED, then table verbs
-  logged and ignored at [`:2454-2468`](../telnet_cs/IO/ByteStreamHandler.cs#L2454-L2468), never answered), [`:1889-1898`](../telnet_cs/IO/ByteStreamHandler.cs#L1889-L1898)
+  logged and ignored at [`:2771-2785`](../telnet_cs/IO/ByteStreamHandler.cs#L2771-L2785), never answered), [`:2036-2045`](../telnet_cs/IO/ByteStreamHandler.cs#L2036-L2045)
    (`STATUS SEND` without agreement ignored), and `ReplySlcAsync` (a
    misaligned SLC triplet tail is logged and ignored as a whole, pinned by
    `LinemodeTests.SlcTruncated_Ignored` and
-   `AuditIoSplitTests.MisalignedSlc_IgnoredOutOfRead`). There are no
+   `SplitIacSbFramingTests.MisalignedSlc_IgnoredOutOfRead`). There are no
    deliberate exceptions left in this set: the SLC shape check was once
    kept throwing because both sides raise at the feed boundary (telnetlib3
    `stream_writer.py:2934-2935` raises `ValueError` on the same shape), but
@@ -276,8 +276,8 @@ re-checked unchanged.
   `StatusTimingMarkTests.WillTimingMark_Unsolicited_IgnoredSilently`,
   `WontTimingMark_Unsolicited_IgnoredSilently`, and
   `WillTimingMark_WhileAgreedWithoutOutstanding_IgnoredSilently`.
-- Code: [`telnet_cs/IO/ByteStreamHandler.cs:3002-3018`](../telnet_cs/IO/ByteStreamHandler.cs#L3002-L3018) (acts on
-  `WILL`/`WONT TM` only with an outstanding `DO` — gate at [`:3002`](../telnet_cs/IO/ByteStreamHandler.cs#L3002) —
+- Code: [`telnet_cs/IO/ByteStreamHandler.cs:3337-3353`](../telnet_cs/IO/ByteStreamHandler.cs#L3337-L3353) (acts on
+  `WILL`/`WONT TM` only with an outstanding `DO` — gate at [`:3337`](../telnet_cs/IO/ByteStreamHandler.cs#L3337) —
   else logs and ignores); telnetlib3 `:2249` (`WILL`) and `:2340` (`WONT`).
 - Why it exists: same boundary as D8 — the halfway state (`DO` sent,
   `WILL` not yet seen) is normal on a live wire, and a stray `TM` is
@@ -294,16 +294,16 @@ re-checked unchanged.
   is silent ([`repro/cs_wire.log`](repro/cs_wire.log) run `d10-willecho-server`), and
   the bare-handler client `DO ECHO` also answers `WONT` (run
   `d10-doecho-twice`: `writes=FFFC01FFFC01`): pinned by
-  `AuditProperNegotiationTests.Server_WillEcho_SilentWithoutStateChange`;
+  `Rfc1143NegotiationTests.Server_WillEcho_SilentWithoutStateChange`;
   `DoEcho_WithOptIn_RepliesWillAndTracksUs` /
   `DoEchoTwice_WithOptIn_RepliesWillOnce` pin the opt-in `WILL` path,
   and `WillEcho_AfterAgreedDoEcho_StaysSilent` pins the silent bounce
   guard (no `DONT` emitted).
-- Code: [`telnet_cs/IO/ByteStreamHandler.cs:3045-3049`](../telnet_cs/IO/ByteStreamHandler.cs#L3045-L3049) (server-role
-  `WILL ECHO` swallowed), [`:3342-3360`](../telnet_cs/IO/ByteStreamHandler.cs#L3342-L3360) (`AgreeEcho`: WILL answered
+- Code: [`telnet_cs/IO/ByteStreamHandler.cs:3380-3384`](../telnet_cs/IO/ByteStreamHandler.cs#L3380-L3384) (server-role
+  `WILL ECHO` swallowed), [`:3684-3702`](../telnet_cs/IO/ByteStreamHandler.cs#L3684-L3702) (`AgreeEcho`: WILL answered
   unless we already echo; DO answered from `AllowRemoteEcho` unless the
   peer already echoes; `OfferEcho` defaults on in
-  [`TelnetServerOptions.cs:29`](../telnet_cs/Server/TelnetServerOptions.cs#L29), wired at [`ServerSession.cs:453`](../telnet_cs/Server/ServerSession.cs#L453)).
+  [`TelnetServerOptions.cs:30`](../telnet_cs/Server/TelnetServerOptions.cs#L30), wired at [`ServerSession.cs:479`](../telnet_cs/Server/ServerSession.cs#L479)).
   telnetlib3: `:2201` (server raise), `:2016-2022` (client answers
   `WONT`, unconditionally and unconfigurably).
 - Why it exists: same boundary as D8/D9 for the server path — MUD
@@ -327,10 +327,10 @@ re-checked unchanged.
   telnetlib3's live path only fires the callback at `:2048-2049` — its
   close-on-`DO` lives in `handle_logout` at `:1968-1970`, which is
   unwired dead code reached only by its own unit test).
-- Code: [`telnet_cs/IO/ByteStreamHandler.cs:3021-3043`](../telnet_cs/IO/ByteStreamHandler.cs#L3021-L3043) (client-role
+- Code: [`telnet_cs/IO/ByteStreamHandler.cs:3356-3378`](../telnet_cs/IO/ByteStreamHandler.cs#L3356-L3378) (client-role
   `WILL`/`DO` handling, server-role `DO` close); a server-role `WILL`
-  falls through to the generic table ([`:3051-3059`](../telnet_cs/IO/ByteStreamHandler.cs#L3051-L3059)), which refuses an
-  unwanted offer, and the refusal goes out at [`:3095-3101`](../telnet_cs/IO/ByteStreamHandler.cs#L3095-L3101) (`DONT`).
+  falls through to the generic table ([`:3386-3394`](../telnet_cs/IO/ByteStreamHandler.cs#L3386-L3394)), which refuses an
+  unwanted offer, and the refusal goes out at [`:3437-3443`](../telnet_cs/IO/ByteStreamHandler.cs#L3437-L3443) (`DONT`).
   telnetlib3 `:2256` calls
   `_ext_callback[LOGOUT](WILL)`, sending nothing.
 - Why it exists: negotiation rules require answering a mode-change
@@ -350,15 +350,15 @@ re-checked unchanged.
   ([`repro/cs_wire.log`](repro/cs_wire.log) run `d12-mccp2`): pinned by
   `MccpTests.MccpSb_WithoutAgreement_IsIgnored`,
   `NonEmptyMccpSb_WithoutAgreement_StaysPlaintext` (in
-  `AuditProperMudTests`),
+  `MccpMsdpTests`),
   `TlsMccpSb_IsIgnored`, `ServerRole_Mccp3GzipSb_RefusedWithDont`, and
   `ServerRole_PlaintextAfterMccp2Sb_ReadsRaw`.
-- Code: [`telnet_cs/IO/ByteStreamHandler.cs:2235-2239`](../telnet_cs/IO/ByteStreamHandler.cs#L2235-L2239)
+- Code: [`telnet_cs/IO/ByteStreamHandler.cs:2519-2523`](../telnet_cs/IO/ByteStreamHandler.cs#L2519-L2523)
    (`MccpStartAllowed`: opted in, not over TLS, and agreed by either
-  side — shared by the empty and padding-carrying forms), [`:1805-1836`](../telnet_cs/IO/ByteStreamHandler.cs#L1805-L1836)
+  side — shared by the empty and padding-carrying forms), [`:1944-1975`](../telnet_cs/IO/ByteStreamHandler.cs#L1944-L1975)
   (direction: only a client inflates MCCP2, only a server MCCP3; wrong
-  direction never arms), [`:1088-1106`](../telnet_cs/IO/ByteStreamHandler.cs#L1088-L1106) with deferred flush at
-  [`:1263-1279`](../telnet_cs/IO/ByteStreamHandler.cs#L1263-L1279) (a corrupt stream is shut down with `WONT`/`DONT` so the
+  direction never arms), [`:1156-1174`](../telnet_cs/IO/ByteStreamHandler.cs#L1156-L1174) with deferred flush at
+  [`:1330-1346`](../telnet_cs/IO/ByteStreamHandler.cs#L1330-L1346) (a corrupt stream is shut down with `WONT`/`DONT` so the
   peer is informed). telnetlib3 `_handle_sb_mccp2` (`stream_writer.py:
   3352-3363`) and `_handle_sb_mccp3` (`:3365-3375`) activate on the
   marker alone; negotiation-time refusal exists (`:2090-2093`,
@@ -377,11 +377,11 @@ re-checked unchanged.
   [`repro/py_d13_naws.log`](repro/py_d13_naws.log): the strict 4-byte shape is accepted;
   the 5-byte verb-first shape raises `struct.error` out of `feed_byte`.
   C# accepts both and stays silent on the wire ([`repro/cs_wire.log`](repro/cs_wire.log)
-  run `d13-naws5`): pinned by `AuditProperOptionsTests.NawsVerbFirst_Accepted`
+  run `d13-naws5`): pinned by `OptionSubnegotiationTests.NawsVerbFirst_Accepted`
   (size stored from the verb-first frame) and
   `ServerSessionTests.InboundNaws_BareShape_SetsClientWindowSize`
   (strict 4-byte shape).
-- Code: [`telnet_cs/Server/ServerSession.Collectors.cs:1425-1448`](../telnet_cs/Server/ServerSession.Collectors.cs#L1425-L1448)
+- Code: [`telnet_cs/Server/ServerSession.Collectors.cs:1512-1535`](../telnet_cs/Server/ServerSession.Collectors.cs#L1512-L1535)
   (verb-first 5-byte is this stack's own shape; strict RFC 1073 4-byte
   also accepted). telnetlib3 `_handle_sb_naws`
   (`stream_writer.py:2649-2668`) unpacks unconditionally (`:2668`).
@@ -398,7 +398,7 @@ re-checked unchanged.
   `[(-1, 0)]` — `int()` accepts both. C# rejects both: pinned by
   `TerminalTypeSpeedTests.SpeedValidate_SignedRates_Rejected`; a
   rejected `IS` leaves `ClientTerminalSpeed` null (doc at
-  `ServerSession.Collectors.cs:136-140`).
+  `ServerSession.Collectors.cs:139-143`).
 - Code: [`telnet_cs/Protocol/TerminalSpeedProtocol.cs:30-42`](../telnet_cs/Protocol/TerminalSpeedProtocol.cs#L30-L42)
   (`Validate`: at least two comma-separated parts, first two must be
   non-empty all-ASCII-digit, leading zeros stripped for RFC 1079 §4
@@ -419,7 +419,7 @@ re-checked unchanged.
   `repr` on the wire; `{'K': ['a', 'b']}` uses `ARRAY` framing
   (`...02050261026206`). C# encodes a ValueTuple as its display form
   `"(a, b)"`: pinned by `MudProtocolTests.MsdpEncode_ValueTuple_UsesDisplayForm`.
-- Code: [`telnet_cs/Protocol/MudProtocol.cs:242-256`](../telnet_cs/Protocol/MudProtocol.cs#L242-L256) (non-enumerable
+- Code: [`telnet_cs/Protocol/MudProtocol.cs:243-257`](../telnet_cs/Protocol/MudProtocol.cs#L243-L257) (non-enumerable
   values fall through to `Convert.ToString`; a non-list `IEnumerable`
   still takes `ARRAY`); lists agree (`ARRAY` both sides). telnetlib3
   `mud.py:101-128` (`dict` → table, `list` → array, everything else
@@ -462,7 +462,7 @@ re-checked unchanged.
   `SbZmpSendSupport_HandlerApproved_SendsSupport`,
   `SbZmpSendSupport_ListedWithoutHandler_SendsSupport`, and
   `SbZmpSendSupport_UnlistedWithoutHandler_SendsNoSupport`.
-- Code: [`telnet_cs/IO/ByteStreamHandler.cs:2118-2176`](../telnet_cs/IO/ByteStreamHandler.cs#L2118-L2176) (approved is
+- Code: [`telnet_cs/IO/ByteStreamHandler.cs:2408-2460`](../telnet_cs/IO/ByteStreamHandler.cs#L2408-L2460) (approved is
   handler-true OR list-contained on both paths; bare `send-support`
   still advertises the sorted list). telnetlib3 `client.py:232-263`
   (`on_zmp` answers both paths via `_respond_zmp_support` at `:252`,
@@ -493,15 +493,15 @@ re-checked unchanged.
   (`CharsetSelect_NormalizesNames`: `US ASCII`, `ISO-8859-01`;
   `CharsetSelect_WeakDefaultAcceptsFirstViable`: weak-default
   fallthrough) and separator fallback in
-  `AuditProtocolTests.CharsetRequest_SpaceInName_RoundTrips` and
-  `AuditProperOptionsTests.CharsetSeparator_FallsBackFromSpace`
+  `ProtocolParsingTests.CharsetRequest_SpaceInName_RoundTrips` and
+  `OptionSubnegotiationTests.CharsetSeparator_FallsBackFromSpace`
   (basic round-trip: `MudProtocolTests.CharsetRequest_RoundTripsOffers`).
 - Code: [`telnet_cs/Protocol/CharsetProtocol.cs:48-71`](../telnet_cs/Protocol/CharsetProtocol.cs#L48-L71) (`BuildRequest`
   separator fallback), [`:96-123`](../telnet_cs/Protocol/CharsetProtocol.cs#L96-L123) (`ParseRequest` space re-split),
-  [`:266-328`](../telnet_cs/Protocol/CharsetProtocol.cs#L266-L328) (alias superset incl. `USASCII` and `cpNNNN`);
-  [`telnet_cs/IO/ByteStreamHandler.cs:2357-2366`](../telnet_cs/IO/ByteStreamHandler.cs#L2357-L2366) (selector, null →
-  `REJECTED`), [`:2424-2437`](../telnet_cs/IO/ByteStreamHandler.cs#L2424-L2437) (empty `ACCEPTED` → rejection path),
-  [`ServerSession.Collectors.cs:1756-1767`](../telnet_cs/Server/ServerSession.Collectors.cs#L1756-L1767) (server side, same rule).
+  [`:276-338`](../telnet_cs/Protocol/CharsetProtocol.cs#L276-L338) (alias superset incl. `USASCII` and `cpNNNN`);
+  [`telnet_cs/IO/ByteStreamHandler.cs:2667-2676`](../telnet_cs/IO/ByteStreamHandler.cs#L2667-L2676) (selector, null →
+  `REJECTED`), [`:2743-2756`](../telnet_cs/IO/ByteStreamHandler.cs#L2743-L2756) (empty `ACCEPTED` → rejection path),
+  [`ServerSession.Collectors.cs:1905-1916`](../telnet_cs/Server/ServerSession.Collectors.cs#L1905-L1916) (server side, same rule).
   telnetlib3: `handle_send_client_charset` (`stream_writer.py:1946-1954`)
   returns `""` for unresolvable names, `_handle_sb_charset`
   (`:2441-2463`) treats any non-`None` as selection, `ACCEPTED`
@@ -541,12 +541,12 @@ The entry below is informational: it records an API-shape difference with no wir
   `RequestTerminalTypesAsync_LowercaseMttsThird_StopsWithSecondEffective`
   (`ServerSessionTests`) variants.
 - Code: [`telnet_cs/Server/ServerSession.Collectors.cs`](../telnet_cs/Server/ServerSession.Collectors.cs) (empty answers
-  end the turn without advancing at [`:1552-1558`](../telnet_cs/Server/ServerSession.Collectors.cs#L1552-L1558); the returned list
+  end the turn without advancing at [`:1646-1652`](../telnet_cs/Server/ServerSession.Collectors.cs#L1646-L1652); the returned list
   ends at the first repeat — first-entry loop or previous-entry repeat
-  (terminator excluded) at [`:1600-1612`](../telnet_cs/Server/ServerSession.Collectors.cs#L1600-L1612) and [`:609-618`](../telnet_cs/Server/ServerSession.Collectors.cs#L609-L618) — while a
+  (terminator excluded) at [`:648-660`](../telnet_cs/Server/ServerSession.Collectors.cs#L648-L660) and [`:595-604`](../telnet_cs/Server/ServerSession.Collectors.cs#L595-L604) — while a
   third-slot `MTTS` vector stops the cycle but is kept in the chain;
-  past-`TerminalTypeLoopMax` ([`:328`](../telnet_cs/Server/ServerSession.Collectors.cs#L328)) the over-cap answer is recorded
-  once into the overflow slot and the cycle stops at [`:1576-1588`](../telnet_cs/Server/ServerSession.Collectors.cs#L1576-L1588)).
+  past-`TerminalTypeLoopMax` ([`:332`](../telnet_cs/Server/ServerSession.Collectors.cs#L332)) the over-cap answer is recorded
+  once into the overflow slot and the cycle stops at [`:1670-1682`](../telnet_cs/Server/ServerSession.Collectors.cs#L1670-L1682)).
   telnetlib3 `server.py:602-653` stores every answer including `""`
   (`:611-614`) and stops the cycle on empty/dup/over-cap
   (`:630-648`), but keeps the stored dup/empty/over-cap entry (and the
