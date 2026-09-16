@@ -90,7 +90,7 @@ dotnet test telnet_cs.sln -c Release --filter "FullyQualifiedName~MccpTests"
 dotnet test telnet_cs.sln -c Release --filter "FullyQualifiedName~RetroEncodingTests"
 ```
 
-Check formatting (CI treats warnings as errors; unformatted pushes fail):
+Check formatting:
 
 ```sh
 dotnet format --verify-no-changes
