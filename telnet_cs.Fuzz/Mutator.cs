@@ -10,10 +10,12 @@ internal sealed record FuzzInput(byte[] Bytes, int[] Splits);
 /// <summary>
 /// Structure-aware input generator. A seeded <see cref="Random"/> keeps runs
 /// deterministic: the same (seed, iteration) always yields the same input.
-/// Strategies mix raw biased bytes, IAC framing, MCCP streams, corpus-seeded
-/// mutation (valid frames, concatenated and corrupted, reach deep dispatch
-/// paths random bytes never reach intact), and targeted per-option frames
-/// with valid, edge, and malformed fields.
+/// Strategies mix raw biased bytes, IAC framing, MCCP streams, multibyte
+/// UTF-8 shapes, corpus-seeded mutation (valid frames, concatenated,
+/// crossed over, and corrupted, reach deep dispatch paths random bytes never
+/// reach intact), and targeted per-option frames with valid, edge, and
+/// malformed fields. Lengths skew tiny: most parser states are reachable in
+/// a few bytes, and short inputs minimize faster.
 /// </summary>
 internal static class Mutator
 {
@@ -79,18 +81,104 @@ internal static class Mutator
     }
 
     /// <summary>
+    /// Generates the input for one iteration, biasing the generator toward
+    /// the target under test: storm inputs skew long and verb-heavy, REPL
+    /// inputs look like terminal lines, everything else uses
+    /// <see cref="Generate(int, int, int)"/>.
+    /// </summary>
+    public static FuzzInput GenerateForTarget(string target, int seed, int iteration, int maxBytes) => target switch
+    {
+        "storm" => GenerateStorm(seed, iteration, maxBytes),
+        "repl" => GenerateRepl(seed, iteration, maxBytes),
+        _ => Generate(seed, iteration, maxBytes),
+    };
+
+    /// <summary>
+    /// Storm-shaped inputs: long bursts of negotiation verbs mixed with
+    /// subnegotiations and text. Lengths skew long here — tripping the storm
+    /// guard needs volume, and short verb runs are already covered by the
+    /// targeted strategy.
+    /// </summary>
+    public static FuzzInput GenerateStorm(int seed, int iteration, int maxBytes)
+    {
+        var random = new Random(unchecked(seed * 31 + iteration));
+        var length = maxBytes < 64
+            ? maxBytes
+            : random.Next(2) == 0
+                ? random.Next(64, maxBytes + 1)
+                : random.Next(1, 64);
+        var buf = new List<byte>();
+        while (buf.Count < length)
+        {
+            buf.AddRange(random.Next(10) switch
+            {
+                < 6 => StormBurst(random, random.Next(4, 60)),
+                < 8 => BuildTargetedFrame(random),
+                _ => TextRun(random),
+            });
+        }
+
+        var bytes = Sized(buf, length, random);
+        return new FuzzInput(bytes, PickSplits(random, bytes.Length));
+    }
+
+    /// <summary>
+    /// REPL-shaped inputs: an optional negotiation prefix (the session still
+    /// negotiates underneath the prompt loop) followed by command lines with
+    /// varied line endings, overlong lines, backspaces, and empty submits.
+    /// </summary>
+    public static FuzzInput GenerateRepl(int seed, int iteration, int maxBytes)
+    {
+        var random = new Random(unchecked(seed * 31 + iteration));
+        var length = random.Next(5) < 2
+            ? random.Next(1, Math.Min(32, maxBytes) + 1)
+            : random.Next(1, maxBytes + 1);
+        var buf = new List<byte>();
+        if (random.Next(3) == 0)
+        {
+            buf.AddRange(FillTargeted(random, Math.Min(64, maxBytes)));
+        }
+
+        string[] commands =
+        [
+            "help", "version", "negotiation", "stats", "environ", "slc",
+            "quit", "QUIT", "Quit", "q", "", " ",
+            "rm -rf /", "echo $TERM", "\b\b", "\u007fx",
+            new string('a', 200), "help extra args", "bogus-command!",
+        ];
+        string[] endings = ["\r\n", "\n", "\r", "\r\0", ""];
+        while (buf.Count < length)
+        {
+            buf.AddRange(Ascii(commands[random.Next(commands.Length)]));
+            buf.AddRange(Ascii(endings[random.Next(endings.Length)]));
+            if (random.Next(8) == 0)
+            {
+                buf.AddRange(StormBurst(random, random.Next(1, 6)));
+            }
+        }
+
+        var bytes = Sized(buf, length, random);
+        return new FuzzInput(bytes, PickSplits(random, bytes.Length));
+    }
+
+    /// <summary>
     /// Generates the input for one iteration.
     /// </summary>
     public static FuzzInput Generate(int seed, int iteration, int maxBytes)
     {
         var random = new Random(unchecked(seed * 31 + iteration));
-        var length = random.Next(1, maxBytes + 1);
+        // Tiny-biased lengths: most states are reachable in a few bytes, and
+        // short inputs minimize faster. Two in five inputs stay at or under
+        // 32 bytes; the rest span the full range.
+        var length = random.Next(5) < 2
+            ? random.Next(1, Math.Min(32, maxBytes) + 1)
+            : random.Next(1, maxBytes + 1);
         byte[] bytes;
         if (s_external is { Count: > 0 } && random.Next(4) == 0)
         {
             bytes = FillExternal(random, length);
         }
-        else switch (random.Next(6))
+        else switch (random.Next(7))
             {
                 case 0:
                     bytes = new byte[length];
@@ -111,6 +199,9 @@ internal static class Mutator
                     break;
                 case 4:
                     bytes = FillCorpus(random, length);
+                    break;
+                case 5:
+                    bytes = FillMultibyte(random, length);
                     break;
                 default:
                     bytes = FillTargeted(random, length);
@@ -231,6 +322,56 @@ internal static class Mutator
         return compressed;
     }
 
+    /// <summary>
+    /// Builds a byte soup of ASCII runs, valid 2/3/4-byte UTF-8 sequences,
+    /// and classic malformed shapes (truncated leads, lone continuations,
+    /// overlongs, surrogate halves). Split delivery then straddles the
+    /// multibyte boundaries, stressing the decoders' resume paths.
+    /// </summary>
+    private static byte[] FillMultibyte(Random random, int maxBytes)
+    {
+        var buf = new List<byte>();
+        while (buf.Count < maxBytes)
+        {
+            switch (random.Next(8))
+            {
+                case 0:
+                    buf.AddRange(Ascii("hello "));
+                    break;
+                case 1:
+                    // Valid 2-byte sequence (U+00E9).
+                    buf.AddRange([0xC3, 0xA9]);
+                    break;
+                case 2:
+                    // Valid 3-byte sequence (U+20AC).
+                    buf.AddRange([0xE2, 0x82, 0xAC]);
+                    break;
+                case 3:
+                    // Valid 4-byte sequence (U+1F600).
+                    buf.AddRange([0xF0, 0x9F, 0x98, 0x80]);
+                    break;
+                case 4:
+                    // Truncated lead: the continuation arrives (or never
+                    // arrives) in a later read.
+                    buf.Add(random.Next(2) == 0 ? (byte)0xE2 : (byte)0xF0);
+                    break;
+                case 5:
+                    // Lone continuation.
+                    buf.Add((byte)random.Next(0x80, 0xC0));
+                    break;
+                case 6:
+                    // Overlong "/" and surrogate half U+D800.
+                    buf.AddRange(random.Next(2) == 0 ? [0xC0, 0xAF] : [0xED, 0xA0, 0x80]);
+                    break;
+                default:
+                    buf.Add((byte)random.Next(256));
+                    break;
+            }
+        }
+
+        return Sized(buf, random.Next(1, maxBytes + 1), random);
+    }
+
     private static void SpliceCommands(Random random, byte[] bytes)
     {
         var splices = random.Next(1, 4);
@@ -301,15 +442,30 @@ internal static class Mutator
     /// Concatenates 1-3 corpus entries and corrupts the result, so inputs
     /// keep a valid skeleton (agreed negotiation, well-formed frames) while
     /// probing the neighbourhood: bit flips, hostile overwrites, truncation,
-    /// and segment duplication.
+    /// segment duplication, and single-point crossover between entries.
     /// </summary>
     private static byte[] FillCorpus(Random random, int maxBytes)
     {
-        var buf = new List<byte>();
+        var segments = new List<byte[]>();
         var picks = random.Next(1, 4);
         for (var p = 0; p < picks; p++)
         {
-            buf.AddRange(Corpus.Entries[random.Next(Corpus.Entries.Length)]);
+            segments.Add(Corpus.Entries[random.Next(Corpus.Entries.Length)]);
+        }
+
+        if (segments.Count > 1 && random.Next(3) == 0)
+        {
+            // Havoc crossover: the prefix of one entry spliced to the suffix
+            // of another mixes two valid skeletons into one ragged hybrid.
+            var a = segments[random.Next(segments.Count)];
+            var b = segments[random.Next(segments.Count)];
+            segments.Add([.. a[..random.Next(a.Length + 1)], .. b[random.Next(b.Length + 1)..]]);
+        }
+
+        var buf = new List<byte>();
+        foreach (var segment in segments)
+        {
+            buf.AddRange(segment);
         }
 
         MutateBytes(random, buf);
@@ -400,7 +556,7 @@ internal static class Mutator
         69, 70, 86, 87, 90, 91, 93, 102, 200, 201, 255,
     ];
 
-    private static byte[] BuildTargetedFrame(Random random) => random.Next(18) switch
+    private static byte[] BuildTargetedFrame(Random random) => random.Next(20) switch
     {
         0 => NegotiationStorm(random),
         1 => NawsFrame(random),
@@ -419,13 +575,16 @@ internal static class Mutator
         14 => AtcpFrame(random),
         15 => GmcpTargeted(random),
         16 => ComPortFrame(random),
+        17 => AardwolfFrame(random),
+        18 => TlsHelloFrame(random),
         _ => TextRun(random),
     };
 
-    private static byte[] NegotiationStorm(Random random)
+    private static byte[] NegotiationStorm(Random random) => StormBurst(random, random.Next(2, 9));
+
+    private static byte[] StormBurst(Random random, int count)
     {
         var buf = new List<byte>();
-        var count = random.Next(2, 9);
         for (var i = 0; i < count; i++)
         {
             buf.Add(Iac);
@@ -446,7 +605,8 @@ internal static class Mutator
 
     private static byte[] TtypeFrame(Random random)
     {
-        string[] names = ["xterm", "ANSI", "vt100", "screen-256color", "MTTS 137", "", new string('A', 64), "x\0y"];
+        string[] names = ["xterm", "ANSI", "vt100", "screen-256color", "MTTS 137", "MUDCLIENT", "TELNET",
+            "xterm-256color", "DEC-VT100", "MTTS 141", "XTERM", "", new string('A', 64), "x\0y"];
         return random.Next(4) switch
         {
             0 => Frame(24, [0, .. Ascii(names[random.Next(names.Length)])]),
@@ -458,7 +618,8 @@ internal static class Mutator
 
     private static byte[] TspeedFrame(Random random)
     {
-        string[] speeds = ["38400,38400", "115200,115200", "0,0", "9600", "abc,def", "", "38400", "1,2,3"];
+        string[] speeds = ["38400,38400", "115200,115200", "0,0", "9600", "abc,def", "", "38400", "1,2,3",
+            "57600,57600", "0,1200", "38400,0", "999999,999999"];
         return random.Next(3) switch
         {
             0 => Frame(32, [0, .. Ascii(speeds[random.Next(speeds.Length)])]),
@@ -471,8 +632,8 @@ internal static class Mutator
     {
         byte option = random.Next(2) == 0 ? (byte)36 : (byte)39;
         var body = new List<byte> { (byte)random.Next(0, 5) };
-        string[] names = ["TERM", "LANG", "COLUMNS", "USER", "", "A B"];
-        string[] values = ["xterm", "en_US.UTF-8", "80", "", "v\x1balue"];
+        string[] names = ["TERM", "LANG", "COLUMNS", "USER", "SYSTEMTYPE", "DISPLAY", "LINES", "TERMINAL-TYPE", "", "A B"];
+        string[] values = ["xterm", "en_US.UTF-8", "80", "MTTS 137", "xterm-256color", ":0", "", "v\x1balue"];
         var entries = random.Next(0, 4);
         for (var i = 0; i < entries; i++)
         {
@@ -501,11 +662,11 @@ internal static class Mutator
 
     private static byte[] CharsetFrame(Random random)
     {
-        string[] names = ["UTF-8", "US-ASCII", "LATIN-1", "BOGUS-999", ""];
+        string[] names = ["UTF-8", "US-ASCII", "LATIN-1", "BOGUS-999", "UTF8", "utf-8", "ISO-8859-1", "CP1252", "KOI8-R", ""];
         return random.Next(6) switch
         {
-            0 => Frame(42, [1, .. Ascii(" " + string.Join(" ", names[..random.Next(1, 4)]))]),
-            1 => Frame(42, [1, (byte)';', .. Ascii(string.Join(";", names[..2]))]),
+            0 => Frame(42, [1, .. Ascii(" " + string.Join(" ", names[..random.Next(1, 5)]))]),
+            1 => Frame(42, [1, (byte)';', .. Ascii(string.Join(";", names[..3]))]),
             2 => Frame(42, [2, .. Ascii(names[random.Next(names.Length)])]),
             3 => Frame(42, [(byte)random.Next(3, 8)]),
             4 => Frame(42, [1]),
@@ -680,7 +841,10 @@ internal static class Mutator
 
     private static byte[] GmcpTargeted(Random random)
     {
-        string[] valid = ["Core.Hello {\"client\":\"t\"}", "Char.Vitals {\"hp\":1}", "Room.Info [1,2]", "P.X true", "P.Y null"];
+        string[] valid = ["Core.Hello {\"client\":\"t\"}", "Char.Vitals {\"hp\":1}", "Room.Info [1,2]", "P.X true", "P.Y null",
+            "Core.Hello {\"client\":\"t\",\"features\":{\"msdp\":true,\"mssp\":false}}",
+            "Char.Vitals {\"hp\":100,\"stats\":{\"str\":18,\"dex\":14},\"flags\":[true,false,null]}",
+            "Room.Info {\"exits\":[\"n\",\"s\"],\"id\":42}", "P.Esc {\"q\":\"a\\\"b\"}"];
         string[] broken = ["Pkg {oops", "Pkg [1,", "Pkg {\"a\":", "Pkg \x06binary"];
         return random.Next(5) switch
         {
@@ -700,6 +864,53 @@ internal static class Mutator
             _ => (byte)random.Next(100, 108),
         };
         return Frame(44, [sub, .. RandomBytes(random, random.Next(0, 3))]);
+    }
+
+    /// <summary>
+    /// Aardwolf (option 102) frames: bare channel, channel plus data,
+    /// channel plus trailing bytes, empty, and hostile channel values.
+    /// </summary>
+    private static byte[] AardwolfFrame(Random random) => random.Next(5) switch
+    {
+        0 => Frame(102, [(byte)random.Next(256)]),
+        1 => Frame(102, [(byte)random.Next(256), (byte)random.Next(256)]),
+        2 => Frame(102, [(byte)random.Next(256), .. RandomBytes(random, random.Next(0, 8))]),
+        3 => Frame(102, []),
+        _ => Frame(102, RandomBytes(random, random.Next(0, 4))),
+    };
+
+    /// <summary>
+    /// TLS ClientHello shapes: a plausible record with a random session body,
+    /// plus truncated and bare-prefix forms that stall the first-byte (0x16)
+    /// sniff path at every resume point.
+    /// </summary>
+    private static byte[] TlsHelloFrame(Random random)
+    {
+        if (random.Next(4) == 0)
+        {
+            return random.Next(3) switch
+            {
+                0 => [0x16],
+                1 => [0x16, 0x03],
+                _ => [0x16, 0x03, 0x01, 0x00],
+            };
+        }
+
+        var body = new List<byte> { 0x01, 0x00, 0x00, 0x2A, 0x03, 0x03 };
+        var session = new byte[random.Next(0, 33)];
+        random.NextBytes(session);
+        body.AddRange(session);
+        body.AddRange(RandomBytes(random, random.Next(0, 24)));
+        var record = new List<byte> { 0x16, 0x03, 0x01, 0x00, (byte)(body.Count % 256) };
+        record.AddRange(body);
+        if (random.Next(3) == 0 && record.Count > 2)
+        {
+            // Ragged tail: the hello stalls mid-record.
+            var cut = random.Next(1, record.Count);
+            record.RemoveRange(cut, record.Count - cut);
+        }
+
+        return [.. record];
     }
 
     private static byte[] TextRun(Random random)

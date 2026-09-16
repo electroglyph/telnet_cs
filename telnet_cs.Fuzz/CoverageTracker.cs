@@ -12,6 +12,7 @@ internal sealed class CoverageTracker
 {
     private const int MaxSavedFiles = 2000;
 
+    private readonly Lock gate = new();
     private readonly HashSet<long> seen = new();
     private readonly string dir;
     private int saved;
@@ -23,18 +24,33 @@ internal sealed class CoverageTracker
         this.dir = dir;
     }
 
-    public int Saved => saved;
+    public int Saved
+    {
+        get
+        {
+            lock (gate)
+            {
+                return saved;
+            }
+        }
+    }
 
     public void Observe(byte[] input, long outbound, long hash)
     {
         ArgumentNullException.ThrowIfNull(input);
-        var key = unchecked(outbound * 31 + hash);
-        if (!seen.Add(key) || saved >= MaxSavedFiles)
+        // Length bucket keeps tiny ragged tails distinct from bulk floods
+        // without letting every length collide into its own novelty class.
+        var bucket = input.Length / 16;
+        var key = unchecked((outbound * 397 ^ hash) * 397 ^ bucket);
+        lock (gate)
         {
-            return;
-        }
+            if (!seen.Add(key) || saved >= MaxSavedFiles)
+            {
+                return;
+            }
 
-        File.WriteAllBytes(Path.Combine(dir, $"novel-{saved:000000}.bin"), input);
-        saved++;
+            File.WriteAllBytes(Path.Combine(dir, $"novel-{saved:000000}.bin"), input);
+            saved++;
+        }
     }
 }

@@ -11,7 +11,10 @@ using telnet_cs.Protocol;
 /// Oracle: only documented throws are allowed — <see cref="ArgumentException"/>
 /// from <c>GmcpDecode</c> on malformed JSON, argument validation on blank
 /// package names or non-string MSSP values; anything else — including from
-/// the normally total decoders and encoders — is a finding.
+/// the normally total decoders and encoders — is a finding. Packages with an
+/// interior space never reach the round-trip assertion: the wire format joins
+/// package and body with a space, so such a package is unencodable caller
+/// error, not a codec bug.
 /// </summary>
 internal static class CodecHarness
 {
@@ -21,22 +24,34 @@ internal static class CodecHarness
     {
         ArgumentNullException.ThrowIfNull(input);
         cancellationToken.ThrowIfCancellationRequested();
-        DecodeAll(input.Bytes, null, cancellationToken);
-        DecodeAll(input.Bytes, StrictUtf8, cancellationToken);
-        if (input.Bytes.Length > 1)
-        {
-            DecodeAll(input.Bytes.AsSpan(0, input.Bytes.Length / 2), null, cancellationToken);
-        }
+        var hash = FuzzSignature.ForLongs(
+            DecodeAll(input.Bytes, null, cancellationToken),
+            DecodeAll(input.Bytes, StrictUtf8, cancellationToken),
+            input.Bytes.Length > 1
+                ? DecodeAll(input.Bytes.AsSpan(0, input.Bytes.Length / 2), null, cancellationToken)
+                : 0);
 
-        EncodeAll(input.Bytes, cancellationToken);
-        return Task.FromResult((0L, 0L));
+        var encoded = EncodeAll(input.Bytes, cancellationToken);
+        hash = FuzzSignature.Mix(hash, encoded);
+        // Behavior-derived signature: decoded shapes plus gmcp package hash.
+        return Task.FromResult((0L, hash));
     }
 
-    private static void EncodeAll(byte[] bytes, CancellationToken cancellationToken)
+    private static long EncodeAll(byte[] bytes, CancellationToken cancellationToken)
     {
         // Blank package names are caller error (documented validation), so
         // fall back to a fixed package instead of swallowing the throw.
         var package = "P." + FuzzText.Latin1(bytes, 0, Math.Min(bytes.Length, 24), 24).Trim();
+        // The wire format joins package and body with a space and the decoder
+        // splits at the first space, so a package with an interior space is
+        // unencodable by construction (caller error, like a blank name).
+        // Round-trip assertions below need a valid package: cut at the space.
+        var space = package.IndexOf(' ');
+        if (space >= 0)
+        {
+            package = package[..space];
+        }
+
         if (string.IsNullOrWhiteSpace(package.Replace("P.", string.Empty, StringComparison.Ordinal)))
         {
             package = "P.X";
@@ -82,6 +97,25 @@ internal static class CodecHarness
 
         _ = MudProtocol.MsdpDecode(MudProtocol.MsdpEncode(table), null);
         _ = MudProtocol.ZmpDecode(MudProtocol.ZmpEncode(FuzzText.Latin1(bytes, 24)), null);
+        RoundTripChecks(package, table, cancellationToken);
+        return FuzzSignature.Mix(FuzzSignature.ForText(package), table.Count);
+    }
+
+    private static void RoundTripChecks(string package, Dictionary<string, object?> table, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var msdpWire = MudProtocol.MsdpEncode(table);
+        if (MudProtocol.MsdpDecode(msdpWire, null).Count != table.Count)
+        {
+            throw new InvalidDataException($"MSDP round-trip lost entries: {table.Count} became {MudProtocol.MsdpDecode(msdpWire, null).Count}.");
+        }
+
+        var gmcpWire = MudProtocol.GmcpEncodeData(package, table);
+        var (backPackage, _) = MudProtocol.GmcpDecode(gmcpWire, null);
+        if (!string.Equals(backPackage, package, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException($"GMCP round-trip package mismatch: '{package}' became '{backPackage}'.");
+        }
     }
 
     private static Dictionary<string, object?> BuildTable(byte[] bytes, int depth)
@@ -118,26 +152,33 @@ internal static class CodecHarness
         };
     }
 
-    private static void DecodeAll(ReadOnlySpan<byte> body, Encoding? encoding, CancellationToken cancellationToken)
+    private static long DecodeAll(ReadOnlySpan<byte> body, Encoding? encoding, CancellationToken cancellationToken)
     {
+        var gmcpHash = 0L;
         try
         {
-            _ = MudProtocol.GmcpDecode(body, encoding);
+            var (package, data) = MudProtocol.GmcpDecode(body, encoding);
+            gmcpHash = FuzzSignature.Mix(FuzzSignature.ForText(package), data?.ToJsonString().Length ?? -1);
         }
         catch (ArgumentException)
         {
             // Documented contract: malformed JSON is a ValueError equivalent.
+            gmcpHash = -7;
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        _ = MudProtocol.MsdpDecode(body, encoding);
+        var msdpCount = MudProtocol.MsdpDecode(body, encoding).Count;
         cancellationToken.ThrowIfCancellationRequested();
-        _ = MudProtocol.MsspDecode(body, encoding);
+        var msspCount = MudProtocol.MsspDecode(body, encoding).Count;
         cancellationToken.ThrowIfCancellationRequested();
-        _ = MudProtocol.ZmpDecode(body, encoding);
+        var zmpCount = MudProtocol.ZmpDecode(body, encoding).Count;
         cancellationToken.ThrowIfCancellationRequested();
-        _ = MudProtocol.AtcpDecode(body, encoding);
+        var (atcpPackage, atcpValue) = MudProtocol.AtcpDecode(body, encoding);
         cancellationToken.ThrowIfCancellationRequested();
-        _ = MudProtocol.AardwolfDecode(body.ToArray());
+        var aardwolf = MudProtocol.AardwolfDecode(body.ToArray());
+        return FuzzSignature.ForLongs(
+            gmcpHash, msdpCount, msspCount, zmpCount,
+            FuzzSignature.ForText(atcpPackage), atcpValue.Length,
+            aardwolf.ToString()?.Length ?? 0);
     }
 }

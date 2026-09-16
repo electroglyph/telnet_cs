@@ -20,15 +20,16 @@ internal static class EncodingHarness
     public static Task<(long Outbound, long Hash)> RunAsync(FuzzInput input, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(input);
+        var hash = FuzzSignature.ForLongs(input.Bytes.Length);
         foreach (var codepage in Codepages)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            DecodeSplit(codepage, input);
+            hash = FuzzSignature.Mix(hash, DecodeSplit(codepage, input));
             EncodeAll(codepage, input, cancellationToken);
         }
 
         LookupAll(input, cancellationToken);
-        return Task.FromResult((0L, 0L));
+        return Task.FromResult((0L, hash));
     }
 
     private static void EncodeAll(int codepage, FuzzInput input, CancellationToken cancellationToken)
@@ -89,11 +90,12 @@ internal static class EncodingHarness
         }
     }
 
-    private static void DecodeSplit(int codepage, FuzzInput input)
+    private static long DecodeSplit(int codepage, FuzzInput input)
     {
         var encoding = TelnetEncodingProvider.Instance.GetEncoding(codepage);
         ArgumentNullException.ThrowIfNull(encoding);
         var decoder = encoding.GetDecoder();
+        var incremental = new StringBuilder();
         foreach (var (start, length) in Feed.Chunks(input))
         {
             if (length == 0)
@@ -102,10 +104,24 @@ internal static class EncodingHarness
             }
 
             var chars = new char[Math.Max(16, encoding.GetMaxCharCount(length))];
-            _ = decoder.GetChars(input.Bytes, start, length, chars, 0, flush: false);
+            var produced = decoder.GetChars(input.Bytes, start, length, chars, 0, flush: false);
+            incremental.Append(chars, 0, produced);
         }
 
         var tail = new char[16];
-        _ = decoder.GetChars([], 0, 0, tail, 0, flush: true);
+        var flushed = decoder.GetChars([], 0, 0, tail, 0, flush: true);
+        incremental.Append(tail, 0, flushed);
+
+        // Differential oracle: split incremental decode must agree with the
+        // one-shot decode of the same bytes. A divergence means decoder
+        // state leaks across chunk boundaries.
+        var oneShot = encoding.GetString(input.Bytes);
+        if (!string.Equals(incremental.ToString(), oneShot, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                $"Split decode diverged on codepage {codepage}: {input.Bytes.Length} bytes decoded to {incremental.Length} chars incrementally but {oneShot.Length} chars one-shot.");
+        }
+
+        return FuzzSignature.Mix(FuzzSignature.ForText(oneShot), oneShot.Length);
     }
 }

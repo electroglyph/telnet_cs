@@ -28,10 +28,10 @@ internal static class AcceptHarness
     {
         ArgumentNullException.ThrowIfNull(input);
         cancellationToken.ThrowIfCancellationRequested();
-        ProbeOptions(input);
+        var port = ProbeOptions(input);
         await ProbeLifecycleAsync(input, cancellationToken).ConfigureAwait(false);
-        await ProbePipeAsync(input, cancellationToken).ConfigureAwait(false);
-        return (0L, 0L);
+        var (toB, toA) = await ProbePipeAsync(input, cancellationToken).ConfigureAwait(false);
+        return (0L, FuzzSignature.ForLongs(port, toB, toA, input.Bytes.Length));
     }
 
     private static TelnetServerOptions BuildOptions(byte[] bytes) => new()
@@ -49,7 +49,7 @@ internal static class AcceptHarness
         MaxConnectionsPerIp = bytes.Length > 7 ? bytes[7] % 16 : 0,
     };
 
-    private static void ProbeOptions(FuzzInput input)
+    private static int ProbeOptions(FuzzInput input)
     {
         var bytes = input.Bytes;
         var port = bytes.Length > 1 ? (bytes[0] << 8) | bytes[1] : 0;
@@ -69,6 +69,7 @@ internal static class AcceptHarness
         _ = server.RejectedPerIpCount;
         _ = server.RejectedFilterCount;
         _ = server.QueueDroppedCount;
+        return port;
     }
 
     private static async Task ProbeLifecycleAsync(FuzzInput input, CancellationToken cancellationToken)
@@ -138,7 +139,7 @@ internal static class AcceptHarness
         }
     }
 
-    private static async Task ProbePipeAsync(FuzzInput input, CancellationToken cancellationToken)
+    private static async Task<(int ToB, int ToA)> ProbePipeAsync(FuzzInput input, CancellationToken cancellationToken)
     {
         var (a, b) = InMemoryPipe.Create();
         using var endA = a;
@@ -205,6 +206,7 @@ internal static class AcceptHarness
         _ = endB.Available;
         endA.Dispose();
         endB.Dispose();
+        return (toB.Count, toA.Count);
     }
 
     private static byte[] EscapeLatin1(string text)

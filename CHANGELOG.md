@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format follows
 called out explicitly. Behavioral reviews start from this file plus the
 green gates, not from member-name diffing.
 
+## [0.12.0] - 2026-09-16
+
+### Added
+
+- Fuzzer: new `repl` (REPL prompt loop), `request` (server collector
+  requests), `tlssniff` (leading-0x16 sniff), `caps` (server option caps),
+  and `storm` (negotiation storm guard) modes; behavior-hash novelty
+  guidance on all targets; `--input` replay, `--jobs` parallelism,
+  `--seconds` budget, `--faults` I/O-fault injection, `--no-minimize`,
+  `--list-modes`, `summary.json`, and multi-round sequence minimization.
+
+### Fixed
+
+- Fuzzer codec oracle: GMCP round-trip check no longer flags packages
+  containing spaces (unencodable by construction, split at first space).
+
 ## [0.11.0] - 2026-09-16
 
 ### Added

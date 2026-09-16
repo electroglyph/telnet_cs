@@ -117,24 +117,86 @@ internal static class Minimizer
         Type exceptionType,
         CancellationToken cancellationToken)
     {
+        var captured = await CaptureAsync(
+            token => probe(new FuzzInput(candidate, []), token),
+            cancellationToken).ConfigureAwait(false);
+        return captured is not null && exceptionType.IsInstanceOfType(captured);
+    }
+
+    /// <summary>
+    /// Multi-round counterpart of <see cref="MinimizeAsync"/>: greedily drops
+    /// whole rounds while the remaining sequence still reproduces the same
+    /// exception type, then delta-debugs a lone surviving round. A sequence
+    /// that needs several rounds keeps every round (per-round shrinking under
+    /// a fixed peer prefix is future work). Probe budget is shared across the
+    /// drop passes; a lone survivor gets a fresh single-input budget.
+    /// </summary>
+    public static async Task<IReadOnlyList<FuzzInput>> MinimizeSequenceAsync(
+        IReadOnlyList<FuzzInput> sequence,
+        Func<IReadOnlyList<FuzzInput>, CancellationToken, Task<(long Outbound, long Hash)>> probe,
+        Type exceptionType,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(sequence);
+        ArgumentNullException.ThrowIfNull(probe);
+        ArgumentNullException.ThrowIfNull(exceptionType);
+        var probes = new ProbeCount();
+        var current = sequence.ToList();
+        var changed = true;
+        while (changed && current.Count > 1 && probes.Used < MaxProbes)
+        {
+            changed = false;
+            for (var drop = 0; drop < current.Count && probes.Used < MaxProbes; drop++)
+            {
+                var candidate = current.Where((_, index) => index != drop).ToList();
+                probes.Used++;
+                var captured = await CaptureAsync(
+                    token => probe(candidate, token),
+                    cancellationToken).ConfigureAwait(false);
+                if (captured is not null && exceptionType.IsInstanceOfType(captured))
+                {
+                    current = candidate;
+                    changed = true;
+                    break;
+                }
+            }
+        }
+
+        if (current.Count == 1)
+        {
+            var lone = await MinimizeAsync(
+                current[0],
+                (input, token) => probe([input], token),
+                exceptionType,
+                cancellationToken).ConfigureAwait(false);
+            return [lone];
+        }
+
+        return current;
+    }
+
+    private static async Task<Exception?> CaptureAsync(
+        Func<CancellationToken, Task<(long Outbound, long Hash)>> run,
+        CancellationToken cancellationToken)
+    {
         using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(ProbeTimeoutMs));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
         try
         {
-            await probe(new FuzzInput(candidate, []), linked.Token).ConfigureAwait(false);
-            return false;
+            await run(linked.Token).ConfigureAwait(false);
+            return null;
         }
         catch (OperationCanceledException)
         {
-            return false;
+            return null;
         }
         catch (Exception ex) when (CrashReporter.IsBenign(ex))
         {
-            return false;
+            return null;
         }
         catch (Exception ex)
         {
-            return exceptionType.IsInstanceOfType(ex);
+            return ex;
         }
     }
 

@@ -17,6 +17,11 @@ internal enum FuzzMode
     Mccp,
     Proto,
     Accept,
+    Repl,
+    Request,
+    TlsSniff,
+    Caps,
+    Storm,
     Both,
     All,
 }

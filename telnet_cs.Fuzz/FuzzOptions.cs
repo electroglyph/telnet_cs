@@ -21,6 +21,18 @@ internal sealed record FuzzOptions
 
     required public string CorpusDir { get; init; }
 
+    required public string InputFile { get; init; }
+
+    required public int Jobs { get; init; }
+
+    required public int Seconds { get; init; }
+
+    required public bool NoMinimize { get; init; }
+
+    required public bool ListModes { get; init; }
+
+    required public bool Faults { get; init; }
+
     public static string Usage => """
         telnet_cs.Fuzz — standalone telnet abuse harness (not part of `dotnet test`).
 
@@ -32,13 +44,24 @@ internal sealed record FuzzOptions
           --iters <int>      Iteration count, > 0 (default 5000).
           --max-bytes <int>  Max input bytes per iteration, 1..65536 (default 2048).
           --mode <name>      parser | session | client | auth | codec | encoding | input |
-                             write | term | mccp | proto | accept | both | all (default both).
+                             write | term | mccp | proto | accept | repl | request |
+                             tlssniff | caps | storm | both | all (default both).
                              both = parser+session; all = every harness.
           --rounds <int>     Sequential inputs per session/client iteration, 1..16 (default 1).
           --corpus-dir <dir> Novelty-corpus directory: novel inputs are saved here and
                              sampled by later runs (default "" = disabled).
           --out <dir>        Crash artifact directory (default crashes).
           --timeout-ms <int> Per-iteration hang guard, 10..30000 ms (default 2000).
+          --input <file>     Replay one input file through each selected harness
+                             instead of generating inputs (no artifacts saved).
+          --jobs <int>       Parallel fuzz workers, 1..64 (default 1). Iteration
+                             content is job-independent: seed + index fix bytes.
+          --seconds <int>    Stop starting new iterations after N seconds,
+                             0 = no budget (default 0).
+          --no-minimize      Skip crash minimization (save raw repro only).
+          --faults           Inject a one-shot read/write IOException every 8th
+                             iteration to exercise transport-failure paths.
+          --list-modes       Print harness names and exit.
           --help, -h         Print this text.
 
         Crash artifacts: <out>/<mode>-s<seed>-i<iter>.bin + .txt (input bytes,
@@ -57,6 +80,12 @@ internal sealed record FuzzOptions
         var timeoutMs = 2000;
         var rounds = 1;
         var corpusDir = string.Empty;
+        var inputFile = string.Empty;
+        var jobs = 1;
+        var seconds = 0;
+        var noMinimize = false;
+        var listModes = false;
+        var faults = false;
         for (var i = 0; i < args.Length; i++)
         {
             if (args[i] is "--help" or "-h")
@@ -64,6 +93,25 @@ internal sealed record FuzzOptions
                 options = null;
                 error = string.Empty;
                 return false;
+            }
+
+            // Value-free switches sort before the value-taking flags below.
+            if (args[i] is "--no-minimize")
+            {
+                noMinimize = true;
+                continue;
+            }
+
+            if (args[i] is "--list-modes")
+            {
+                listModes = true;
+                continue;
+            }
+
+            if (args[i] is "--faults")
+            {
+                faults = true;
+                continue;
             }
 
             if (!TakeValue(args, ref i, out var value))
@@ -112,13 +160,18 @@ internal sealed record FuzzOptions
                         "mccp" => (FuzzMode?)FuzzMode.Mccp,
                         "proto" => (FuzzMode?)FuzzMode.Proto,
                         "accept" => (FuzzMode?)FuzzMode.Accept,
+                        "repl" => (FuzzMode?)FuzzMode.Repl,
+                        "request" => (FuzzMode?)FuzzMode.Request,
+                        "tlssniff" => (FuzzMode?)FuzzMode.TlsSniff,
+                        "caps" => (FuzzMode?)FuzzMode.Caps,
+                        "storm" => (FuzzMode?)FuzzMode.Storm,
                         "both" => (FuzzMode?)FuzzMode.Both,
                         "all" => (FuzzMode?)FuzzMode.All,
                         _ => null,
                     };
                     if (parsed is null)
                     {
-                        return Fail($"--mode needs parser|session|client|auth|codec|encoding|input|write|term|mccp|proto|accept|both|all, got '{value}'.", out options, out error);
+                        return Fail($"--mode needs parser|session|client|auth|codec|encoding|input|write|term|mccp|proto|accept|repl|request|tlssniff|caps|storm|both|all, got '{value}'.", out options, out error);
                     }
 
                     mode = parsed.Value;
@@ -153,6 +206,28 @@ internal sealed record FuzzOptions
 
                     corpusDir = value;
                     break;
+                case "--input":
+                    if (string.IsNullOrWhiteSpace(value))
+                    {
+                        return Fail("--input needs a file path.", out options, out error);
+                    }
+
+                    inputFile = value;
+                    break;
+                case "--jobs":
+                    if (!int.TryParse(value, out jobs) || jobs is < 1 or > 64)
+                    {
+                        return Fail($"--jobs needs 1..64, got '{value}'.", out options, out error);
+                    }
+
+                    break;
+                case "--seconds":
+                    if (!int.TryParse(value, out seconds) || seconds is < 0 or > 86400)
+                    {
+                        return Fail($"--seconds needs 0..86400, got '{value}'.", out options, out error);
+                    }
+
+                    break;
                 default:
                     return Fail($"Unknown argument '{flag}'. Use --help.", out options, out error);
             }
@@ -168,6 +243,12 @@ internal sealed record FuzzOptions
             PerIterTimeoutMs = timeoutMs,
             Rounds = rounds,
             CorpusDir = corpusDir,
+            InputFile = inputFile,
+            Jobs = jobs,
+            Seconds = seconds,
+            NoMinimize = noMinimize,
+            ListModes = listModes,
+            Faults = faults,
         };
         error = string.Empty;
         return true;

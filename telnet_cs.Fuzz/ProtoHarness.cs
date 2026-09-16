@@ -23,15 +23,16 @@ internal static class ProtoHarness
         ArgumentNullException.ThrowIfNull(input);
         var bytes = input.Bytes;
         cancellationToken.ThrowIfCancellationRequested();
-        DriveNegotiation(bytes, cancellationToken);
-        DriveCharset(bytes, cancellationToken);
-        DriveEnvironment(bytes, cancellationToken);
-        DriveMisc(bytes, cancellationToken);
-        DriveConverter(bytes, cancellationToken);
-        return Task.FromResult((0L, 0L));
+        var hash = FuzzSignature.ForLongs(
+            DriveNegotiation(bytes, cancellationToken),
+            DriveCharset(bytes, cancellationToken),
+            DriveEnvironment(bytes, cancellationToken),
+            DriveMisc(bytes, cancellationToken),
+            DriveConverter(bytes, cancellationToken));
+        return Task.FromResult((0L, hash));
     }
 
-    private static void DriveNegotiation(byte[] bytes, CancellationToken cancellationToken)
+    private static long DriveNegotiation(byte[] bytes, CancellationToken cancellationToken)
     {
         var state = new NegotiationState();
         byte o1 = bytes.Length > 0 ? bytes[0] : (byte)0;
@@ -53,12 +54,14 @@ internal static class ProtoHarness
         _ = state.WasRefusedByPeer(o2);
         _ = state.GetStates(o1);
         _ = StatusProtocol.BuildIsPayload(state);
-        _ = StatusProtocol.FrameStatusIs(bytes.Length == 0 ? [] : bytes[..Math.Min(bytes.Length, 32)]);
-        _ = StatusProtocol.FrameStatusSend();
+        var isPayload = StatusProtocol.FrameStatusIs(bytes.Length == 0 ? [] : bytes[..Math.Min(bytes.Length, 32)]);
+        var sendPayload = StatusProtocol.FrameStatusSend();
         _ = LineflowProtocol.IsDefined(o1);
+        var (us, him) = state.GetStates(o1);
+        return FuzzSignature.ForLongs(isPayload.Length, sendPayload.Length, (int)us, (int)him);
     }
 
-    private static void DriveCharset(byte[] bytes, CancellationToken cancellationToken)
+    private static long DriveCharset(byte[] bytes, CancellationToken cancellationToken)
     {
         var offers = new List<string>();
         var count = bytes.Length == 0 ? 0 : bytes[0] % 4;
@@ -77,9 +80,11 @@ internal static class ProtoHarness
         _ = CharsetProtocol.SelectSupported(offers, name.Length == 0 ? null : name);
         _ = CharsetProtocol.SelectSupported([]);
         _ = CharsetProtocol.BuildTTableRejected();
+        var request = CharsetProtocol.BuildRequest(offers);
+        return FuzzSignature.ForLongs(offers.Count, request.Length, FuzzSignature.ForText(name));
     }
 
-    private static void DriveEnvironment(byte[] bytes, CancellationToken cancellationToken)
+    private static long DriveEnvironment(byte[] bytes, CancellationToken cancellationToken)
     {
         string? field = bytes.Length > 0 && bytes[0] % 2 == 0 ? FuzzText.Latin1(bytes, 24) : null;
         var userVars = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -95,20 +100,21 @@ internal static class ProtoHarness
         }
 
         _ = EnvironmentProtocol.ParseEntries(bytes, bytes.Length == 0 ? 0 : bytes[0]);
-        _ = EnvironmentProtocol.FrameSubnegotiation(bytes.Length == 0 ? 0 : bytes[0], bytes.Length == 0 ? [] : bytes[..Math.Min(bytes.Length, 64)]);
+        var framed = EnvironmentProtocol.FrameSubnegotiation(bytes.Length == 0 ? 0 : bytes[0], bytes.Length == 0 ? [] : bytes[..Math.Min(bytes.Length, 64)]);
         var (width, height) = NawsProtocol.GetEffectiveSize(
             bytes.Length > 0 ? bytes[0] * 257 - 100 : 0,
             bytes.Length > 1 ? bytes[1] * 257 - 100 : 0);
-        _ = NawsProtocol.BuildSubnegotiation(width, height);
+        var naws = NawsProtocol.BuildSubnegotiation(width, height);
         cancellationToken.ThrowIfCancellationRequested();
         _ = TerminalSpeedProtocol.Validate(field);
         _ = TerminalSpeedProtocol.Validate(FuzzText.Latin1(bytes, 24));
         _ = TerminalSpeedProtocol.RoundForPadding(bytes.Length > 0 ? bytes[0] * 1000 : 0);
         _ = TerminalSpeedProtocol.RoundForPadding(int.MaxValue);
         _ = MttsProtocol.TryParseBitvector(field, out _);
+        return FuzzSignature.ForLongs(framed.Length, naws.Length, width, height);
     }
 
-    private static void DriveMisc(byte[] bytes, CancellationToken cancellationToken)
+    private static long DriveMisc(byte[] bytes, CancellationToken cancellationToken)
     {
         _ = SyncTermFont.DetectEncoding(bytes);
         var codecName = FuzzText.Latin1(bytes, 16);
@@ -188,17 +194,18 @@ internal static class ProtoHarness
         _ = linemode.ForwardMaskOffered;
         _ = linemode.ForwardMaskAccepted;
         linemode.ResetToDefaults();
-        _ = LinemodeProtocol.BuildForwardMask(binaryMode: (b0 & 1) == 1);
+        var mask = LinemodeProtocol.BuildForwardMask(binaryMode: (b0 & 1) == 1);
         _ = LinemodeProtocol.SlcFunctionForCommand((Commands)b0);
         var requestTtype = FuzzText.Latin1(bytes, 8);
-        _ = EnvironmentProtocol.BuildDefaultSendRequest(bytes.Length > 0 && (b0 & 1) == 1 ? requestTtype : null, requestTtype);
+        var sendRequest = EnvironmentProtocol.BuildDefaultSendRequest(bytes.Length > 0 && (b0 & 1) == 1 ? requestTtype : null, requestTtype);
         _ = EnvironmentProtocol.ShouldForceBinary(new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["LANG"] = FuzzText.Latin1(bytes, 16),
         });
+        return FuzzSignature.ForLongs(mask.Length, sendRequest.Length, FuzzSignature.ForText(requestTtype));
     }
 
-    private static void DriveConverter(byte[] bytes, CancellationToken cancellationToken)
+    private static long DriveConverter(byte[] bytes, CancellationToken cancellationToken)
     {
         var text = FuzzText.Latin1(bytes, 128);
         _ = ByteStringConverter.ConvertStringToByteArray(text);
@@ -219,7 +226,7 @@ internal static class ProtoHarness
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        _ = ByteStringConverter.ToString(bytes);
+        var asLatin1 = ByteStringConverter.ToString(bytes);
         _ = ByteStringConverter.ToString(bytes, System.Text.Encoding.UTF8);
         if (bytes.Length > 0)
         {
@@ -228,6 +235,7 @@ internal static class ProtoHarness
             _ = ByteStringConverter.ToString(bytes, offset, bytes.Length - offset, System.Text.Encoding.UTF8);
         }
 
-        _ = ByteStringConverter.EscapeIacBytes(bytes);
+        var escaped = ByteStringConverter.EscapeIacBytes(bytes);
+        return FuzzSignature.ForLongs(asLatin1.Length, escaped.Length, FuzzSignature.ForText(text));
     }
 }
