@@ -610,6 +610,17 @@
             }
 
             bool timedOut;
+            if (IsTerminalTypeDone())
+            {
+                // Completed without polling (the pump filed the whole cycle
+                // after this request snapshot it): no read of ours ran, so
+                // no flush released the answer-triggered WILL ECHO / DO
+                // NEW_ENVIRON the pump correctly withheld for a solicited
+                // release. Flush explicitly now — after every SEND — or the
+                // arms strand and the deferred request never goes out.
+                await FlushDeferredNegotiationAsync(cancellationToken, backgroundPass: false).ConfigureAwait(false);
+            }
+
             lock (collectorLock)
             {
                 timedOut = expectingTerminalType;

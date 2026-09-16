@@ -59,3 +59,8 @@ green gates, not from member-name diffing.
   arriving byte raw instead of feeding the inflater, desyncing inflation
   (spurious decompression failure, refusal, and trailing garbage as text).
   A stalled read now awaits the next byte and feeds it to the inflater.
+- A TTYPE collection the background pump finished could strand the
+  answer-triggered WILL ECHO / DO NEW_ENVIRON: the pump correctly
+  withholds them for a solicited release, but an explicit request that
+  found the cycle already complete returned without any read or flush to
+  release them. Completion now flushes explicitly, after every SEND.

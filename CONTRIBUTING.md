@@ -12,4 +12,3 @@ If your PR is a bugfix please provide the following:
 If your PR is a feature, please include the following:
 
 1. Comprehensive unit tests
-2. Integration test if necessary
