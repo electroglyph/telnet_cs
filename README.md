@@ -34,7 +34,9 @@ speed), 1091 (terminal type), 1096 (X display), 1184 (linemode), 1372
 - **Server:** `telnet_cs.Server.TelnetServer` + `ServerSession` — accept loop
   (with TLS ClientHello sniffing), server-role negotiation, authentication
   helper, per-client options (terminal type, speed, window size, environment,
-  linemode, charset), dynamic `SetTimeout`, and idle `Timeout.\r\n` notice.
+  linemode, charset), dynamic `SetTimeout`, idle `Timeout.\r\n` notice, and
+  game-driven echo via `SetEchoAsync` / `WriteWithEchoAsync` (atomic
+  WILL/WONT + prompt fusion for masked password prompts).
 - **Ported from [telnetlib3](https://github.com/jquast/telnetlib3):**
   - Negotiation behaviors — NAWS clamped to the 0–65535 wire range; terminal
     speed in `"<tx>,<rx>"` order per RFC 1079 §4 (telnetlib3 uses the opposite
@@ -70,7 +72,7 @@ speed), 1091 (terminal type), 1096 (X display), 1184 (linemode), 1372
     `Server.TelnetSessionContext` (activity timestamps, rx/tx counters,
     typescript recorder, property bag), `IdleTimeout` (default 300 s),
     `StatusInterval` (default 20 s), and opt-in `TlsAutoDetect` peek.
-- 1605 tests green as of 2026-09-16, full suite with warnings-as-errors. Requires the
+- 1698 tests green as of 2026-09-17, full suite with warnings-as-errors. Requires the
   .NET 10 SDK and runtime; build with
   `dotnet build telnet_cs.sln -c Release`.
 - Usage guides: [client](docs/client.md), [server](docs/server.md).
@@ -82,11 +84,11 @@ Pre-1.0 packages publish to nuget.org on every `VersionPrefix` bump (see
 breaking changes until 1.0:
 
 ```xml
-<PackageReference Include="telnet_cs" Version="0.11.0" />
+<PackageReference Include="telnet_cs" Version="0.13.0" />
 ```
 
 ```sh
-dotnet add package telnet_cs --version 0.11.0
+dotnet add package telnet_cs --version 0.13.0
 ```
 
 Local dev without the feed: `dotnet pack telnet_cs/telnet_cs.csproj -c
