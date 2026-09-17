@@ -1,6 +1,6 @@
 # Server usage guide
 
-Last verified: 2026-09-16 (suite 1605/1605 green).
+Last verified: 2026-09-17 (suite 1712/1712 green).
 
 The server lives in the `telnet_cs.Server` namespace. `TelnetServer` owns
 only the listen socket; each accepted connection is a `ServerSession`
@@ -64,8 +64,10 @@ preset byte), use `AcceptTcpAsync` + `NegotiateAsync` — the same steps
 `AcceptSessionAsync` runs, so the wire behavior is identical:
 
 ```csharp
+// Sessions carry no public endpoint: snapshot it in AcceptFilterV2 (which
+// runs per accept, before any bytes) and correlate after the accept returns.
+server.Settings.AcceptFilterV2 = endPoint => { lastEndpoint = endPoint; return new AcceptDecision(true); };
 var pending = await server.AcceptTcpAsync(ct);
-Console.WriteLine($"incoming from {pending.RemoteEndPoint}");
 var session = await server.NegotiateAsync(pending, ct);
 ```
 

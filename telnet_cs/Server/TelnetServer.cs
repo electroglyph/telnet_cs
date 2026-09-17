@@ -291,8 +291,13 @@
         /// </summary>
         /// <example>
         /// <code>
+        /// // Sessions carry no public endpoint: snapshot it in the filter
+        /// // (which runs per accept, before any bytes) and correlate after.
+        /// using var server = new TelnetServer(0, new TelnetServerOptions
+        /// {
+        ///     AcceptFilterV2 = endPoint => { lastEndpoint = endPoint; return new AcceptDecision(true); },
+        /// });
         /// var pending = await server.AcceptTcpAsync(ct);
-        /// Console.WriteLine($"incoming from {pending.RemoteEndPoint}");
         /// var session = await server.NegotiateAsync(pending, ct);
         /// </code>
         /// </example>
@@ -448,6 +453,10 @@
                     using var handshakeLinked = deadlineCts is null
                         ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
                         : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadlineCts.Token);
+                    // Latch the deadline token itself: the struct stays
+                    // readable after disposal and reports a fired deadline
+                    // even when observed before the wall-clock deadline.
+                    CancellationToken deadlineToken = deadlineCts?.Token ?? CancellationToken.None;
                     bool handshake = true;
                     if (options.TlsAutoDetect != System.Threading.Timeout.InfiniteTimeSpan &&
                         options.TlsAutoDetect > TimeSpan.Zero)
@@ -475,7 +484,7 @@
                         {
                             handshake = await PeekTlsClientHelloAsync(accepted, peekWait, handshakeLinked.Token).ConfigureAwait(false);
                         }
-                        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && handshakeEnabled && DateTime.UtcNow >= handshakeDeadlineUtc)
+                        catch (OperationCanceledException) when (IsHandshakeTimeout(cancellationToken, deadlineToken))
                         {
                             ReleaseReservation(reservationIpKey!);
                             reservationIpKey = null;
@@ -521,7 +530,7 @@
                                     handshakeLinked.Token).ConfigureAwait(false);
                                 isTls = true;
                             }
-                            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && handshakeEnabled && DateTime.UtcNow >= handshakeDeadlineUtc)
+                            catch (OperationCanceledException) when (IsHandshakeTimeout(cancellationToken, deadlineToken))
                             {
                                 ReleaseReservation(reservationIpKey!);
                                 reservationIpKey = null;
@@ -594,10 +603,12 @@
                 throw new InvalidOperationException("Session is not a pending accept from this server: obtain it from AcceptTcpAsync and negotiate each session once.");
             }
 
+            CancellationToken presetDeadline = CancellationToken.None;
             try
             {
                 // The session emits the server opening preset before the
                 // accept completes; a fully toggled-off preset sends nothing.
+                // Latched like AcceptTcpAsync: the struct outlives its source.
                 if (pending.HandshakeEnabled)
                 {
                     TimeSpan left = pending.HandshakeDeadlineUtc - DateTime.UtcNow;
@@ -608,6 +619,7 @@
                     }
 
                     using var presetCts = new CancellationTokenSource(left);
+                    presetDeadline = presetCts.Token;
                     using var presetLinked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, presetCts.Token);
                     await session.SendOpeningPresetAsync(presetLinked.Token).ConfigureAwait(false);
                 }
@@ -616,7 +628,7 @@
                     await session.SendOpeningPresetAsync(cancellationToken).ConfigureAwait(false);
                 }
             }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && pending.HandshakeEnabled && DateTime.UtcNow >= pending.HandshakeDeadlineUtc)
+            catch (OperationCanceledException) when (pending.HandshakeEnabled && IsHandshakeTimeout(cancellationToken, presetDeadline))
             {
                 LogOutsideLock($"handshake-timeout: endpoint={pending.Endpoint}");
                 ReleaseReservation(pending.ReservationIpKey);
@@ -641,6 +653,24 @@
 
             return session;
         }
+
+        /// <summary>
+        /// Classifies an <see cref="OperationCanceledException"/> escaping a
+        /// deadline-bound accept await: a deadline expiry maps to
+        /// <see cref="TimeoutException"/>, a caller cancel stays cancelled.
+        /// The deadline is read from its own <see cref="CancellationToken"/>
+        /// — never the wall clock — so a deadline-caused cancellation maps
+        /// deterministically even when observed before <see
+        /// cref="DateTime.UtcNow"/> reaches the deadline (timer/scheduling
+        /// granularity fires the source slightly early). The token struct
+        /// stays readable after its source is disposed.
+        /// </summary>
+        /// <param name="callerToken">The caller's cancellation token.</param>
+        /// <param name="deadlineToken">The deadline source's token (<see
+        /// cref="CancellationToken.None"/> when no deadline is armed).</param>
+        /// <returns><c>true</c> when the cancellation came from the deadline.</returns>
+        internal static bool IsHandshakeTimeout(CancellationToken callerToken, CancellationToken deadlineToken) =>
+            !callerToken.IsCancellationRequested && deadlineToken.IsCancellationRequested;
 
         /// <summary>
         /// Peeks at the first inbound byte without consuming it: <c>true</c>

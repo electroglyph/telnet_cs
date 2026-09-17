@@ -68,7 +68,13 @@
         /// <exception cref="OperationCanceledException">The read was already cancelled before it started.</exception>
         public async Task<string> ReadAsync(TimeSpan timeout)
         {
-            if (!byteStream.Connected)
+            // A closed peer ends the stream — but only once held bytes drain:
+            // the parser may stash a byte (CR LF continuation pushback, MCCP
+            // output) past the peer's final close, and the slice loop below
+            // already ends itself on !Connected, so entering it here can only
+            // emit the stranded bytes, never block (a second pass finds
+            // nothing held and returns empty the same way).
+            if (!byteStream.Connected && !IsResponsePending)
             {
                 return string.Empty;
             }

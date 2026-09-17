@@ -149,5 +149,120 @@ namespace telnet_cs.Tests
         }
 
         private static readonly TimeSpan Budget = TimeSpan.FromSeconds(10);
+
+        [Fact]
+        public async Task ReadAsync_CrLfAtPipeClose_DeliversBothBytes()
+        {
+            // The CR LF continuation stashes the LF past the peer's final
+            // close; the next read must drain it instead of reporting
+            // end-of-stream (a lone terminator LF was dropped here).
+            var options = new TelnetServerOptions
+            {
+                HandshakeTimeout = Timeout.InfiniteTimeSpan,
+            };
+            var (peer, wire) = InMemoryPipe.Create();
+            using var session = new ServerSession(wire, options, CancellationToken.None);
+            byte[] payload = [0x68, 0x65, 0x6C, 0x6C, 0x6F, 0x0D, 0x0A];
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            await peer.WriteAsync(payload, 0, payload.Length, cts.Token);
+            peer.Close();
+
+            (await DrainAsync(session)).Should().Be("hello\r\n");
+            peer.Dispose();
+        }
+
+        [Fact]
+        public async Task ReadAsync_BareLfAtPipeClose_StaysIntact()
+        {
+            var options = new TelnetServerOptions
+            {
+                HandshakeTimeout = Timeout.InfiniteTimeSpan,
+            };
+            var (peer, wire) = InMemoryPipe.Create();
+            using var session = new ServerSession(wire, options, CancellationToken.None);
+            byte[] payload = System.Text.Encoding.UTF8.GetBytes("hello\n");
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            await peer.WriteAsync(payload, 0, payload.Length, cts.Token);
+            peer.Close();
+
+            (await DrainAsync(session)).Should().Be("hello\n");
+            peer.Dispose();
+        }
+
+        [Fact]
+        public async Task ReadAsync_MidStreamCrLfAtPipeClose_StaysIntact()
+        {
+            var options = new TelnetServerOptions
+            {
+                HandshakeTimeout = Timeout.InfiniteTimeSpan,
+            };
+            var (peer, wire) = InMemoryPipe.Create();
+            using var session = new ServerSession(wire, options, CancellationToken.None);
+            byte[] payload = System.Text.Encoding.UTF8.GetBytes("A\r\nB");
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            await peer.WriteAsync(payload, 0, payload.Length, cts.Token);
+            peer.Close();
+
+            (await DrainAsync(session)).Should().Be("A\r\nB");
+            peer.Dispose();
+        }
+
+        [Fact]
+        public async Task ReadAsync_CrNulAtPipeClose_StaysIntact()
+        {
+            var options = new TelnetServerOptions
+            {
+                HandshakeTimeout = Timeout.InfiniteTimeSpan,
+            };
+            var (peer, wire) = InMemoryPipe.Create();
+            using var session = new ServerSession(wire, options, CancellationToken.None);
+            byte[] payload = [0x41, 0x0D, 0x00];
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            await peer.WriteAsync(payload, 0, payload.Length, cts.Token);
+            peer.Close();
+
+            (await DrainAsync(session)).Should().Be("A\r\0");
+            peer.Dispose();
+        }
+
+        [Fact]
+        public async Task ReadAsync_BareCrAtPipeClose_DeliversCr()
+        {
+            var options = new TelnetServerOptions
+            {
+                HandshakeTimeout = Timeout.InfiniteTimeSpan,
+            };
+            var (peer, wire) = InMemoryPipe.Create();
+            using var session = new ServerSession(wire, options, CancellationToken.None);
+            byte[] payload = System.Text.Encoding.UTF8.GetBytes("A\r");
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            await peer.WriteAsync(payload, 0, payload.Length, cts.Token);
+            peer.Close();
+
+            (await DrainAsync(session)).Should().Be("A\r");
+            peer.Dispose();
+        }
+
+        private static async Task<string> DrainAsync(ServerSession session)
+        {
+            // Slice boundaries on a closing peer are an implementation
+            // detail (the CR continuation may split the LF across reads),
+            // so concatenate until the session reports end-of-stream. Every
+            // pass ends at once on a closed peer, so this cannot hang: at
+            // most one empty live wait, bounded below.
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < 10; i++)
+            {
+                string slice = await session.ReadAsync(TimeSpan.FromSeconds(5)).WaitAsync(Budget);
+                if (slice.Length == 0)
+                {
+                    break;
+                }
+
+                sb.Append(slice);
+            }
+
+            return sb.ToString();
+        }
     }
 }

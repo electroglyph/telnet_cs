@@ -6,6 +6,27 @@ All notable changes to this project are documented here. The format follows
 called out explicitly. Behavioral reviews start from this file plus the
 green gates, not from member-name diffing.
 
+## [0.15.0] - 2026-09-17
+
+### Fixed
+
+- Handshake-deadline classification is latched to the deadline token instead
+  of the wall clock (`TelnetServer.IsHandshakeTimeout`): a deadline expiry now
+  maps to `TimeoutException` deterministically even when observed before the
+  wall-clock deadline, and a caller cancel still surfaces as
+  `OperationCanceledException`. No wire, preset, or default changes.
+- Reads drain parser-held bytes after the peer closes (`ByteStreamHandler`
+  only reports end-of-stream when nothing is held): a `\n` stashed by the CR
+  LF continuation at end-of-stream is delivered on the next read instead of
+  dropped. No wire, preset, or default changes.
+
+### Changed
+
+- Split-accept doc example (`TelnetServer.AcceptTcpAsync` xmldoc,
+  `docs/server.md`): endpoint correlation now goes through `AcceptFilterV2`
+  (`ServerSession.RemoteEndPoint` is internal, so the old
+  `pending.RemoteEndPoint` line did not compile for consumers).
+
 ## [0.14.0] - 2026-09-17
 
 ### Fixed
