@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 called out explicitly. Behavioral reviews start from this file plus the
 green gates, not from member-name diffing.
 
+## [0.16.0] - 2026-09-17
+
+### Removed
+
+- `TelnetServerOptions.AcceptFilterV2`: the boolean `AcceptFilter` is gone
+  and the verdict-returning filter takes its name. `AcceptFilter` is now
+  `Func<EndPoint?, AcceptDecision>`; the old `EndPoint? → bool` form and the
+  bool-wins precedence rule are deleted. No wire, preset, or default changes.
+
 ## [0.15.0] - 2026-09-17
 
 ### Fixed
@@ -27,12 +36,7 @@ green gates, not from member-name diffing.
   (`ServerSession.RemoteEndPoint` is internal, so the old
   `pending.RemoteEndPoint` line did not compile for consumers).
 
-### Removed
-
-- `TelnetServerOptions.AcceptFilterV2`: the boolean `AcceptFilter` is gone
-  and the verdict-returning filter takes its name. `AcceptFilter` is now
-  `Func<EndPoint?, AcceptDecision>`; the old `EndPoint? → bool` form and the
-  bool-wins precedence rule are deleted. No wire, preset, or default changes.
+## [0.14.0] - 2026-09-17
 
 ### Fixed
 
