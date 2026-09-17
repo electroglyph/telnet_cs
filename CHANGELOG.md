@@ -23,11 +23,16 @@ green gates, not from member-name diffing.
 ### Changed
 
 - Split-accept doc example (`TelnetServer.AcceptTcpAsync` xmldoc,
-  `docs/server.md`): endpoint correlation now goes through `AcceptFilterV2`
+  `docs/server.md`): endpoint correlation now goes through `AcceptFilter`
   (`ServerSession.RemoteEndPoint` is internal, so the old
   `pending.RemoteEndPoint` line did not compile for consumers).
 
-## [0.14.0] - 2026-09-17
+### Removed
+
+- `TelnetServerOptions.AcceptFilterV2`: the boolean `AcceptFilter` is gone
+  and the verdict-returning filter takes its name. `AcceptFilter` is now
+  `Func<EndPoint?, AcceptDecision>`; the old `EndPoint? → bool` form and the
+  bool-wins precedence rule are deleted. No wire, preset, or default changes.
 
 ### Fixed
 

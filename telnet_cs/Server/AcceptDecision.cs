@@ -1,7 +1,7 @@
 namespace telnet_cs.Server
 {
     /// <summary>
-    /// A <see cref="TelnetServerOptions.AcceptFilterV2"/> verdict: whether
+    /// A <see cref="TelnetServerOptions.AcceptFilter"/> verdict: whether
     /// the accepted connection may proceed, plus the machine-readable reason
     /// a refusal carries into the <c>over-capacity: filter-reject
     /// endpoint=…</c> log line and the

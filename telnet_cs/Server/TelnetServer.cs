@@ -241,8 +241,8 @@
         /// opening preset (see <see cref="ServerSession.SendOpeningPresetAsync"/>)
         /// before this returns; a fully toggled-off preset sends nothing.
         /// Admission control (<c>MaxConcurrentSessions</c>,
-        /// <c>MaxConnectionsPerIp</c>, <c>AcceptFilter</c>,
-        /// <c>AcceptFilterV2</c>) runs before any
+        /// <c>MaxConnectionsPerIp</c>, <c>AcceptFilter</c>)
+        /// runs before any
         /// TLS handshake or preset bytes: refused accepts dispose the socket
         /// with no bytes sent and throw <see cref="SessionCapacityException"/>,
         /// <see cref="PerIpCapacityException"/>, or
@@ -269,7 +269,7 @@
         /// Accepts one inbound TCP connection and wraps it in an unnegotiated
         /// <see cref="ServerSession"/> that owns its stream. Admission control
         /// (<c>MaxConcurrentSessions</c>, <c>MaxConnectionsPerIp</c>,
-        /// <c>AcceptFilter</c>, <c>AcceptFilterV2</c>) runs before any bytes
+        /// <c>AcceptFilter</c>) runs before any bytes
         /// are sent — refused accepts dispose the socket with no bytes sent
         /// and throw <see cref="SessionCapacityException"/>,
         /// <see cref="PerIpCapacityException"/>, or
@@ -295,7 +295,7 @@
         /// // (which runs per accept, before any bytes) and correlate after.
         /// using var server = new TelnetServer(0, new TelnetServerOptions
         /// {
-        ///     AcceptFilterV2 = endPoint => { lastEndpoint = endPoint; return new AcceptDecision(true); },
+        ///     AcceptFilter = endPoint => { lastEndpoint = endPoint; return new AcceptDecision(true); },
         /// });
         /// var pending = await server.AcceptTcpAsync(ct);
         /// var session = await server.NegotiateAsync(pending, ct);
@@ -327,37 +327,12 @@
                 ipKey = "unknown";
             }
 
-            var filter = options.AcceptFilter;
-            if (filter is not null)
-            {
-                bool allowed;
-                try
-                {
-                    allowed = filter(remoteEndPoint);
-                }
-                catch (Exception ex)
-                {
-                    Interlocked.Increment(ref rejectedFilter);
-                    LogOutsideLock($"over-capacity: filter-reject endpoint={endpoint} reason=filter-threw");
-                    System.Diagnostics.Debug.WriteLine(ex.Message);
-                    accepted.Dispose();
-                    throw new ConnectionRefusedByFilterException(remoteEndPoint, ex);
-                }
-
-                if (!allowed)
-                {
-                    Interlocked.Increment(ref rejectedFilter);
-                    LogOutsideLock($"over-capacity: filter-reject endpoint={endpoint}");
-                    accepted.Dispose();
-                    throw new ConnectionRefusedByFilterException(remoteEndPoint);
-                }
-            }
-            else if (options.AcceptFilterV2 is { } filterV2)
+            if (options.AcceptFilter is { } filter)
             {
                 AcceptDecision decision;
                 try
                 {
-                    decision = filterV2(remoteEndPoint);
+                    decision = filter(remoteEndPoint);
                 }
                 catch (Exception ex)
                 {

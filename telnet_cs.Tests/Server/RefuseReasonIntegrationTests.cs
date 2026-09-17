@@ -68,11 +68,11 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task AcceptSessionAsync_FilterFalse_ThrowsFilterSubtypeWithNoBytes()
+        public async Task AcceptSessionAsync_FilterRefuse_ThrowsFilterSubtypeWithNoBytes()
         {
             var logs = new List<string>();
             var options = LowFrictionOptions();
-            options.AcceptFilter = _ => false;
+            options.AcceptFilter = _ => new AcceptDecision(false);
             options.Log = m => { lock (logs) { logs.Add(m); } };
             using var server = new TelnetServer(0, options);
             server.Start();
@@ -166,11 +166,11 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task AcceptSessionAsync_FilterV2Refuse_ThrowsWithCustomReasonInLog()
+        public async Task AcceptSessionAsync_FilterRefuseCustomReason_ThrowsWithReasonInLog()
         {
             var logs = new List<string>();
             var options = LowFrictionOptions();
-            options.AcceptFilterV2 = _ => new AcceptDecision(false, "banned-asn");
+            options.AcceptFilter = _ => new AcceptDecision(false, "banned-asn");
             options.Log = m => { lock (logs) { logs.Add(m); } };
             using var server = new TelnetServer(0, options);
             server.Start();
@@ -191,10 +191,10 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task AcceptSessionAsync_FilterV2Allow_Accepts()
+        public async Task AcceptSessionAsync_FilterAllow_Accepts()
         {
             var options = LowFrictionOptions();
-            options.AcceptFilterV2 = _ => new AcceptDecision(true);
+            options.AcceptFilter = _ => new AcceptDecision(true);
             using var server = new TelnetServer(0, options);
             server.Start();
 
@@ -207,11 +207,11 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task AcceptSessionAsync_FilterV2EmptyReason_NormalizesToFilterReject()
+        public async Task AcceptSessionAsync_FilterEmptyReason_NormalizesToFilterReject()
         {
             var logs = new List<string>();
             var options = LowFrictionOptions();
-            options.AcceptFilterV2 = _ => new AcceptDecision(false, string.Empty);
+            options.AcceptFilter = _ => new AcceptDecision(false, string.Empty);
             options.Log = m => { lock (logs) { logs.Add(m); } };
             using var server = new TelnetServer(0, options);
             server.Start();
@@ -229,14 +229,13 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task AcceptSessionAsync_BoolFilterWinsOverV2()
+        public async Task AcceptSessionAsync_FilterReceivesPeerEndpoint()
         {
-            // Precedence: when both filters are set the bool filter wins — a
-            // true verdict accepts without consulting V2, a false verdict
-            // refuses with the bool reason.
+            // The split-accept correlation contract: the filter is the only
+            // public endpoint source, so it must observe the peer's address.
             var options = LowFrictionOptions();
-            options.AcceptFilter = _ => true;
-            options.AcceptFilterV2 = _ => new AcceptDecision(false, "banned-asn");
+            EndPoint? seen = null;
+            options.AcceptFilter = endPoint => { seen = endPoint; return new AcceptDecision(true); };
             using var server = new TelnetServer(0, options);
             server.Start();
 
@@ -245,24 +244,8 @@ namespace telnet_cs.Tests
             await raw.ConnectAsync("127.0.0.1", server.Port);
             using var session = await accept;
             session.IsConnected.Should().BeTrue();
-            server.RejectedFilterCount.Should().Be(0);
-        }
-
-        [Fact]
-        public async Task AcceptSessionAsync_BoolFalseWinsOverV2Allow()
-        {
-            var options = LowFrictionOptions();
-            options.AcceptFilter = _ => false;
-            options.AcceptFilterV2 = _ => new AcceptDecision(true);
-            using var server = new TelnetServer(0, options);
-            server.Start();
-
-            using var raw = new TcpClient();
-            var accept = server.AcceptSessionAsync(CancellationToken.None);
-            await raw.ConnectAsync("127.0.0.1", server.Port);
-            var ex = await Assert.ThrowsAsync<ConnectionRefusedByFilterException>(() => accept);
-            ex.Reason.Should().Be("filter-reject");
-            server.RejectedFilterCount.Should().Be(1);
+            seen.Should().BeOfType<IPEndPoint>()
+                .Which.Address.Should().Be(IPAddress.Loopback);
         }
 
         [Fact]

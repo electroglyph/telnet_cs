@@ -135,29 +135,6 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task Start_AcceptFilterFalse_RejectsWithFilterCount()
-        {
-            var logs = new List<string>();
-            var options = LowFrictionOptions();
-            options.AcceptFilter = _ => false;
-            options.Log = m => { lock (logs) { logs.Add(m); } };
-            using var server = new TelnetServer(0, options);
-            server.Start();
-
-            using var raw = new TcpClient();
-            var accept = server.AcceptSessionAsync(CancellationToken.None);
-            await raw.ConnectAsync("127.0.0.1", server.Port);
-            var ex = await Assert.ThrowsAsync<ConnectionRefusedByFilterException>(() => accept);
-            ex.Message.Should().StartWith("over-capacity:");
-            server.RejectedFilterCount.Should().Be(1);
-            server.RejectedCapacityCount.Should().Be(0);
-            lock (logs)
-            {
-                logs.Should().Contain(m => m.StartsWith("over-capacity:", StringComparison.Ordinal));
-            }
-        }
-
-        [Fact]
         public async Task Start_HandshakeTimeout_IdleClient_SessionClosedWithNotice()
         {
             var logs = new List<string>();
@@ -329,31 +306,6 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task Start_AcceptFilterThrows_RejectsWithInnerException()
-        {
-            var logs = new List<string>();
-            var options = LowFrictionOptions();
-            options.AcceptFilter = _ => throw new InvalidOperationException("filter-boom");
-            options.Log = m => { lock (logs) { logs.Add(m); } };
-            using var server = new TelnetServer(0, options);
-            server.Start();
-
-            using var raw = new TcpClient();
-            var accept = server.AcceptSessionAsync(CancellationToken.None);
-            await raw.ConnectAsync("127.0.0.1", server.Port);
-            var ex = await Assert.ThrowsAsync<ConnectionRefusedByFilterException>(() => accept);
-            ex.Message.Should().StartWith("over-capacity:");
-            ex.InnerException.Should().BeOfType<InvalidOperationException>()
-                .Which.Message.Should().Be("filter-boom");
-            server.RejectedFilterCount.Should().Be(1);
-            server.RejectedCapacityCount.Should().Be(0);
-            lock (logs)
-            {
-                logs.Should().Contain(m => m.StartsWith("over-capacity:", StringComparison.Ordinal));
-            }
-        }
-
-        [Fact]
         public async Task AcceptSession_PresetDeadlineAlreadyBlown_ThrowsTimeoutWithHandshakeLog()
         {
             var logs = new List<string>();
@@ -362,7 +314,7 @@ namespace telnet_cs.Tests
             // A slow accept filter burns the whole handshake budget before
             // the opening preset runs, so the preset finds no time left and
             // fails by deadline without sending a byte.
-            options.AcceptFilter = _ => { Thread.Sleep(1000); return true; };
+            options.AcceptFilter = _ => { Thread.Sleep(1000); return new AcceptDecision(true); };
             options.Log = m => { lock (logs) { logs.Add(m); } };
             using var server = new TelnetServer(0, options);
             server.Start();

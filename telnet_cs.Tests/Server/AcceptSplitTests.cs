@@ -109,7 +109,7 @@ namespace telnet_cs.Tests
         public async Task AcceptTcpAsync_FilterFalse_ThrowsFilterSubtypeWithNoBytes()
         {
             var options = LowFrictionOptions();
-            options.AcceptFilter = _ => false;
+            options.AcceptFilter = _ => new AcceptDecision(false);
             using var server = new TelnetServer(0, options);
             server.Start();
 

@@ -1,6 +1,6 @@
 # Server usage guide
 
-Last verified: 2026-09-17 (suite 1712/1712 green).
+Last verified: 2026-09-17 (suite 1709/1709 green).
 
 The server lives in the `telnet_cs.Server` namespace. `TelnetServer` owns
 only the listen socket; each accepted connection is a `ServerSession`
@@ -64,9 +64,9 @@ preset byte), use `AcceptTcpAsync` + `NegotiateAsync` — the same steps
 `AcceptSessionAsync` runs, so the wire behavior is identical:
 
 ```csharp
-// Sessions carry no public endpoint: snapshot it in AcceptFilterV2 (which
+// Sessions carry no public endpoint: snapshot it in AcceptFilter (which
 // runs per accept, before any bytes) and correlate after the accept returns.
-server.Settings.AcceptFilterV2 = endPoint => { lastEndpoint = endPoint; return new AcceptDecision(true); };
+server.Settings.AcceptFilter = endPoint => { lastEndpoint = endPoint; return new AcceptDecision(true); };
 var pending = await server.AcceptTcpAsync(ct);
 var session = await server.NegotiateAsync(pending, ct);
 ```
@@ -147,8 +147,7 @@ behavior and new limits only close or refuse, never alter framing:
 |---|---|---|---|
 | `MaxConcurrentSessions` | 256 (0 = unlimited) | live, per accept | TCP close before any TLS handshake or preset bytes; throws `SessionCapacityException`; `RejectedCapacityCount++`, `over-capacity` log |
 | `MaxConnectionsPerIp` | 16 (0 = unlimited) | live, per accept | TCP close before any TLS handshake or preset bytes; throws `PerIpCapacityException`; `RejectedPerIpCount++` |
-| `AcceptFilter` | null (allow all) | live, per accept | TCP close before any TLS handshake or preset bytes; throws `ConnectionRefusedByFilterException` (a throwing filter also refuses, inner preserved); `RejectedFilterCount++`. Wins over `AcceptFilterV2` when both are set |
-| `AcceptFilterV2` | null (no verdict) | live, per accept | Same close/throw/counter as `AcceptFilter`, but the refuse reason travels in the `over-capacity: filter-reject endpoint=…` log line and the exception; consulted only when `AcceptFilter` is null |
+| `AcceptFilter` | null (allow all) | live, per accept | TCP close before any TLS handshake or preset bytes; throws `ConnectionRefusedByFilterException` (a throwing filter refuses with reason `filter-threw`, inner preserved); the refuse reason travels in the `over-capacity: filter-reject endpoint=…` log line and the exception (empty normalizes to `filter-reject`); `RejectedFilterCount++` |
 | `HandshakeTimeout` | 10 s (Infinite/`<= 0` disables) | snapshot per accept | `\r\nHandshake timeout.\r\n`, then close; `handshake-timeout` log |
 | `IdleTimeout` | 300 s (Infinite/`<= 0` disables) | snapshot per session | `\r\nTimeout.\r\n`, then close |
 | `MaxBufferedTextChars` | 65536 (0 = unlimited) | live, per read | close; `buffer-cap:` log (pump + pending text combined) plus the `OnBufferCap` hook with the same values, at most once per accumulation |

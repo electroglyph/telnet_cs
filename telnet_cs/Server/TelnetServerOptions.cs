@@ -322,33 +322,16 @@
         /// <summary>
         /// Gets or sets an optional accept filter evaluated after accept and
         /// before any TLS handshake or preset bytes, with the raw remote
-        /// endpoint. Null (the default) allows everything. A <c>false</c>
-        /// return or a thrown exception disposes the accepted socket with no
-        /// bytes sent, bumps the filter-reject counter, logs
-        /// <c>over-capacity:</c> filter-reject, and throws
-        /// <see cref="ConnectionRefusedByFilterException"/> out of the accept
-        /// path (a filter-thrown exception is preserved as
-        /// <c>InnerException</c>). When both this and
-        /// <see cref="AcceptFilterV2"/> are set, this <c>bool</c> filter wins:
-        /// a <c>true</c> verdict accepts without consulting V2.
-        /// </summary>
-        public Func<System.Net.EndPoint?, bool>? AcceptFilter { get; set; }
-
-        /// <summary>
-        /// Gets or sets an optional accept filter that returns its own refuse
-        /// reason, evaluated at the same point as <see cref="AcceptFilter"/>
-        /// (after accept, before any TLS handshake or preset bytes). Null
-        /// (the default) means no V2 verdict. A refusing verdict disposes the
-        /// accepted socket with no bytes sent, bumps the filter-reject
-        /// counter, surfaces the decision reason in the
+        /// endpoint. Null (the default) allows everything. A refusing verdict
+        /// disposes the accepted socket with no bytes sent, bumps the
+        /// filter-reject counter, surfaces the decision reason in the
         /// <c>over-capacity: filter-reject endpoint=…</c> log line, and throws
         /// <see cref="ConnectionRefusedByFilterException"/> carrying that
         /// reason (an empty reason normalizes to <c>filter-reject</c>). A
         /// thrown exception refuses with reason <c>filter-threw</c> and the
-        /// throw preserved as <c>InnerException</c>. Consulted only when
-        /// <see cref="AcceptFilter"/> is null.
+        /// throw preserved as <c>InnerException</c>.
         /// </summary>
-        public Func<System.Net.EndPoint?, AcceptDecision>? AcceptFilterV2 { get; set; }
+        public Func<System.Net.EndPoint?, AcceptDecision>? AcceptFilter { get; set; }
 
         /// <summary>
         /// Gets or sets the pre-auth handshake deadline: the clock starts at

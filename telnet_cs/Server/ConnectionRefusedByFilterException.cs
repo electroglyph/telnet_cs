@@ -3,8 +3,8 @@ namespace telnet_cs.Server
     using System;
 
     /// <summary>
-    /// The accept refused by <see cref="TelnetServerOptions.AcceptFilter"/>
-    /// or <see cref="TelnetServerOptions.AcceptFilterV2"/>. Thrown from
+    /// The accept refused by <see cref="TelnetServerOptions.AcceptFilter"/>.
+    /// Thrown from
     /// <see cref="TelnetServer.AcceptSessionAsync"/> instead of a bare
     /// <see cref="InvalidOperationException"/> so adapters map refuses by
     /// type; deriving from it keeps existing catches working. The message
