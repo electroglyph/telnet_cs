@@ -101,6 +101,19 @@ namespace telnet_cs.Transport
         /// <inheritdoc/>
         public bool Connected => inner.Connected;
 
+        /// <summary>
+        /// Peer-close probe through to the encrypted socket (see <see
+        /// cref="TcpClient.PeerGone"/> and <see
+        /// cref="TcpByteStream.Connected"/>). A clean TCP FIN under TLS
+        /// carries no decryptable bytes, so the read path's availability
+        /// gate would never attempt the read that observes it.
+        /// </summary>
+        /// <returns><c>true</c> when the peer has definitely closed.</returns>
+        internal bool PeerGone()
+        {
+            return inner.PeerGone();
+        }
+
         /// <inheritdoc/>
         /// <remarks>
         /// Adds decrypted-but-unconsumed bytes staged in the visible queue (see

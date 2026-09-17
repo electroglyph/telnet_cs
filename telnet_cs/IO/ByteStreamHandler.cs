@@ -1030,6 +1030,33 @@
         /// (the inflater misses a byte and fails on the one after).
         /// After a clean stream end serves the queued post-stream plaintext.
         /// </summary>
+        /// <summary>
+        /// Wire-byte entry point: every definitive end-of-stream from the
+        /// transport (peer FIN, TLS close_notify, pipe close) closes the
+        /// stream, so <c>Connected</c> flips false and every layer above
+        /// observes the disconnect instead of spinning on empty reads.
+        /// Only -1 closes, and only on transports where -1 is definitive
+        /// end-of-stream (<see cref="Transport.TcpByteStream"/> reports -1
+        /// solely for a socket 0-byte read, a dead socket, or disposal —
+        /// never for "drained"; <see cref="Transport.DuplexPipe"/> reports
+        /// -1 solely once an end is closed). Scripted or otherwise
+        /// refillable streams also report -1 when merely drained, so they
+        /// keep the historical no-close behavior here. Timeout expirations
+        /// surface as <see cref="System.IO.IOException"/>, never -1, so a
+        /// transient stall can never close the session.
+        /// </summary>
+        /// <returns>The unsigned byte cast to an integer, or -1 if at the end of the stream.</returns>
+        private int TakeWireByte()
+        {
+            int next = byteStream.ReadByte();
+            if (next == -1 && byteStream is Transport.TcpByteStream or Transport.DuplexPipe.DuplexEnd)
+            {
+                byteStream.Close();
+            }
+
+            return next;
+        }
+
         private int TryReadByteCore()
         {
             var mccp = MccpStream;
@@ -1074,7 +1101,7 @@
                         int next;
                         try
                         {
-                            next = byteStream.ReadByte();
+                            next = TakeWireByte();
                         }
                         catch (System.IO.IOException)
                         {
@@ -1107,7 +1134,7 @@
                             int dropped;
                             try
                             {
-                                dropped = byteStream.ReadByte();
+                                dropped = TakeWireByte();
                             }
                             catch (System.IO.IOException)
                             {
@@ -1135,7 +1162,7 @@
 
             try
             {
-                int raw = byteStream.ReadByte();
+                int raw = TakeWireByte();
                 NoteInboundByte(raw);
                 return raw;
             }
@@ -3781,6 +3808,15 @@
 
         private async Task<bool> IsResponseAnticipated(bool isInitialResponseReceived, DateTime endInitialTimeout, DateTime rollingTimeout)
         {
+            // A peer close observed mid-read ends the slice at once
+            // instead of sleeping out the timeout: Connected already
+            // dropped (a 0-byte read closed the stream, or the FIN probe
+            // fired), so no further data can arrive.
+            if (!byteStream.Connected)
+            {
+                return false;
+            }
+
             // Drain immediately while bytes wait. Otherwise yield every idle
             // pass: an earlier form short-circuited on the open initial window
             // and never reached the delay, busy-spinning the calling thread

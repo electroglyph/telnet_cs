@@ -86,9 +86,26 @@ namespace telnet_cs.Transport
         /// Gets a value indicating whether this <see cref="IByteStream" /> is connected.
         /// </summary>
         /// <value>
-        ///   <c>True</c> if connected; otherwise, <c>false</c>.
+        ///   <c>true</c> if connected; otherwise, <c>false</c>.
         /// </value>
-        public bool Connected => socket.Connected;
+        /// <remarks>
+        /// Beyond the raw socket flag, a clean peer FIN counts as
+        /// disconnected: the flag alone stays true after FIN until a
+        /// 0-byte read, but the read path only reads when bytes are
+        /// available, so nothing would ever observe it and the session
+        /// would ghost. Unknown socket kinds keep the raw flag.
+        /// </remarks>
+        public bool Connected => socket.Connected && !PeerGone(socket);
+
+        private static bool PeerGone(ISocket candidate)
+        {
+            return candidate switch
+            {
+                TcpClient tcp => tcp.PeerGone(),
+                TlsSocket tls => tls.PeerGone(),
+                _ => false,
+            };
+        }
 
         /// <summary>
         /// Gets or sets the amount of time this <see cref="IByteStream" /> will wait to receive data once a read operation is initiated.

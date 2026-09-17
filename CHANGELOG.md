@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format follows
 called out explicitly. Behavioral reviews start from this file plus the
 green gates, not from member-name diffing.
 
+## [0.14.0] - 2026-09-17
+
+### Fixed
+
+- Clean peer close (TCP FIN, TLS close_notify) is now observed instead of
+  ghosting the session: a definitive end-of-stream byte read closes the
+  stream so `Connected` flips false and in-flight reads end at once, and a
+  zero-timeout FIN probe (`Poll(SelectRead)` with nothing available)
+  surfaces an idle close the gated parse loop would otherwise never read.
+  Urgent (SYNCH) bytes are excluded from the probe, and queued bytes still
+  drain before EOF (socket parity), so final writes such as idle-timeout
+  notices and goodbye banners are never truncated. No wire, preset, or
+  default changes.
+- `DuplexPipe` ends no longer nest the peer lock inside the local lock
+  (`Connected` and the `ReadByte` end-of-stream check snapshot instead):
+  pump/reader pairs on opposite ends could ABBA-deadlock and stall
+  delivery.
+
 ## [0.13.0] - 2026-09-17
 
 ### Added

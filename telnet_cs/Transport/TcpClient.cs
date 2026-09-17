@@ -94,6 +94,37 @@
         public bool Connected => client.Connected;
 
         /// <summary>
+        /// Peer-close probe for the session liveness check (see <see
+        /// cref="TcpByteStream.Connected"/>): readable with nothing
+        /// available means FIN/RST arrived, while <see cref="Connected"/>
+        /// alone stays true after a clean FIN until a 0-byte read. Never
+        /// throws: an unusable socket reports "unknown", never "gone".
+        /// </summary>
+        /// <returns><c>true</c> when the peer has definitely closed.</returns>
+        internal bool PeerGone()
+        {
+            try
+            {
+                // An out-of-band (SYNCH) byte also marks the socket readable
+                // with nothing in Available, so exclude it: urgent data is a
+                // live peer talking, not a close (see IsUrgentDataPending).
+                return client.Client.Poll(0, System.Net.Sockets.SelectMode.SelectRead) && client.Available == 0 && !IsUrgentDataPending();
+            }
+            catch (ObjectDisposedException)
+            {
+                return false;
+            }
+            catch (System.Net.Sockets.SocketException)
+            {
+                return false;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Gets the available bytes to be read.
         /// </summary>
         /// <value>

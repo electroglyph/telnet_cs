@@ -78,14 +78,31 @@ namespace telnet_cs.Transport
             }
 
             /// <inheritdoc/>
+            /// <remarks>
+            /// A closed peer counts as disconnected — it will never send
+            /// again — but only once its bytes are drained: anything queued
+            /// still reads first (socket parity: FIN plus unread data stays
+            /// readable, EOF comes after the drain), so claiming
+            /// "disconnected" while bytes wait would truncate the peer's
+            /// final writes (idle-timeout notices, goodbye banners).
+            /// Snapshot discipline as below: the peer flag is queried
+            /// without holding the local lock (see ReadByte).
+            /// </remarks>
             public bool Connected
             {
                 get
                 {
+                    bool localClosed;
+                    int pending;
+                    DuplexEnd? peer;
                     lock (mutex)
                     {
-                        return !closed;
+                        localClosed = closed;
+                        pending = inbound.Count;
+                        peer = Peer;
                     }
+
+                    return !localClosed && (pending > 0 || peer is null || !peer.IsClosed);
                 }
             }
 
@@ -121,6 +138,7 @@ namespace telnet_cs.Transport
                 long deadline = timeout <= 0 ? long.MaxValue : Environment.TickCount64 + timeout;
                 while (true)
                 {
+                    DuplexEnd? peer;
                     lock (mutex)
                     {
                         if (inbound.Count > 0)
@@ -137,15 +155,28 @@ namespace telnet_cs.Transport
                         // Drained and nobody will ever write again: end of
                         // stream. Anything already queued above still reads
                         // first, so a close never truncates in-flight bytes.
-                        if (closed || Peer is null || Peer.IsClosed)
+                        // The peer check runs outside this lock (below):
+                        // IsClosed takes the peer mutex, and nesting it here
+                        // deadlocks against a thread holding the peer end
+                        // and reaching back (session pump vs reader on
+                        // opposite ends). A racing close still wakes us via
+                        // Close's peer signal, so the next pass observes it.
+                        if (closed || Peer is null)
                         {
                             return -1;
                         }
+
+                        peer = Peer;
 
                         // Empty but live: arm the signal while holding the
                         // same mutex the writer sets it under, so no wake-up
                         // between the check and the wait below is lost.
                         dataAvailable.Reset();
+                    }
+
+                    if (peer.IsClosed)
+                    {
+                        return -1;
                     }
 
                     if (timeout > 0)
