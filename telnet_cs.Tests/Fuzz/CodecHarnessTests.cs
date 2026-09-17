@@ -24,5 +24,20 @@ namespace telnet_cs.Tests
 
             await act.Should().NotThrowAsync("a space in the derived package is caller-shaped input, not a codec bug");
         }
+
+        [Theory]
+        // Minimized seed-888 repros: derived strings carried raw MSDP framing
+        // bytes, which the decoder correctly re-parses as structure. The
+        // harness now sanitizes before asserting.
+        [InlineData(new byte[] { 0x5A, 0x06, 0x01, 0x02 })]
+        [InlineData(new byte[] { 0xEB, 0x01 })]
+        [InlineData(new byte[] { 0x22, 0x01 })]
+        public async Task Run_ValueWithFramingBytes_Completes(byte[] bytes)
+        {
+            var act = () => telnet_cs.Fuzz.CodecHarness.RunAsync(
+                new telnet_cs.Fuzz.FuzzInput(bytes, []), CancellationToken.None);
+
+            await act.Should().NotThrowAsync("framing bytes in a derived value are caller-shaped input, not a codec bug");
+        }
     }
 }

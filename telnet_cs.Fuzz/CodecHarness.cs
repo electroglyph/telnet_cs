@@ -14,7 +14,9 @@ using telnet_cs.Protocol;
 /// the normally total decoders and encoders — is a finding. Packages with an
 /// interior space never reach the round-trip assertion: the wire format joins
 /// package and body with a space, so such a package is unencodable caller
-/// error, not a codec bug.
+/// error, not a codec bug. Likewise, derived MSDP strings never carry the
+/// 0x01-0x06 framing bytes: the spec forbids them in values, so a table
+/// holding them is unencodable by construction.
 /// </summary>
 internal static class CodecHarness
 {
@@ -127,9 +129,9 @@ internal static class CodecHarness
             var key = "K" + i;
             object? value = ((bytes.Length > i + 1 ? bytes[i + 1] : 0) % 6) switch
             {
-                0 => FuzzText.Latin1(bytes, 32),
-                1 => depth < 2 ? BuildTable(bytes, depth + 1) : FuzzText.Latin1(bytes, 16),
-                2 => new List<object?> { FuzzText.Latin1(bytes, 8), 42, null, true },
+                0 => MsdpSafe(FuzzText.Latin1(bytes, 32)),
+                1 => depth < 2 ? BuildTable(bytes, depth + 1) : MsdpSafe(FuzzText.Latin1(bytes, 16)),
+                2 => new List<object?> { MsdpSafe(FuzzText.Latin1(bytes, 8)), 42, null, true },
                 3 => 42,
                 4 => null,
                 _ => true,
@@ -139,6 +141,22 @@ internal static class CodecHarness
 
         return table;
     }
+
+    /// <summary>
+    /// Maps MSDP framing bytes (VAR/VAL/TABLE_OPEN/CLOSE/ARRAY_OPEN/CLOSE)
+    /// out of a derived string. The protocol forbids them in values ("for
+    /// ease of parsing"), so a table holding them is unencodable by
+    /// construction and must not reach the round-trip assertion — the
+    /// decoder re-parsing them as structure is correct behavior.
+    /// </summary>
+    private static string MsdpSafe(string text) => string.Create(text.Length, text, static (span, src) =>
+    {
+        for (var i = 0; i < src.Length; i++)
+        {
+            var c = src[i];
+            span[i] = c is >= '\x01' and <= '\x06' ? '?' : c;
+        }
+    });
 
     private static Dictionary<string, object> BuildMsspTable(byte[] bytes)
     {

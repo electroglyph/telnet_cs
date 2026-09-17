@@ -21,6 +21,9 @@ green gates, not from member-name diffing.
 
 - Fuzzer codec oracle: GMCP round-trip check no longer flags packages
   containing spaces (unencodable by construction, split at first space).
+- Fuzzer codec oracle: MSDP round-trip check no longer flags tables whose
+  derived strings contain framing bytes (forbidden in values by the spec,
+  re-parsed as structure on decode).
 
 ## [0.11.0] - 2026-09-16
 
