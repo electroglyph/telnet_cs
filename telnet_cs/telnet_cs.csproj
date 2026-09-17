@@ -3,7 +3,7 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Copyright>Copyright (c) 2026, electroglyph</Copyright>
     <PackageId>telnet_cs</PackageId>
-    <VersionPrefix>0.12.0</VersionPrefix>
+    <VersionPrefix>0.13.0</VersionPrefix>
     <Authors>electroglyph</Authors>
     <Description>Telnet client and server library for .NET, implemented from the protocol specifications (RFC 854/855/1143 and option RFCs).</Description>
     <PackageLicenseExpression>BSD-3-Clause</PackageLicenseExpression>

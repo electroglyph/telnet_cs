@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format follows
 called out explicitly. Behavioral reviews start from this file plus the
 green gates, not from member-name diffing.
 
+## [0.13.0] - 2026-09-17
+
+### Added
+
+- `ServerSession.SetEchoAsync` / `WriteWithEchoAsync`: game-driven ECHO
+  (`IAC WILL`/`WONT ECHO` through the RFC 1143 machine; the latter fuses
+  the toggle ahead of the prompt in one atomic write). The first manual
+  call stands down the deferred auto-ECHO offer for the session.
+
+### Fixed
+
+- `DisableAllNegotiation` is now honored before the Q-machine is touched
+  in `RequestEnableAsync` / `RequestDisableAsync` / the ECHO offer paths
+  (previously the public `Request*` entry points emitted bytes and mutated
+  negotiation state under the switch).
+
 ## [0.12.0] - 2026-09-16
 
 ### Added

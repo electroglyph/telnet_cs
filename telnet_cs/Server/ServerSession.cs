@@ -308,17 +308,24 @@
                 await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
                 try
                 {
-                    await WriteStream.WriteAsync(command, linked.Token).ConfigureAwait(false);
-                    // The stream encodes exactly like the converter with a
-                    // null encoding (its TextEncoding is never set): Latin-1
-                    // plus IAC escaping, so this is the on-the-wire length.
-                    Context.NoteWritten(ByteStringConverter.ConvertStringToByteArray(command, null).Length);
+                    await WriteTextLockedAsync(command, linked.Token).ConfigureAwait(false);
                 }
                 finally
                 {
                     SendRateLimit.Release();
                 }
             }
+        }
+
+        // Null-encoding text send (assumes SendRateLimit is held): the
+        // stream path for prompts when no session encoding is configured.
+        private async Task WriteTextLockedAsync(string command, CancellationToken cancellationToken)
+        {
+            await WriteStream.WriteAsync(command, cancellationToken).ConfigureAwait(false);
+            // The stream encodes exactly like the converter with a
+            // null encoding (its TextEncoding is never set): Latin-1
+            // plus IAC escaping, so this is the on-the-wire length.
+            Context.NoteWritten(ByteStringConverter.ConvertStringToByteArray(command, null).Length);
         }
 
         /// <summary>

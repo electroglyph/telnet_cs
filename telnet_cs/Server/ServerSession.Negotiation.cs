@@ -143,6 +143,11 @@
         /// <returns>An awaitable Task.</returns>
         public Task RequestEnableAsync(Options telnetOption, CancellationToken cancellationToken = default)
         {
+            if (Settings.DisableAllNegotiation)
+            {
+                return Task.CompletedTask;
+            }
+
             var verb = telnetOption == Options.TimingMark
               ? Negotiation.RequestTimingMark()
               : Negotiation.RequestEnable((int)telnetOption);
@@ -159,6 +164,11 @@
         /// <returns>An awaitable Task.</returns>
         public Task RequestDisableAsync(Options telnetOption, CancellationToken cancellationToken = default)
         {
+            if (Settings.DisableAllNegotiation)
+            {
+                return Task.CompletedTask;
+            }
+
             return SendRequestAsync(Negotiation.RequestDisable((int)telnetOption), telnetOption, cancellationToken);
         }
 
@@ -643,12 +653,32 @@
 
         private Task OfferEnableAsync(Options telnetOption, CancellationToken cancellationToken)
         {
+            if (Settings.DisableAllNegotiation)
+            {
+                return Task.CompletedTask;
+            }
+
             return SendRequestAsync(Negotiation.OfferEnable((int)telnetOption), telnetOption, cancellationToken);
+        }
+
+        private Task OfferDisableAsync(Options telnetOption, CancellationToken cancellationToken)
+        {
+            if (Settings.DisableAllNegotiation)
+            {
+                return Task.CompletedTask;
+            }
+
+            return SendRequestAsync(Negotiation.OfferDisable((int)telnetOption), telnetOption, cancellationToken);
         }
 
         private async Task SendRequestAsync(Commands? verb, Options option, CancellationToken cancellationToken)
         {
             if (verb is null)
+            {
+                return;
+            }
+
+            if (Settings.DisableAllNegotiation)
             {
                 return;
             }
@@ -673,9 +703,17 @@
 
         // The single caller (SendRequestAsync) already drops null verbs, so the
         // non-nullable parameter lets the compiler enforce that contract.
-        private async Task SendNegotiationBytesAsync(Commands verb, Options option, CancellationToken cancellationToken)
+        private Task SendNegotiationBytesAsync(Commands verb, Options option, CancellationToken cancellationToken)
         {
             var buffer = new byte[] { (byte)Commands.InterpretAsCommand, (byte)verb, (byte)option };
+            return SendRawBytesLockedAsync(buffer, cancellationToken);
+        }
+
+        // Raw protocol-byte choke point (assumes SendRateLimit is held):
+        // protocol frames bypass WriteAsync(byte[]) because it IAC-escapes
+        // its whole input, which would double the frame's own IAC.
+        private async Task SendRawBytesLockedAsync(byte[] buffer, CancellationToken cancellationToken)
+        {
             await WriteStream.WriteAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
             Context.NoteWritten(buffer.Length);
         }

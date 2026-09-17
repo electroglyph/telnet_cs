@@ -68,6 +68,12 @@
         private bool environRequested;
         private bool negotiateEchoPending;
         private bool negotiateEnvironPending;
+        // Game-driven ECHO latch (see SetEchoAsync): null while the session
+        // stays in auto mode, otherwise the last manual direction. Once set,
+        // the deferred auto-offer stands down (wantEcho gains
+        // `manualEcho is null`) so a later TTYPE answer or collection
+        // timeout cannot auto-WILL past a game-driven WONT and unmask.
+        private bool? manualEcho;
         // Answer-driven release for the flags above: set alongside them when
         // a TTYPE answer arrives, so the flush sends the offer without
         // waiting for the advanced preset. Cleared once consumed.
@@ -793,8 +799,14 @@
                 wantEcho = (advancedNegotiationSent || (echoArmedByAnswer && answerRelease)) && negotiateEchoPending && !echoNegotiated
                     // A linemode server stays in NVT line mode (reference
                     // _negotiate_echo returns early when line_mode is set),
-                    // so ECHO is never offered.
-                    && !Settings.RequestLinemode;
+                    // so ECHO is never offered. A game-driven manual call
+                    // stands the auto-offer down for the rest of the
+                    // session (see manualEcho): the gate lives here, not
+                    // at the OfferEcho/MUD send site below, so the one-shot
+                    // echoNegotiated latch is never consumed while
+                    // withholding the WILL.
+                    && !Settings.RequestLinemode
+                    && manualEcho is null;
                 wantEnviron = (advancedNegotiationSent || (environArmedByAnswer && answerRelease)) && negotiateEnvironPending && !environRequested;
                 if (wantEcho)
                 {
