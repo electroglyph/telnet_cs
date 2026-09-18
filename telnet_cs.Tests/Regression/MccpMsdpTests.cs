@@ -53,6 +53,29 @@ namespace telnet_cs.Tests
             return ms.ToArray();
         }
 
+        // Drives the session until the expected reply frame lands instead
+        // of sleeping a fixed span: the background pump may own the pass
+        // that sends, so a fixed read timeout can expire while the send is
+        // still queued behind a starved pool, flaking under parallel load.
+        // The budget only bounds genuine hangs.
+        private static Task WaitForFrameAsync(ServerSession session, ScriptedStream stream, byte[] frame)
+        {
+            return LiveExchange.PumpSessionUntilAsync(
+                session,
+                () => ContainsFrame(stream.ByteWrites.SelectMany(w => w).ToArray(), frame),
+                TimeSpan.FromSeconds(10));
+        }
+
+        // Drives the session until the wire goes quiet and returns what
+        // arrived, instead of sleeping a fixed span to "let" a wrong
+        // reply land: negative assertions (no DONT, no inflation) are
+        // only meaningful past quiescence. The budget only bounds
+        // genuine hangs.
+        private static Task<(string Text, byte[] Writes)> WaitForQuietAsync(ServerSession session, ScriptedStream stream)
+        {
+            return LiveExchange.PumpSessionUntilQuiescentAsync(session, stream, TimeSpan.FromSeconds(10));
+        }
+
         [Fact]
         public async Task Mccp3Corrupt_AnsweredWithWont()
         {
@@ -79,9 +102,8 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream(
                 [255, 253, 87, 255, 250, 87, 255, 240, 0x78, 0x9C, 0xFF, 0xFF, 0xFF, 0xFF]);
             using var session = new ServerSession(stream, options, CancellationToken.None);
-            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
-            await session.ReadAsync(TimeSpan.FromMilliseconds(500));
-            byte[] writes = stream.ByteWrites.SelectMany(w => w).ToArray();
+            await WaitForFrameAsync(session, stream, [255, 252, 87]);
+            (_, byte[] writes) = await WaitForQuietAsync(session, stream);
             ContainsFrame(writes, new byte[] { 255, 252, 87 }).Should().BeTrue();
             ContainsFrame(writes, new byte[] { 255, 254, 87 }).Should().BeFalse();
         }
@@ -100,7 +122,12 @@ namespace telnet_cs.Tests
             stream.Enqueue([255, 251, 87, 255, 250, 87, 0, 255, 240]);
             stream.Enqueue(ZlibCompress("HI").Select(b => (int)b).ToArray());
             using var session = new ServerSession(stream, options, CancellationToken.None);
-            (await session.ReadAsync(TimeSpan.FromSeconds(2))).Should().Be("HI");
+            // The inflated text surfaces in whichever pass arms; pumping
+            // to quiescence collects it without a fixed sleep. The budget
+            // only bounds genuine hangs.
+            (string text, _) = await WaitForQuietAsync(session, stream);
+
+            text.Should().Be("HI");
         }
 
         [Fact]
@@ -114,8 +141,9 @@ namespace telnet_cs.Tests
             stream.Enqueue([255, 251, 86, 255, 250, 86, 0, 255, 240]);
             stream.Enqueue(ZlibCompress("HI").Select(b => (int)b).ToArray());
             using var session = new ServerSession(stream, new TelnetServerOptions { EnableMccp = false }, CancellationToken.None);
-            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().NotBe("HI");
-            byte[] writes = stream.ByteWrites.SelectMany(w => w).ToArray();
+            await WaitForFrameAsync(session, stream, [255, 254, 86]);
+            (string text, byte[] writes) = await WaitForQuietAsync(session, stream);
+            text.Should().NotBe("HI");
             ContainsFrame(writes, new byte[] { 255, 254, 86 }).Should().BeTrue();
         }
 
@@ -124,14 +152,18 @@ namespace telnet_cs.Tests
         {
             // Never inflate over TLS (CRIME/BREACH): the padded SB is
             // ignored like the empty form, and the bytes stay plain data.
+            // The TLS flag rides the constructor, latched before the
+            // background pump starts: a post-construction set leaves a
+            // window where the pump's first pass answers WILL MCCP2 as
+            // plaintext (DO) instead of refusing it (DONT).
             var options = new TelnetServerOptions { EnableMccp = true };
             using var stream = new ScriptedStream();
+            using var session = new ServerSession(stream, options, CancellationToken.None, isTls: true);
             stream.Enqueue([255, 251, 86, 255, 250, 86, 0, 255, 240]);
             stream.Enqueue(ZlibCompress("HI").Select(b => (int)b).ToArray());
-            using var session = new ServerSession(stream, options, CancellationToken.None);
-            session.IsTls = true;
-            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().NotBe("HI");
-            byte[] writes = stream.ByteWrites.SelectMany(w => w).ToArray();
+            await WaitForFrameAsync(session, stream, [255, 254, 86]);
+            (string text, byte[] writes) = await WaitForQuietAsync(session, stream);
+            text.Should().NotBe("HI");
             ContainsFrame(writes, new byte[] { 255, 254, 86 }).Should().BeTrue();
         }
 
@@ -145,7 +177,8 @@ namespace telnet_cs.Tests
             stream.Enqueue([255, 250, 86, 0, 255, 240]);
             stream.Enqueue(ZlibCompress("HI").Select(b => (int)b).ToArray());
             using var session = new ServerSession(stream, options, CancellationToken.None);
-            (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().NotBe("HI");
+            (string text, _) = await WaitForQuietAsync(session, stream);
+            text.Should().NotBe("HI");
         }
 
         [Fact]

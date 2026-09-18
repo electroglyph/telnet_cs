@@ -13,6 +13,8 @@ namespace telnet_cs.Tests
 {
     using System;
     using System.Diagnostics;
+    using System.Linq;
+    using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
     using telnet_cs.Client;
@@ -59,6 +61,69 @@ namespace telnet_cs.Tests
                     await session.ReadAsync(Slice);
                 }
             }
+        }
+
+        /// <summary>
+        /// Drives a scripted session until <paramref name="done"/> holds by
+        /// pumping short reads on the test thread instead of sleeping a
+        /// fixed span: the budget only bounds genuine hangs, it never
+        /// synchronizes. Use before write-assertions — the background pump
+        /// may own the pass that sends, so a fixed read timeout can expire
+        /// (vacuous pass) while the send is still queued behind a starved
+        /// thread pool, flaking under parallel load.
+        /// </summary>
+        internal static async Task PumpSessionUntilAsync(
+            ServerSession session,
+            Func<bool> done,
+            TimeSpan budget)
+        {
+            var sw = Stopwatch.StartNew();
+            while (!done() && sw.Elapsed < budget)
+            {
+                await session.ReadAsync(Slice);
+            }
+        }
+
+        /// <summary>
+        /// Drives a scripted session until the wire goes quiet — no
+        /// inbound bytes waiting, no new writes, no new text across
+        /// consecutive slices — and returns everything observed. Negative
+        /// assertions (a frame never sent, text never inflated) need a
+        /// quiet period to be meaningful; quiescence bounds it adaptively
+        /// instead of sleeping a fixed span. The budget only bounds
+        /// genuine hangs, it never synchronizes.
+        /// </summary>
+        internal static async Task<(string Text, byte[] Writes)> PumpSessionUntilQuiescentAsync(
+            ServerSession session,
+            ScriptedStream stream,
+            TimeSpan budget,
+            int stillSlices = 3)
+        {
+            var text = new StringBuilder();
+            byte[] writes = [];
+            int prevText = 0;
+            int prevWrites = 0;
+            int still = 0;
+            var sw = Stopwatch.StartNew();
+            while (still < stillSlices && sw.Elapsed < budget)
+            {
+                text.Append(await session.ReadAsync(Slice));
+                byte[] now = stream.ByteWrites.SelectMany(w => w).ToArray();
+                if (stream.Available == 0 && now.Length == prevWrites && text.Length == prevText)
+                {
+                    still++;
+                }
+                else
+                {
+                    still = 0;
+                }
+
+                prevText = text.Length;
+                prevWrites = now.Length;
+                writes = now;
+            }
+
+            return (text.ToString(), writes);
         }
 
         internal static async Task PumpForAsync(Client client, ServerSession session, TimeSpan duration)

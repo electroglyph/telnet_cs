@@ -266,8 +266,7 @@ public partial class TelnetServer
                 }
             }
 
-            session = new ServerSession(new TcpByteStream(socket, takeOwnership: true), options, CancellationToken.None);
-            session.IsTls = isTls;
+            session = new ServerSession(new TcpByteStream(socket, takeOwnership: true), options, CancellationToken.None, isTls);
             session.RemoteEndPoint = endpoint;
             session.ResetHandshakeDeadline(handshakeDeadlineUtc, endpoint);
             // The preset goes out in NegotiateAsync, not here: the

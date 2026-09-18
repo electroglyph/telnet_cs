@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-09-18
+
 ### Changed
 
 - God-class splits (pure moves, no wire/preset/default changes):
@@ -70,6 +72,13 @@
   properties, guarded codec/timer initialization instead of `!`, and `switch`
   expressions for charset-alias/environment selection. No wire, preset, or
   default changes.
+
+### Fixed
+
+- `ServerSession` latches the accepted socket's TLS flag at construction (new
+  internal overload; `TelnetServer` passes it directly): the background pump's
+  first pass can no longer answer pre-enqueued negotiation as plaintext (MCCP
+  agreed instead of refused over TLS). No wire, preset, or default changes.
 
 ## [0.16.0] - 2026-09-17
 

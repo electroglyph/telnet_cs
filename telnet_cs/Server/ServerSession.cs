@@ -108,6 +108,22 @@ public partial class ServerSession : TelnetSessionBase
     /// <param name="options">The server settings. The reference is kept.</param>
     /// <param name="token">The cancellation token.</param>
     public ServerSession(IByteStream byteStream, TelnetServerOptions options, CancellationToken token)
+      : this(byteStream, options, token, isTls: false)
+    {
+    }
+
+    /// <summary>
+    /// Initialises a new instance of the <see cref="ServerSession"/> class
+    /// with the accepted socket's TLS state known up front. The flag is
+    /// latched before the background pump starts, so the pump's first
+    /// pass never answers pre-enqueued negotiation as plaintext (MCCP
+    /// agreed instead of refused over TLS).
+    /// </summary>
+    /// <param name="byteStream">The accepted connection's byte stream. Ownership transfers to this session.</param>
+    /// <param name="options">The server settings. The reference is kept.</param>
+    /// <param name="token">The cancellation token.</param>
+    /// <param name="isTls">Whether the accepted socket runs over TLS.</param>
+    internal ServerSession(IByteStream byteStream, TelnetServerOptions options, CancellationToken token, bool isTls)
       : base(byteStream, token)
     {
         // NOTE: byteStream is validated by the base constructor; options cannot
@@ -115,6 +131,7 @@ public partial class ServerSession : TelnetSessionBase
         // constructs the session before throwing below (same shape as Client).
         ArgumentNullException.ThrowIfNull(options);
         Settings = options;
+        IsTls = isTls;
         // The setter arms the idle timer, so no separate start call follows.
         Timeout = options.IdleTimeout;
         StartHandshakeTimer();
