@@ -22,13 +22,13 @@ namespace telnet_cs.Tests
     {
         private static readonly TimeSpan Budget = TimeSpan.FromSeconds(10);
 
-        private static (Client Client, ServerSession Session, IDisposable Guard) CreateCodecPair(Encoding? codec)
+        private static async Task<(Client Client, ServerSession Session, IDisposable Guard)> CreateCodecPairAsync(Encoding? codec)
         {
             var guard = GlobalStateGuard.SkipProactive(true);
             var (clientStream, serverStream) = InMemoryPipe.Create();
             var session = new ServerSession(
                 serverStream, new TelnetServerOptions { TextEncoding = codec }, CancellationToken.None);
-            var client = new Client(clientStream, CancellationToken.None);
+            var client = await Client.CreateAsync(clientStream, TimeSpan.FromSeconds(30), CancellationToken.None);
             client.Settings.TextEncoding = codec;
             return (client, session, guard);
         }
@@ -56,7 +56,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Utf8_Multibyte_RoundTripsBothWays()
         {
-            var (client, session, guard) = CreateCodecPair(Encoding.UTF8);
+            var (client, session, guard) = await CreateCodecPairAsync(Encoding.UTF8);
             using (client)
             using (session)
             using (guard)
@@ -78,7 +78,7 @@ namespace telnet_cs.Tests
                 serverStream,
                 new TelnetServerOptions { TextEncoding = null, RequestCharacterSet = false },
                 CancellationToken.None);
-            var client = new Client(clientStream, CancellationToken.None);
+            var client = await Client.CreateAsync(clientStream, TimeSpan.FromSeconds(30), CancellationToken.None);
             client.Settings.TextEncoding = null;
             using (client)
             using (session)
@@ -110,7 +110,7 @@ namespace telnet_cs.Tests
                 "atarist" => new AtaristEncoding(),
                 _ => throw new ArgumentOutOfRangeException(nameof(name)),
             };
-            var (client, session, guard) = CreateCodecPair(codec);
+            var (client, session, guard) = await CreateCodecPairAsync(codec);
             using (client)
             using (session)
             using (guard)
@@ -123,7 +123,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Big5Bbs_CjkPhrase_RoundTripsBothWays()
         {
-            var (client, session, guard) = CreateCodecPair(new Big5BbsEncoding());
+            var (client, session, guard) = await CreateCodecPairAsync(new Big5BbsEncoding());
             using (client)
             using (session)
             using (guard)

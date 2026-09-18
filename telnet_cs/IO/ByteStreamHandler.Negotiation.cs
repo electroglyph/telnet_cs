@@ -19,9 +19,8 @@ public partial class ByteStreamHandler
     {
         if (ShouldSuppressStormSbReply(inputOption))
         {
-            WriteLog("storm-guard: suppressed SB reply for " +
-                (Enum.GetName(typeof(Options), inputOption) ?? inputOption.ToString()) +
-                " (negotiation storm).");
+            string optionName = Enum.GetName(typeof(Options), inputOption) ?? inputOption.ToString();
+            WriteLog($"storm-guard: suppressed SB reply for {optionName} (negotiation storm).");
             return;
         }
 
@@ -65,7 +64,7 @@ public partial class ByteStreamHandler
                 break;
             default:
                 // We don't handle other sub negotiation options yet.
-                WriteLog("Request to negotiate: " + Enum.GetName(typeof(Options), inputOption));
+                WriteLog($"Request to negotiate: {Enum.GetName(typeof(Options), inputOption)}");
                 break;
         }
     }
@@ -95,7 +94,7 @@ public partial class ByteStreamHandler
     /// <param name="optionMessage">The setting for <paramref name="inputOption"/>.</param>
     private Task SendNegotiation(int inputOption, string optionMessage)
     {
-        WriteLog("Sending: " + Enum.GetName(typeof(Options), inputOption) + " Setting: " + optionMessage);
+        WriteLog($"Sending: {Enum.GetName(typeof(Options), inputOption)} Setting: {optionMessage}");
         return SendNegotiation(inputOption, [EnvironmentProtocol.Is, .. ToNegotiationBytes(optionMessage)]);
     }
 
@@ -147,7 +146,7 @@ public partial class ByteStreamHandler
     private Task ReplyEnvironmentAsync(int inputOption, List<byte> payload)
     {
         var (width, height) = NawsProtocol.GetEffectiveSize(WindowWidth, WindowHeight);
-        var lang = TextEncoding is null ? "C" : "en_US." + TextEncoding.WebName.Replace("-", string.Empty, StringComparison.Ordinal);
+        var lang = TextEncoding is null ? "C" : $"en_US.{TextEncoding.WebName.Replace("-", string.Empty, StringComparison.Ordinal)}";
         var colorTerm = System.Environment.GetEnvironmentVariable("COLORTERM") ?? string.Empty;
         // Reference send_env parity: DISPLAY is never volunteered on the
         // SB answer path ("intentionally not available (security)") —
@@ -166,7 +165,7 @@ public partial class ByteStreamHandler
           width.ToString(System.Globalization.CultureInfo.InvariantCulture),
           height.ToString(System.Globalization.CultureInfo.InvariantCulture),
           colorTerm);
-        WriteLog("Sending: " + Enum.GetName(typeof(Options), inputOption));
+        WriteLog($"Sending: {Enum.GetName(typeof(Options), inputOption)}");
         return SendNegotiation(inputOption, response);
     }
 

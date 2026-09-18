@@ -30,24 +30,14 @@
         }
 
         [Fact]
-        public void Ctor_NullStream_ThrowsArgumentNull()
+        public async Task Ctor_NullStream_ThrowsArgumentNull()
         {
-            Action act = () => new Client(null!, new CancellationToken());
-            act.Should().Throw<ArgumentNullException>().WithParameterName("byteStream");
+            Func<Task> act = () => Client.CreateAsync(null!, TimeSpan.FromSeconds(30), new CancellationToken());
+            await act.Should().ThrowAsync<ArgumentNullException>().WithParameterName("byteStream");
         }
 
         [Fact]
-        public void CtorNullOptionsThrowsArgumentNull()
-        {
-            // PROPER (test.md §3.6): options must be null-checked. Currently fails:
-            // the foreach over options throws NullReferenceException.
-            var fake = ConnectedFake();
-            Action act = () => new Client(fake, TimeSpan.FromMilliseconds(10), default, null!);
-            act.Should().Throw<ArgumentNullException>().WithParameterName("options");
-        }
-
-        [Fact]
-        public void CtorStreamFailureThrowsIOExceptionDirectly()
+        public async Task CtorStreamFailureThrowsIOExceptionDirectly()
         {
             // A proactive write failure surfaces directly. The default ctor
             // skips proactive negotiation so it would send nothing here; opt
@@ -57,18 +47,18 @@
                 var fake = ConnectedFake();
                 A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored))
                   .Throws(new IOException("boom"));
-                var ex = Record.Exception(() => new Client(fake, TimeSpan.FromMilliseconds(10), default, Array.Empty<(Commands, Options)>(), skipProactiveNegotiation: false));
+                var ex = await Record.ExceptionAsync(() => Client.CreateAsync(fake, TimeSpan.FromMilliseconds(10), default, Array.Empty<(Commands, Options)>(), skipProactiveNegotiation: false));
                 ex.Should().BeOfType<IOException>().Which.Message.Should().Be("boom");
             }
         }
 
         [Fact]
-        public void DisposeCompletesWithoutArtificialDelay()
+        public async Task DisposeCompletesWithoutArtificialDelay()
         {
             // PROPER: Dispose must not sleep ~100ms on an AutoResetEvent.
             // Currently fails: TelnetSessionBaseCancellable.Dispose always waits 100ms.
             var fake = ConnectedFake();
-            var sut = new Client(fake, TimeSpan.FromMilliseconds(10), default);
+            var sut = await Client.CreateAsync(fake, TimeSpan.FromMilliseconds(10), default);
             var sw = Stopwatch.StartNew();
             sut.Dispose();
             sw.Stop();
@@ -76,13 +66,13 @@
         }
 
         [Fact]
-        public void CtorUnconnectedThrowsQuickly()
+        public async Task CtorUnconnectedThrowsQuickly()
         {
             var fake = A.Fake<IByteStream>();
             A.CallTo(() => fake.Connected).Returns(false);
             var sw = Stopwatch.StartNew();
-            Action act = () => new Client(fake, TimeSpan.FromMilliseconds(20), default);
-            act.Should().Throw<InvalidOperationException>().WithMessage("Unable to connect to the host.");
+            Func<Task> act = () => Client.CreateAsync(fake, TimeSpan.FromMilliseconds(20), default);
+            await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("Unable to connect to the host.");
             sw.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
         }
 
@@ -95,7 +85,7 @@
             using (GlobalStateGuard.SkipProactive(false))
             {
                 var fake = ConnectedFake();
-                using var _ = new Client(fake, TimeSpan.FromMilliseconds(10), default, Array.Empty<(Commands, Options)>(), skipProactiveNegotiation: false);
+                using var _ = await Client.CreateAsync(fake, TimeSpan.FromMilliseconds(10), default, Array.Empty<(Commands, Options)>(), skipProactiveNegotiation: false);
                 A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, 0, 3, A<CancellationToken>.Ignored))
                   .WhenArgumentsMatch(o => o[0] is byte[] b && b.SequenceEqual(Client.SuppressGoAheadBuffer))
                   .MustHaveHappened();
@@ -109,7 +99,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 var fake = ConnectedFake();
-                using var _ = new Client(fake, TimeSpan.FromMilliseconds(10), default);
+                using var _ = await Client.CreateAsync(fake, TimeSpan.FromMilliseconds(10), default);
                 A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored)).MustNotHaveHappened();
             }
             await Task.CompletedTask;
@@ -127,7 +117,7 @@
                 var writes = new List<byte[]>();
                 A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored))
                   .Invokes(call => writes.Add(((byte[])call.Arguments[0]!).ToArray()));
-                using var _ = new Client(fake, TimeSpan.FromMilliseconds(10), default,
+                using var _ = await Client.CreateAsync(fake, TimeSpan.FromMilliseconds(10), default,
                   new[] { (Commands.Do, Options.Echo), (Commands.Will, Options.WindowSize) }, skipProactiveNegotiation: false);
                 writes.Should().HaveCount(2);
                 writes[0].Should().Equal(new byte[] { 255, 253, 1 });
@@ -139,28 +129,35 @@
         [Fact]
         public async Task WriteLineAppendsRfc854FeedByDefault()
         {
+            // String writes are pre-encoded (Latin-1, ASCII-identical) and
+            // sent as byte frames through the shared throttle gate, so the
+            // stream sees the byte overload, not the string overload.
             var fake = ConnectedFake();
-            using var sut = new Client(fake, TimeSpan.FromMilliseconds(10), default);
+            using var sut = await Client.CreateAsync(fake, TimeSpan.FromMilliseconds(10), default);
             A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored));
             await sut.WriteLineAsync("cmd");
-            A.CallTo(() => fake.WriteAsync("cmd\r\n", A<CancellationToken>.Ignored)).MustHaveHappened();
+            A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, 0, 5, A<CancellationToken>.Ignored))
+              .WhenArgumentsMatch(o => o[0] is byte[] b && b.SequenceEqual(new byte[] { (byte)'c', (byte)'m', (byte)'d', 13, 10 }))
+              .MustHaveHappened();
         }
 
         [Fact]
         public async Task WriteLineExplicitLegacyFeedSendsBareLf()
         {
             var fake = ConnectedFake();
-            using var sut = new Client(fake, TimeSpan.FromMilliseconds(10), default);
+            using var sut = await Client.CreateAsync(fake, TimeSpan.FromMilliseconds(10), default);
             A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored));
             await sut.WriteLineAsync("cmd", Client.LegacyLineFeed);
-            A.CallTo(() => fake.WriteAsync("cmd\n", A<CancellationToken>.Ignored)).MustHaveHappened();
+            A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, 0, 4, A<CancellationToken>.Ignored))
+              .WhenArgumentsMatch(o => o[0] is byte[] b && b.SequenceEqual(new byte[] { (byte)'c', (byte)'m', (byte)'d', 10 }))
+              .MustHaveHappened();
         }
 
         [Fact]
         public async Task WriteByteArrayRelaysOffsetCount()
         {
             var fake = ConnectedFake();
-            using var sut = new Client(fake, TimeSpan.FromMilliseconds(10), default);
+            using var sut = await Client.CreateAsync(fake, TimeSpan.FromMilliseconds(10), default);
             var data = new byte[] { 1, 2, 3 };
             await sut.WriteAsync(data);
             A.CallTo(() => fake.WriteAsync(data, 0, 3, A<CancellationToken>.Ignored)).MustHaveHappened();
@@ -172,7 +169,7 @@
             // PROPER (test.md §3.4): null data must throw ArgumentNullException.
             // Currently fails: data.Length throws NullReferenceException.
             var fake = ConnectedFake();
-            using var sut = new Client(fake, TimeSpan.FromMilliseconds(10), default);
+            using var sut = await Client.CreateAsync(fake, TimeSpan.FromMilliseconds(10), default);
             Func<Task> act = () => sut.WriteAsync((byte[])null!);
             await act.Should().ThrowAsync<ArgumentNullException>().WithParameterName("data");
         }
@@ -187,7 +184,7 @@
             A.CallTo(() => fake.Connected).ReturnsLazily(() => connected);
             using (GlobalStateGuard.SkipProactive(false))
             {
-                using var sut = new Client(fake, TimeSpan.FromMilliseconds(10), default, Array.Empty<(Commands, Options)>(), skipProactiveNegotiation: false);
+                using var sut = await Client.CreateAsync(fake, TimeSpan.FromMilliseconds(10), default, Array.Empty<(Commands, Options)>(), skipProactiveNegotiation: false);
                 connected = false;
                 await sut.WriteAsync("hi");
                 await sut.WriteAsync(new byte[] { 1 });
@@ -204,7 +201,7 @@
         {
             var fake = ConnectedFake();
             using var cts = new CancellationTokenSource();
-            using var sut = new Client(fake, TimeSpan.FromMilliseconds(10), cts.Token);
+            using var sut = await Client.CreateAsync(fake, TimeSpan.FromMilliseconds(10), cts.Token);
             cts.Cancel();
             await Task.Delay(20); // let Register(CancelPendingReads) propagate
             Fake.ClearRecordedCalls(fake);
@@ -217,10 +214,12 @@
         {
             // Propagation holds before and after the semaphore fix; the no-hang
             // half of test.md §3.4 is pinned by SecondWriteAfterFailureCompletesPromptly.
+            // String writes ride the byte overload now (pre-encoded frames),
+            // so the failure is faked there.
             var fake = ConnectedFake();
-            A.CallTo(() => fake.WriteAsync(A<string>.Ignored, A<CancellationToken>.Ignored))
+            A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored))
               .ThrowsAsync(new IOException("boom"));
-            using var sut = new Client(fake, TimeSpan.FromMilliseconds(10), default);
+            using var sut = await Client.CreateAsync(fake, TimeSpan.FromMilliseconds(10), default);
             Func<Task> act = () => sut.WriteAsync("hi");
             await act.Should().ThrowAsync<IOException>().WithMessage("boom");
         }
@@ -231,11 +230,13 @@
             // PROPER (test.md §3.4): WriteAsync must release the send semaphore in a
             // finally, so a failed write cannot hang the next one. Currently fails:
             // the semaphore stays taken and the second write never completes (the
-            // Task.WhenAny guard keeps this red-instead-of-hung).
+            // Task.WhenAny guard keeps this red-instead-of-hung). The failure
+            // is faked on the byte overload: string writes are pre-encoded
+            // frames now.
             var fake = ConnectedFake();
-            A.CallTo(() => fake.WriteAsync(A<string>.Ignored, A<CancellationToken>.Ignored))
+            A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored))
               .ThrowsAsync(new IOException("boom"));
-            using var sut = new Client(fake, TimeSpan.FromMilliseconds(10), default);
+            using var sut = await Client.CreateAsync(fake, TimeSpan.FromMilliseconds(10), default);
             Func<Task> first = () => sut.WriteAsync("hi");
             await first.Should().ThrowAsync<IOException>();
             var second = sut.WriteAsync("again");
@@ -258,7 +259,7 @@
             using (GlobalStateGuard.SkipProactive(false))
             {
                 using var stream = new DummyByteStream();
-                using var sut = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), Array.Empty<(Commands, Options)>(), skipProactiveNegotiation: false);
+                using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), Array.Empty<(Commands, Options)>(), skipProactiveNegotiation: false);
                 (await sut.TerminatedReadAsync(":")).Should().EndWith(":");
             }
         }
@@ -271,7 +272,7 @@
             using (GlobalStateGuard.SkipProactive(false))
             {
                 using var stream = new DummyByteStream();
-                using var sut = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), Array.Empty<(Commands, Options)>(), skipProactiveNegotiation: false);
+                using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), Array.Empty<(Commands, Options)>(), skipProactiveNegotiation: false);
                 (await sut.ReadAsync()).Should().Contain("Account:");
             }
         }
@@ -283,7 +284,7 @@
             // stays open (reference: the client end raises instead); only a
             // server-role handler closes on DO LOGOUT.
             using var stream = new ScriptedStream(255, 253, 18);
-            using var sut = new Client(stream, new CancellationToken());
+            using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
             stream.Connected.Should().BeTrue();
             stream.ByteWrites.Should().BeEmpty();
@@ -297,7 +298,7 @@
             // fast like telnetlib3's readuntil, which raises ValueError on
             // an empty separator.
             using var stream = new DummyByteStream();
-            using var sut = new Client(stream, new CancellationToken());
+            using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             Func<Task<string>> read = () => sut.TerminatedReadAsync(string.Empty, TimeSpan.FromMilliseconds(500), 1);
             await read.Should().ThrowAsync<ArgumentException>();
         }
@@ -306,7 +307,7 @@
         public async Task TerminatedRead_PipelinedData_TruncatesAndStashesRemainder()
         {
             using var stream = new ScriptedStream("AB:CD:");
-            using var sut = new Client(stream, new CancellationToken());
+            using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             (await sut.TerminatedReadAsync(":", TimeSpan.FromMilliseconds(500), 1)).Should().Be("AB:");
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().Be("CD:");
         }
@@ -315,7 +316,7 @@
         public async Task TerminatedRead_MultipleTerminators_CutsAtEarliest()
         {
             using var stream = new ScriptedStream("A;B:C");
-            using var sut = new Client(stream, new CancellationToken());
+            using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             var terminators = new List<string> { ":", ";" };
             (await sut.TerminatedReadAsync(terminators, TimeSpan.FromMilliseconds(500), 1)).Should().Be("A;");
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().Be("B:C");
@@ -325,7 +326,7 @@
         public async Task TerminatedRead_Regex_CutsAtMatchEnd()
         {
             using var stream = new ScriptedStream("AB12CD");
-            using var sut = new Client(stream, new CancellationToken());
+            using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             (await sut.TerminatedReadAsync(new Regex(@"\d+"), TimeSpan.FromMilliseconds(500), 1)).Should().Be("AB12");
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().Be("CD");
         }
@@ -336,7 +337,7 @@
             // Port of test_telnet_reader_readuntil_pattern_success: the
             // Router>/Router#/Router(config)# banner chain with re \S+[>#].
             using var stream = new ScriptedStream("Router> enable\nRouter#");
-            using var sut = new Client(stream, new CancellationToken());
+            using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             var prompt = new Regex(@"\S+[>#]");
             (await sut.TerminatedReadAsync(prompt, TimeSpan.FromMilliseconds(500), 1)).Should().Be("Router>");
             (await sut.TerminatedReadAsync(prompt, TimeSpan.FromMilliseconds(500), 1)).Should().Be(" enable\nRouter#");
@@ -348,7 +349,7 @@
             // Port of test_readuntil_pattern_success_and_eof_incomplete
             // (success half): "aaXYZbb" with pattern XYZ.
             using var stream = new ScriptedStream("aaXYZbb");
-            using var sut = new Client(stream, new CancellationToken());
+            using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             (await sut.TerminatedReadAsync(new Regex("XYZ"), TimeSpan.FromMilliseconds(500), 1)).Should().Be("aaXYZ");
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().Be("bb");
         }
@@ -359,7 +360,7 @@
             // Port of test_readuntil_success_consumes_and_returns:
             // feed "abc\nrest", take "abc\n", buffer keeps "rest".
             using var stream = new ScriptedStream("abc\nrest");
-            using var sut = new Client(stream, new CancellationToken());
+            using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             (await sut.TerminatedReadAsync("\n", TimeSpan.FromMilliseconds(500), 1)).Should().Be("abc\n");
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().Be("rest");
         }
@@ -370,7 +371,7 @@
             // Port of test_read_until_wait_path_then_data_arrives: a blocked
             // read resolves with bytes enqueued mid-wait.
             using var stream = new ScriptedStream();
-            using var sut = new Client(stream, new CancellationToken());
+            using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             var pending = sut.ReadAsync(TimeSpan.FromSeconds(5));
             stream.Enqueue(120, 121, 122);
             (await pending).Should().Be("xyz");
@@ -385,7 +386,8 @@
             // stream I/O happens.
             var fake = A.Fake<IByteStream>();
             A.CallTo(() => fake.Connected).Returns(true);
-            using var sut = new Client(fake, TimeSpan.FromMilliseconds(1), default) { MillisecondReadDelay = 1 };
+            using var sut = await Client.CreateAsync(fake, TimeSpan.FromMilliseconds(1), default);
+            sut.MillisecondReadDelay = 1;
             Func<Task> act = () => sut.TerminatedReadAsync((Regex)null!, TimeSpan.FromMilliseconds(60), 1);
             await act.Should().ThrowAsync<ArgumentNullException>().WithParameterName("regex");
             A.CallTo(() => fake.ReadByte()).MustNotHaveHappened();
@@ -397,7 +399,7 @@
             // Unterminated text is never returned: the wait throws
             // TimeoutException instead of yielding a partial.
             using var stream = new ScriptedStream("AB");
-            using var sut = new Client(stream, new CancellationToken());
+            using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             Func<Task> act = () => sut.TerminatedReadAsync(":", TimeSpan.FromMilliseconds(200), 1);
             await act.Should().ThrowAsync<TimeoutException>();
         }
@@ -408,7 +410,7 @@
             // A terminator ending in a space must match itself: the read
             // below would stall to timeout under a trimmed-only check.
             using var stream = new ScriptedStream("Account: Password: > ");
-            using var sut = new Client(stream, new CancellationToken());
+            using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             (await sut.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(500))).Should().Be("Account:");
             (await sut.TerminatedReadAsync("Password:", TimeSpan.FromMilliseconds(500))).Should().Contain("Password:");
             (await sut.TerminatedReadAsync("> ", TimeSpan.FromMilliseconds(500))).Should().EndWith("> ");
@@ -424,12 +426,13 @@
             A.CallTo(() => fake.Connected).Returns(true);
             A.CallTo(() => fake.Available).Returns(1);
             A.CallTo(() => fake.ReadByte()).Throws(new SocketException((int)SocketError.ConnectionReset));
-            using var sut = new Client(fake, TimeSpan.FromMilliseconds(1), default) { MillisecondReadDelay = 1 };
+            using var sut = await Client.CreateAsync(fake, TimeSpan.FromMilliseconds(1), default);
+            sut.MillisecondReadDelay = 1;
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
         }
 
         [Fact]
-        public void ApplyOptions_CopiesEveryMember()
+        public async Task ApplyOptions_CopiesEveryMember()
         {
             // Anti-drop guard for the with-clone: every member set here must
             // arrive on Settings. (Future members flow structurally via the
@@ -462,7 +465,7 @@
             options.TerminalTypes.Add("a");
             options.EnvironmentUserVars["K"] = "v";
 
-            using var sut = new Client(ConnectedFake(), TimeSpan.FromMilliseconds(1), default);
+            using var sut = await Client.CreateAsync(ConnectedFake(), TimeSpan.FromMilliseconds(1), default);
             sut.ApplyOptions(options);
 
             sut.Settings.TerminalType.Should().Be("xterm");
@@ -492,19 +495,19 @@
         }
 
         [Fact]
-        public void ApplyOptions_NegativeTerminatedReadLimit_Throws()
+        public async Task ApplyOptions_NegativeTerminatedReadLimit_Throws()
         {
-            using var sut = new Client(ConnectedFake(), TimeSpan.FromMilliseconds(1), default);
+            using var sut = await Client.CreateAsync(ConnectedFake(), TimeSpan.FromMilliseconds(1), default);
             Assert.Throws<ArgumentOutOfRangeException>(() => sut.ApplyOptions(new TelnetClientOptions { MaxTerminatedReadChars = -1 }));
         }
 
         [Fact]
-        public void ApplyOptions_CollectionsAreCopiesNotAliases()
+        public async Task ApplyOptions_CollectionsAreCopiesNotAliases()
         {
             var options = new TelnetClientOptions();
             options.TerminalTypes.Add("a");
             options.EnvironmentUserVars["K"] = "v";
-            using var sut = new Client(ConnectedFake(), TimeSpan.FromMilliseconds(1), default);
+            using var sut = await Client.CreateAsync(ConnectedFake(), TimeSpan.FromMilliseconds(1), default);
             sut.ApplyOptions(options);
 
             options.TerminalTypes.Add("b");
@@ -527,7 +530,8 @@
             // NullReferenceException.
             var fake = A.Fake<IByteStream>();
             A.CallTo(() => fake.Connected).Returns(true);
-            using var sut = new Client(fake, TimeSpan.FromMilliseconds(1), default) { MillisecondReadDelay = 1 };
+            using var sut = await Client.CreateAsync(fake, TimeSpan.FromMilliseconds(1), default);
+            sut.MillisecondReadDelay = 1;
             Func<Task> act = () => sut.TerminatedReadAsync((Regex)null!, TimeSpan.FromMilliseconds(60), 1);
             await act.Should().ThrowAsync<ArgumentNullException>().WithParameterName("regex");
         }
@@ -539,7 +543,8 @@
             // TimeoutException — the wait never returns a partial or "".
             var fake = A.Fake<IByteStream>();
             A.CallTo(() => fake.Connected).Returns(true);
-            using var sut = new Client(fake, TimeSpan.FromMilliseconds(1), default) { MillisecondReadDelay = 1 };
+            using var sut = await Client.CreateAsync(fake, TimeSpan.FromMilliseconds(1), default);
+            sut.MillisecondReadDelay = 1;
             Func<Task> act = () => sut.TerminatedReadAsync(":", TimeSpan.FromMilliseconds(60), 1);
             await act.Should().ThrowAsync<TimeoutException>();
         }
@@ -553,17 +558,18 @@
             // but must not dispose the stream it does not own.
             var fake = A.Fake<IByteStream>();
             A.CallTo(() => fake.Connected).Returns(true);
-            using var sut = new Client(fake, TimeSpan.FromMilliseconds(1), default) { MillisecondReadDelay = 1 };
+            using var sut = await Client.CreateAsync(fake, TimeSpan.FromMilliseconds(1), default);
+            sut.MillisecondReadDelay = 1;
             await sut.ReadAsync(TimeSpan.FromMilliseconds(20));
             A.CallTo(() => fake.Dispose()).MustNotHaveHappened();
             A.CallTo(() => fake.Close()).MustNotHaveHappened();
         }
 
         [Fact]
-        public void DisposeClosesStreamAndDoubleDisposeIsSafe()
+        public async Task DisposeClosesStreamAndDoubleDisposeIsSafe()
         {
             var fake = ConnectedFake();
-            using var sut = new Client(fake, TimeSpan.FromMilliseconds(10), default);
+            using var sut = await Client.CreateAsync(fake, TimeSpan.FromMilliseconds(10), default);
             Action act = () => { sut.Dispose(); sut.Dispose(); };
             act.Should().NotThrow();
             A.CallTo(() => fake.Close()).MustHaveHappened();
@@ -577,18 +583,18 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var sut = new Client(stream, TimeSpan.FromMilliseconds(50), default);
+                using var sut = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), default);
                 await sut.WriteAsync(new byte[] { 65, 255, 66 });
                 stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 65, 255, 255, 66 });
             }
         }
 
         [Fact]
-        public void IsConnectedReflectsStream()
+        public async Task IsConnectedReflectsStream()
         {
             var fake = A.Fake<IByteStream>();
             A.CallTo(() => fake.Connected).Returns(true);
-            using var sut = new Client(fake, TimeSpan.FromMilliseconds(10), default);
+            using var sut = await Client.CreateAsync(fake, TimeSpan.FromMilliseconds(10), default);
             sut.IsConnected.Should().BeTrue();
             A.CallTo(() => fake.Connected).Returns(false);
             sut.IsConnected.Should().BeFalse();
@@ -600,17 +606,21 @@
             // Port of test_writelines (bytes + unicode halves): sequential
             // string and byte writes land on the wire in order, ASCII
             // byte-identical (IAC doubling lives in ByteStringConverter).
-            // (The scripted fake records string and byte writes on separate
-            // lists, so both are pinned; a real stream serialises "abcd".)
+            // String writes arrive pre-encoded as byte frames now, so the
+            // scripted fake records all three on the byte list (a real
+            // stream serialises "abcd").
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var sut = new Client(stream, TimeSpan.FromMilliseconds(50), default);
+                using var sut = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), default);
                 await sut.WriteAsync("a");
                 await sut.WriteAsync("b");
                 await sut.WriteAsync(new byte[] { (byte)'c', (byte)'d' });
-                stream.StringWrites.Should().Equal("a", "b");
-                stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { (byte)'c', (byte)'d' });
+                stream.StringWrites.Should().BeEmpty();
+                stream.ByteWrites.Should().HaveCount(3);
+                stream.ByteWrites[0].Should().Equal(new byte[] { (byte)'a' });
+                stream.ByteWrites[1].Should().Equal(new byte[] { (byte)'b' });
+                stream.ByteWrites[2].Should().Equal(new byte[] { (byte)'c', (byte)'d' });
             }
         }
 
@@ -622,7 +632,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var sut = new Client(stream, TimeSpan.FromMilliseconds(50), default);
+                using var sut = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), default);
                 stream.Close();
                 (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
                 sut.IsConnected.Should().BeFalse();

@@ -33,7 +33,7 @@ public partial class ByteStreamHandler
             case (byte)Commands.Wont:
                 return ReplyForwardMaskAsync(payload);
             default:
-                WriteLog("Ignoring unknown LINEMODE subcommand: " + payload[0]);
+                WriteLog($"Ignoring unknown LINEMODE subcommand: {payload[0]}");
                 return Task.CompletedTask;
         }
     }
@@ -69,7 +69,7 @@ public partial class ByteStreamHandler
             byte[]? triplets = Linemode.ExportTriplets();
             if (triplets is not null)
             {
-                WriteLog("Sending: " + nameof(Options.LineMode) + " SLC table.");
+                WriteLog($"Sending: {nameof(Options.LineMode)} SLC table.");
                 await SendNegotiation((int)Options.LineMode,
                   [LinemodeProtocol.SetLocalCharacters, .. triplets]).ConfigureAwait(false);
             }
@@ -81,7 +81,7 @@ public partial class ByteStreamHandler
             return;
         }
 
-        WriteLog("Sending: " + nameof(Options.LineMode) + " MODE " + reply.Value);
+        WriteLog($"Sending: {nameof(Options.LineMode)} MODE {reply.Value}");
         await SendNegotiation((int)Options.LineMode, [LinemodeProtocol.Mode, reply.Value]).ConfigureAwait(false);
     }
 
@@ -177,23 +177,21 @@ public partial class ByteStreamHandler
         }
 
         List<byte>? replies = null;
-        for (int i = 1; i < payload.Count; i += 3)
+        foreach (var (function, modifier, value) in LinemodeProtocol.EnumerateSlcTriplets(payload))
         {
             (byte Modifier, byte Value)? reply = ApplyLinemodeAsServer
-              ? Linemode.ApplySlcAsServer(payload[i], payload[i + 1], payload[i + 2])
-              : Linemode.ApplySlc(payload[i], payload[i + 1], payload[i + 2]);
+              ? Linemode.ApplySlcAsServer(function, modifier, value)
+              : Linemode.ApplySlc(function, modifier, value);
             if (reply is not null)
             {
                 replies ??= [];
-                replies.Add(payload[i]);
-                replies.Add(reply.Value.Modifier);
-                replies.Add(reply.Value.Value);
+                LinemodeProtocol.AppendSlcTriplet(replies, function, reply.Value.Modifier, reply.Value.Value);
             }
         }
 
         if (replies is not null)
         {
-            WriteLog("Sending: " + nameof(Options.LineMode) + " SLC reply.");
+            WriteLog($"Sending: {nameof(Options.LineMode)} SLC reply.");
             await SendNegotiation((int)Options.LineMode, [LinemodeProtocol.SetLocalCharacters, .. replies]).ConfigureAwait(false);
         }
 
@@ -201,7 +199,7 @@ public partial class ByteStreamHandler
             && (Negotiation.IsEnabledByUs((int)Options.LineMode) || Negotiation.IsEnabledByPeer((int)Options.LineMode)))
         {
             byte[] mask = LinemodeProtocol.BuildForwardMask(Negotiation.IsEnabledByUs((int)Options.TransmitBinary));
-            WriteLog("Sending: " + nameof(Options.LineMode) + " DO FORWARDMASK.");
+            WriteLog($"Sending: {nameof(Options.LineMode)} DO FORWARDMASK.");
             await SendNegotiation((int)Options.LineMode,
               [(byte)Commands.Do, LinemodeProtocol.ForwardMask, .. mask]).ConfigureAwait(false);
         }

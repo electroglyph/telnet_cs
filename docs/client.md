@@ -35,7 +35,7 @@ TLS is negotiated before the first telnet byte.
 For tests or custom transports, construct over an `IByteStream` directly:
 
 ```csharp
-var client = new Client(byteStream, cancellationToken);
+var client = await Client.CreateAsync(byteStream, TimeSpan.FromSeconds(5), cancellationToken);
 ```
 
 The hermetic option is `telnet_cs.Transport.InMemoryPipe.Create()`, which
@@ -44,7 +44,7 @@ other to a `ServerSession`:
 
 ```csharp
 var (clientStream, serverStream) = InMemoryPipe.Create();
-using var client = new Client(clientStream, cancellationToken);
+using var client = await Client.CreateAsync(clientStream, TimeSpan.FromSeconds(5), cancellationToken);
 ```
 
 ## Configuring answers

@@ -321,8 +321,11 @@ public abstract partial class TelnetSessionBase : IBaseClient
 
     /// <summary>
     /// Sends one frame under <see cref="SendRateLimit"/> with linked
-    /// cancellation (caller token plus internal dispose). Unifies the
-    /// 21-site throttle pattern; wire bytes are unchanged.
+    /// cancellation (caller token plus internal dispose). The one
+    /// throttle choke point for stream-frame writes; wire bytes are
+    /// unchanged. Callers needing more than a single frame under the
+    /// gate (the MCCP2 start-marker publish) or a non-frame primitive
+    /// (TCP-urgent Synch) stay on the manual pattern and say why.
     /// </summary>
     /// <param name="frame">The exact bytes to write.</param>
     /// <param name="cancellationToken">The caller token.</param>

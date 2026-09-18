@@ -73,7 +73,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(false))
             {
 #pragma warning disable CA2000 // Ownership of the stream transfers to the Client.
-                using var baseline = new Client(
+                using var baseline = await Client.CreateAsync(
                   new TcpByteStream("127.0.0.1", port),
                   TimeSpan.FromSeconds(30),
                   CancellationToken.None,
@@ -103,7 +103,7 @@ namespace telnet_cs.Tests
             // Flagged: the ctor stays silent (and so do the explicit options).
             var acceptSilent = listener.AcceptTcpClientAsync();
 #pragma warning disable CA2000 // Ownership of the stream transfers to the Client.
-            using var silent = new Client(
+            using var silent = await Client.CreateAsync(
               new TcpByteStream("127.0.0.1", port),
               TimeSpan.FromSeconds(30),
               CancellationToken.None,

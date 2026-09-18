@@ -232,7 +232,7 @@ public partial class ByteStreamHandler
     {
         if (IsTimeoutExpired(timeout))
         {
-            WriteLog("Timeout exceeded " + DateTime.UtcNow.ToString("ss:fff"));
+            WriteLog($"Timeout exceeded {DateTime.UtcNow:ss:fff}");
         }
     }
 }

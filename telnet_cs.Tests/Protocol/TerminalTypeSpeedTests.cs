@@ -56,7 +56,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.TerminalTypes.Add("xterm-256color");
                 client.Settings.TerminalTypes.Add("xterm");
                 client.Settings.TerminalTypes.Add("vt100");
@@ -74,7 +74,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.TerminalTypes.Add("aaa");
                 client.Settings.TerminalTypes.Add("bbb");
                 var writes = await SendThroughClientAsync(client, stream, 4);
@@ -94,7 +94,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.TerminalTypes.Add(new string('a', 41));
                 var writes = await SendThroughClientAsync(client, stream, 1);
                 writes.Should().ContainSingle().Which.Should().Equal(TypeIsFrame(new string('a', 41)));
@@ -107,7 +107,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.TerminalType = "xterm";
                 var writes = await SendThroughClientAsync(client, stream, 2);
                 writes.Should().HaveCount(2);
@@ -123,7 +123,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.TerminalType = string.Empty;
                 var writes = await SendThroughClientAsync(client, stream, 1);
                 writes.Should().ContainSingle().Which.Should().Equal(TypeIsFrame("unknown"));
@@ -136,7 +136,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.TerminalTypes.Add("aaa");
                 client.Settings.TerminalTypes.Add("bbb");
                 var first = await SendThroughClientAsync(client, stream, 1);
@@ -167,7 +167,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.TerminalTypes.Add("aaa");
                 client.Settings.TerminalTypes.Add("bbb");
                 var first = await SendThroughClientAsync(client, stream, 1);

@@ -122,18 +122,7 @@ public partial class Client
             return;
         }
 
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
-        if (ByteStream.Connected && !linked.Token.IsCancellationRequested)
-        {
-            await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
-            try
-            {
-                await SendNegotiationBytesAsync(verb, option).ConfigureAwait(false);
-            }
-            finally
-            {
-                SendRateLimit.Release();
-            }
-        }
+        byte[] frame = [(byte)Commands.InterpretAsCommand, (byte)verb.Value, (byte)option];
+        await SendFrameLockedAsync(frame, cancellationToken).ConfigureAwait(false);
     }
 }

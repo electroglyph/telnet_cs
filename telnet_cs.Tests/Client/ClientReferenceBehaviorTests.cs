@@ -91,7 +91,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 (await client.WaitForOptionEnabledAsync(Options.EndOfRecord, false, TimeSpan.FromMilliseconds(100))).Should().BeFalse();
             }
         }
@@ -110,7 +110,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.EnableMudOptions = true;
                 stream.Enqueue(255, 251, 201);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -131,7 +131,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.EnableMudOptions = true;
                 stream.Enqueue(255, 251, 93);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -167,7 +167,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 Func<Task> act = () => client.WriteAsync("é");
                 await act.Should().ThrowAsync<EncoderFallbackException>();
             }
@@ -189,7 +189,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.EnvironmentDisplay = "host:0";
                 stream.Enqueue(255, 253, 39, 255, 250, 39, 1, 255, 240);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -208,7 +208,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 251, 24, 255, 250, 24, 1, 255, 240);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 ContainsSubsequence(OutboundBytes(stream), Encoding.ASCII.GetBytes("unknown")).Should().BeTrue();
@@ -255,7 +255,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 Func<Task> act = () => client.TerminatedReadAsync(".", TimeSpan.FromMilliseconds(200));
                 await act.Should().ThrowAsync<TimeoutException>();
             }
@@ -274,7 +274,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream(new string('A', 70000));
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 Func<Task> act = () => client.TerminatedReadAsync(".", TimeSpan.FromSeconds(2));
                 await act.Should().ThrowAsync<Exception>();
             }

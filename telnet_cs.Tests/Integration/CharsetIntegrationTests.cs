@@ -37,7 +37,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestCharset_DefaultOffers_AcceptsUtf8()
         {
-            var pair = LiveExchange.CreatePair();
+            var pair = await LiveExchange.CreatePairAsync();
             using (pair.Client)
             using (pair.Session)
             using (pair.Guard)
@@ -62,7 +62,7 @@ namespace telnet_cs.Tests
             // UTF-8-compatible entry answers REJECTED, so the server
             // offers an unresolvable name here.
             var options = new TelnetServerOptions { CharsetOffers = ["X-NOPE"] };
-            var pair = LiveExchange.CreatePair(options);
+            var pair = await LiveExchange.CreatePairAsync(options);
             using (pair.Client)
             using (pair.Session)
             using (pair.Guard)
@@ -85,7 +85,7 @@ namespace telnet_cs.Tests
             // writes "é" as the single raw byte 0xE9, which the session
             // (now LATIN1-decoding) reads back as "é".
             var options = new TelnetServerOptions { CharsetOffers = ["LATIN1"] };
-            var pair = LiveExchange.CreatePair(options, o => o.TextEncoding = Encoding.Latin1);
+            var pair = await LiveExchange.CreatePairAsync(options, o => o.TextEncoding = Encoding.Latin1);
             using (pair.Client)
             using (pair.Session)
             using (pair.Guard)
@@ -114,7 +114,7 @@ namespace telnet_cs.Tests
             var (clientStream, serverStream) = InMemoryPipe.Create();
             var tap = new WireTap(serverStream);
             using var session = new ServerSession(tap, new TelnetServerOptions(), CancellationToken.None);
-            using var client = new telnet_cs.Client.Client(clientStream, CancellationToken.None);
+            using var client = await telnet_cs.Client.Client.CreateAsync(clientStream, TimeSpan.FromSeconds(30), CancellationToken.None);
             using (guard)
             {
                 await AgreeCharsetAsync(client, session);

@@ -195,7 +195,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var sut = new Client(stream, TimeSpan.FromMilliseconds(50), default);
+                using var sut = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), default);
                 stream.Close();
                 await sut.SendGaAsync();
                 stream.ByteWrites.Should().BeEmpty();
@@ -218,7 +218,7 @@ namespace telnet_cs.Tests
             // Reference readuntil parity: never returns a partial — a missed
             // deadline throws TimeoutException (never ""), EOF or not.
             using var stream = new ScriptedStream("partial-no-terminator");
-            using var client = new telnet_cs.Client.Client(stream, new CancellationToken());
+            using var client = await telnet_cs.Client.Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             Func<Task> act = () => client.TerminatedReadAsync(":", TimeSpan.FromMilliseconds(300));
             await act.Should().ThrowAsync<TimeoutException>();
         }

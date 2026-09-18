@@ -151,7 +151,7 @@
         public async Task SingleStringCollectionOverloadReads()
         {
             using var stream = new ScriptedStream("Account:");
-            using var client = new Client(stream, new CancellationToken());
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             var result = await client.TerminatedReadAsync(new[] { "zzz", "Account:" });
             result.Should().Be("Account:");
         }
@@ -160,13 +160,13 @@
         public async Task RegexCollectionShortOverloadsRead()
         {
             using var stream = new ScriptedStream("Password:");
-            using var client = new Client(stream, new CancellationToken());
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             var oneArg = await client.TerminatedReadAsync(new[] { new Regex("zzz"), new Regex("word") });
             // "word" matches mid-buffer: the cut keeps "Password", ":" stashes.
             oneArg.Should().Be("Password");
             (await client.ReadAsync(TimeSpan.FromSeconds(2))).Should().Be(":");
             using var stream2 = new ScriptedStream("Password:");
-            using var client2 = new Client(stream2, new CancellationToken());
+            using var client2 = await Client.CreateAsync(stream2, TimeSpan.FromSeconds(30), new CancellationToken());
             var twoArg = await client2.TerminatedReadAsync(
               new[] { new Regex("zzz"), new Regex("word") }, TimeSpan.FromSeconds(2));
             twoArg.Should().Be("Password");
@@ -184,7 +184,7 @@
             using (GlobalStateGuard.Trace(traced.Add))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.Log = logged.Add;
                 Func<Task> act = () => client.TerminatedReadAsync(
                   new Regex("ZZZ-never-matches"), TimeSpan.FromMilliseconds(60), 1);
@@ -198,7 +198,7 @@
         public async Task PreCancelledReadReturnsEmpty()
         {
             using var stream = new ScriptedStream("AB");
-            using var client = new Client(stream, new CancellationToken());
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             var result = await client.ReadAsync(TimeSpan.FromSeconds(1), new CancellationToken(true));
             result.Should().BeEmpty();
         }

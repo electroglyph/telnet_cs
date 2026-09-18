@@ -57,7 +57,7 @@ namespace telnet_cs.Tests
         public async Task ClientSendGaAsync_WithoutSga_SendsGa()
         {
             using var stream = new ScriptedStream();
-            using var client = new Client(stream, CancellationToken.None);
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), CancellationToken.None);
             (await client.SendGaAsync()).Should().BeTrue();
             // The constructor proactively offers SGA, so the GA pair joins it.
             stream.ByteWrites.Should().Contain(w => w.SequenceEqual(new byte[] { 255, 249 }));

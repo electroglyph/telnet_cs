@@ -352,7 +352,7 @@ public static class ServerShells
         }
 
         await session.WriteAsync(
-          "Special Line Characters:" + LineFeed.Rfc854 + string.Join(LineFeed.Rfc854, rows) + LineFeed.Rfc854,
+          $"Special Line Characters:{LineFeed.Rfc854}{string.Join(LineFeed.Rfc854, rows)}{LineFeed.Rfc854}",
           cancellationToken).ConfigureAwait(false);
         return true;
     }

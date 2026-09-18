@@ -24,7 +24,7 @@ namespace telnet_cs.Tests
             // on this direction, so the default client agrees. Agreement is
             // negotiation state only: bytes the session receives are never
             // replayed to the peer (remote echo is the app's own write-back).
-            var pair = LiveExchange.CreatePair();
+            var pair = await LiveExchange.CreatePairAsync();
             using (pair.Client)
             using (pair.Session)
             using (pair.Guard)
@@ -51,7 +51,7 @@ namespace telnet_cs.Tests
         {
             // The other direction IS gated: an inbound DO ECHO earns WILL
             // while OfferEcho is on (the default).
-            var pair = LiveExchange.CreatePair();
+            var pair = await LiveExchange.CreatePairAsync();
             using (pair.Client)
             using (pair.Session)
             using (pair.Guard)
@@ -79,7 +79,7 @@ namespace telnet_cs.Tests
         public async Task Echo_ClientDoEcho_SessionRefusesWhenOfferEchoOff()
         {
             var options = new TelnetServerOptions { OfferEcho = false };
-            var pair = LiveExchange.CreatePair(options);
+            var pair = await LiveExchange.CreatePairAsync(options);
             using (pair.Client)
             using (pair.Session)
             using (pair.Guard)
@@ -100,7 +100,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Sga_AdvancedPreset_AgreesBothSides()
         {
-            var pair = LiveExchange.CreatePair();
+            var pair = await LiveExchange.CreatePairAsync();
             using (pair.Client)
             using (pair.Session)
             using (pair.Guard)
@@ -120,7 +120,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Binary_Agrees_HighByteRoundTrips()
         {
-            var pair = LiveExchange.CreatePair();
+            var pair = await LiveExchange.CreatePairAsync();
             using (pair.Client)
             using (pair.Session)
             using (pair.Guard)
@@ -143,7 +143,7 @@ namespace telnet_cs.Tests
         {
             // No preset, no pump: BINARY is off, so the client encodes
             // strict ASCII and a non-ASCII write throws.
-            var pair = LiveExchange.CreatePair();
+            var pair = await LiveExchange.CreatePairAsync();
             using (pair.Client)
             using (pair.Session)
             using (pair.Guard)

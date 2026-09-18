@@ -27,7 +27,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.WindowWidth = 100;
                 client.Settings.WindowHeight = 30;
                 stream.Enqueue(255, 253, 31);
@@ -49,7 +49,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.WindowWidth = 100;
                 client.Settings.WindowHeight = 30;
                 stream.Enqueue(255, 253, 31);
@@ -66,7 +66,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.WindowWidth = 100;
                 client.Settings.WindowHeight = 30;
                 await client.RefreshWindowSizeAsync();
@@ -83,7 +83,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.WindowWidth = 100;
                 client.Settings.WindowHeight = 30;
                 stream.Enqueue(255, 253, 31);

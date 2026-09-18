@@ -18,7 +18,7 @@ namespace telnet_cs.Tests
         private static async Task<(Client Client, ServerSession Session, IDisposable Guard)> OpenNawsAgreedPairAsync(
             Action<TelnetClientOptions>? configureClient = null)
         {
-            var pair = LiveExchange.CreatePair(null, configureClient);
+            var pair = await LiveExchange.CreatePairAsync(null, configureClient);
             await pair.Session.SendOpeningPresetAsync(CancellationToken.None);
             await LiveExchange.PumpUntilAsync(
                 pair.Client,

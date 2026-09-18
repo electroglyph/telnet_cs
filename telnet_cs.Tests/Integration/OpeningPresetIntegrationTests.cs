@@ -20,7 +20,7 @@ namespace telnet_cs.Tests
 
     public class OpeningPresetIntegrationTests
     {
-        private static (Client Client, ServerSession Session, WireTap Tap, IDisposable Guard) CreateTappedPair(
+        private static async Task<(Client Client, ServerSession Session, WireTap Tap, IDisposable Guard)> CreateTappedPairAsync(
             TelnetServerOptions? serverOptions = null)
         {
             var guard = GlobalStateGuard.SkipProactive(true);
@@ -28,14 +28,14 @@ namespace telnet_cs.Tests
             var tap = new WireTap(serverStream);
             var session = new ServerSession(
                 tap, serverOptions ?? new TelnetServerOptions(), CancellationToken.None);
-            var client = new Client(clientStream, CancellationToken.None);
+            var client = await Client.CreateAsync(clientStream, TimeSpan.FromSeconds(30), CancellationToken.None);
             return (client, session, tap, guard);
         }
 
         [Fact]
         public async Task SendOpeningPresetAsync_DefaultOptions_SendsDoTtypeOnly()
         {
-            var (client, session, tap, guard) = CreateTappedPair();
+            var (client, session, tap, guard) = await CreateTappedPairAsync();
             using (client)
             using (session)
             using (guard)
@@ -51,7 +51,7 @@ namespace telnet_cs.Tests
         public async Task SendOpeningPresetAsync_RequestTerminalTypeOff_SendsNothing()
         {
             var options = new TelnetServerOptions { RequestTerminalType = false };
-            var (client, session, tap, guard) = CreateTappedPair(options);
+            var (client, session, tap, guard) = await CreateTappedPairAsync(options);
             using (client)
             using (session)
             using (guard)
@@ -67,7 +67,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task NegotiateLive_DefaultOptions_AdvancedPresetFollowsTtypeWill()
         {
-            var (client, session, tap, guard) = CreateTappedPair();
+            var (client, session, tap, guard) = await CreateTappedPairAsync();
             using (client)
             using (session)
             using (guard)
@@ -93,7 +93,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task NegotiateLive_DefaultOptions_NoDoLinemodeNoTspeedNoOldEnvironNoMccp()
         {
-            var (client, session, tap, guard) = CreateTappedPair();
+            var (client, session, tap, guard) = await CreateTappedPairAsync();
             using (client)
             using (session)
             using (guard)
@@ -119,7 +119,7 @@ namespace telnet_cs.Tests
         public async Task NegotiateLive_RequestLinemode_SendsSingleDoLinemode()
         {
             var options = new TelnetServerOptions { RequestLinemode = true };
-            var (client, session, tap, guard) = CreateTappedPair(options);
+            var (client, session, tap, guard) = await CreateTappedPairAsync(options);
             using (client)
             using (session)
             using (guard)
@@ -148,7 +148,7 @@ namespace telnet_cs.Tests
             // is: the WILL draws a probe and the finite client chain ends
             // in a repeat that stops the exchange — the SEND count reaches
             // quiescence instead of growing without bound.
-            var (client, session, tap, guard) = CreateTappedPair();
+            var (client, session, tap, guard) = await CreateTappedPairAsync();
             using (client)
             using (session)
             using (guard)

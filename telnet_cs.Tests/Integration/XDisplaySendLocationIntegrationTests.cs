@@ -17,7 +17,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestXDisplay_ConfiguredLocation_ReturnsIt()
         {
-            var pair = LiveExchange.CreatePair(null, o => o.XDisplayLocation = "livehost:0");
+            var pair = await LiveExchange.CreatePairAsync(null, o => o.XDisplayLocation = "livehost:0");
             using (pair.Client)
             using (pair.Session)
             using (pair.Guard)
@@ -44,7 +44,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestSendLocation_ConfiguredLocation_ReturnsIt()
         {
-            var pair = LiveExchange.CreatePair(null, o => o.SendLocation = "Room 101");
+            var pair = await LiveExchange.CreatePairAsync(null, o => o.SendLocation = "Room 101");
             using (pair.Client)
             using (pair.Session)
             using (pair.Guard)
@@ -65,7 +65,7 @@ namespace telnet_cs.Tests
         {
             // The peer volunteers its SB after WILL, so the location lands
             // in the session store with no collector outstanding.
-            var pair = LiveExchange.CreatePair(null, o => o.SendLocation = "volunteered");
+            var pair = await LiveExchange.CreatePairAsync(null, o => o.SendLocation = "volunteered");
             using (pair.Client)
             using (pair.Session)
             using (pair.Guard)

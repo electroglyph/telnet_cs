@@ -61,7 +61,7 @@ namespace telnet_cs.Tests
         {
             var fake = A.Fake<IByteStream>();
             A.CallTo(() => fake.Connected).Returns(true);
-            using var client = new Client(fake, TimeSpan.FromMilliseconds(10), default);
+            using var client = await Client.CreateAsync(fake, TimeSpan.FromMilliseconds(10), default);
             Func<Task> act = () => client.SendCommand(verb);
             await act.Should().ThrowAsync<ArgumentOutOfRangeException>().WithParameterName("command");
             A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored)).MustNotHaveHappened();

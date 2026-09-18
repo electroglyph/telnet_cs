@@ -209,7 +209,7 @@ public partial class ServerSession
             return true;
         }
 
-        WriteLog("Sending: " + nameof(Options.LineMode) + " SLC table.");
+        WriteLog($"Sending: {nameof(Options.LineMode)} SLC table.");
         // Fire-and-forget: the reply rides SendRateLimit, so wire order
         // against other sends is still safe; a send failure here is
         // unobserved by design (the import was already consumed).
@@ -217,7 +217,7 @@ public partial class ServerSession
         if (Negotiation.IsEnabledByUs((int)Options.LineMode) || Negotiation.IsEnabledByPeer((int)Options.LineMode))
         {
             byte[] mask = LinemodeProtocol.BuildForwardMask(Negotiation.IsEnabledByUs((int)Options.TransmitBinary));
-            WriteLog("Sending: " + nameof(Options.LineMode) + " DO FORWARDMASK.");
+            WriteLog($"Sending: {nameof(Options.LineMode)} DO FORWARDMASK.");
             _ = SendLinemodeFrameAsync([(byte)Commands.Do, LinemodeProtocol.ForwardMask, .. mask], CancellationToken.None);
         }
         else

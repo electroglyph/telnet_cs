@@ -25,7 +25,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task ComPort_SessionSolicits_AgreesBothSides()
         {
-            var (client, session, guard) = LiveExchange.CreatePair();
+            var (client, session, guard) = await LiveExchange.CreatePairAsync();
             using (client)
             using (session)
             using (guard)
@@ -45,7 +45,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task ComPort_ClientOptOut_RefusedByPeerOnSession()
         {
-            var (client, session, guard) = LiveExchange.CreatePair(
+            var (client, session, guard) = await LiveExchange.CreatePairAsync(
                 configureClient: options => options.EnableComPort = false);
             using (client)
             using (session)
@@ -74,7 +74,7 @@ namespace telnet_cs.Tests
         {
             // Beyond GMCP/ZMP the client needs EnableMudOptions; the session
             // agrees the whole family unconditionally.
-            var (client, session, guard) = LiveExchange.CreatePair(
+            var (client, session, guard) = await LiveExchange.CreatePairAsync(
                 configureClient: options => options.EnableMudOptions = true);
             using (client)
             using (session)
@@ -97,7 +97,7 @@ namespace telnet_cs.Tests
         {
             // The client stack declines MSDP out of the box (EnableMudOptions
             // defaults off); GMCP/ZMP ride their own default-on switches.
-            var (client, session, guard) = LiveExchange.CreatePair();
+            var (client, session, guard) = await LiveExchange.CreatePairAsync();
             using (client)
             using (session)
             using (guard)
@@ -115,7 +115,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task MudOption_DefaultClient_AgreesGmcp()
         {
-            var (client, session, guard) = LiveExchange.CreatePair();
+            var (client, session, guard) = await LiveExchange.CreatePairAsync();
             using (client)
             using (session)
             using (guard)

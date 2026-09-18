@@ -160,6 +160,11 @@ public partial class TelnetServer
                 : new SessionCapacityException(remoteEndPoint);
         }
 
+        // The capacity throw above means a reservation is held from here
+        // on, so its key is set: capture it once for the release paths
+        // below instead of re-asserting non-null at each site.
+        string reservationKey = reservationIpKey ?? throw new InvalidOperationException("Connection was accepted over capacity without an IP reservation.");
+
 #pragma warning disable CA2000 // Ownership of the socket transfers to the session on success; the catch releases it otherwise (including the half-built TLS wrapper: its factory releases the SslStream on handshake failure, and the raw accept is always disposed below).
         ServerSession? session = null;
         try
@@ -191,7 +196,7 @@ public partial class TelnetServer
                         TimeSpan left = handshakeDeadlineUtc - DateTime.UtcNow;
                         if (left <= TimeSpan.Zero)
                         {
-                            ReleaseReservation(reservationIpKey!);
+                            ReleaseReservation(reservationKey);
                             reservationIpKey = null;
                             LogOutsideLock($"handshake-timeout: endpoint={endpoint}");
                             accepted.Dispose();
@@ -210,7 +215,7 @@ public partial class TelnetServer
                     }
                     catch (OperationCanceledException) when (IsHandshakeTimeout(cancellationToken, deadlineToken))
                     {
-                        ReleaseReservation(reservationIpKey!);
+                        ReleaseReservation(reservationKey);
                         reservationIpKey = null;
                         LogOutsideLock($"handshake-timeout: endpoint={endpoint}");
                         accepted.Dispose();
@@ -233,7 +238,7 @@ public partial class TelnetServer
                     {
                         // A throwing callback is a handshake failure:
                         // same release + dispose as any failed handshake.
-                        ReleaseReservation(reservationIpKey!);
+                        ReleaseReservation(reservationKey);
                         reservationIpKey = null;
                         accepted.Dispose();
                         throw;
@@ -256,7 +261,7 @@ public partial class TelnetServer
                         }
                         catch (OperationCanceledException) when (IsHandshakeTimeout(cancellationToken, deadlineToken))
                         {
-                            ReleaseReservation(reservationIpKey!);
+                            ReleaseReservation(reservationKey);
                             reservationIpKey = null;
                             LogOutsideLock($"handshake-timeout: endpoint={endpoint}");
                             accepted.Dispose();
@@ -272,7 +277,7 @@ public partial class TelnetServer
             // The preset goes out in NegotiateAsync, not here: the
             // caller owns the session from this point and may inspect it
             // (or abandon it via Dispose, releasing the reservation).
-            string key = reservationIpKey!;
+            string key = reservationKey;
             session.SetPendingNegotiation(
                 this,
                 new PendingNegotiation(key, endpoint, isTls, handshakeDeadlineUtc, handshakeEnabled),

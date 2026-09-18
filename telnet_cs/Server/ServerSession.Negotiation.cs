@@ -224,6 +224,9 @@ public partial class ServerSession
 
         if (ByteStream.Connected && !cancellationToken.IsCancellationRequested)
         {
+            // Stays on the manual throttle pattern: Synch is TCP urgent
+            // data, not a stream frame, so the shared frame gate (a
+            // WriteAsync(byte[]) choke point) cannot send it.
             await SendRateLimit.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
@@ -270,39 +273,15 @@ public partial class ServerSession
             return;
         }
 
-        if (WriteStream.Connected && !cancellationToken.IsCancellationRequested)
-        {
-            // Copy out before the first await: the callee takes a
-            // non-nullable verb, and narrowing a parameter across awaits is
-            // not something to rely on here.
-            Commands agreedVerb = verb.Value;
-            await SendRateLimit.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                await SendNegotiationBytesAsync(agreedVerb, option, cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                SendRateLimit.Release();
-            }
-        }
-    }
-
-    // The single caller (SendRequestAsync) already drops null verbs, so the
-    // non-nullable parameter lets the compiler enforce that contract.
-    private Task SendNegotiationBytesAsync(Commands verb, Options option, CancellationToken cancellationToken)
-    {
-        byte[] buffer = [(byte)Commands.InterpretAsCommand, (byte)verb, (byte)option];
-        return SendRawBytesLockedAsync(buffer, cancellationToken);
-    }
-
-    // Raw protocol-byte choke point (assumes SendRateLimit is held):
-    // protocol frames bypass WriteAsync(byte[]) because it IAC-escapes
-    // its whole input, which would double the frame's own IAC.
-    private async Task SendRawBytesLockedAsync(byte[] buffer, CancellationToken cancellationToken)
-    {
-        await WriteStream.WriteAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
-        Context.NoteWritten(buffer.Length);
+        // Copy out before the first await: the callee takes a
+        // non-nullable verb, and narrowing a parameter across awaits is
+        // not something to rely on here.
+        Commands agreedVerb = verb.Value;
+        // Protocol frames bypass WriteAsync(byte[]) because it IAC-escapes
+        // its whole input, which would double the frame's own IAC; the
+        // raw frame goes through the shared throttle choke point instead.
+        byte[] frame = [(byte)Commands.InterpretAsCommand, (byte)agreedVerb, (byte)option];
+        await SendFrameLockedAsync(frame, cancellationToken, Context.NoteWritten).ConfigureAwait(false);
     }
 
     private void WriteLog(string message)

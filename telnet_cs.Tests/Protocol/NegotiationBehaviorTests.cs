@@ -126,7 +126,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 18);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 stream.Connected.Should().BeTrue();

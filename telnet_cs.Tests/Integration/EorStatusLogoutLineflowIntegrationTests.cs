@@ -20,7 +20,7 @@ namespace telnet_cs.Tests
     {
         private static readonly TimeSpan Budget = TimeSpan.FromSeconds(10);
 
-        private static (Client Client, ServerSession Session, WireTap ClientTap, WireTap SessionTap, IDisposable Guard) CreateTappedPair(
+        private static async Task<(Client Client, ServerSession Session, WireTap ClientTap, WireTap SessionTap, IDisposable Guard)> CreateTappedPairAsync(
             TelnetServerOptions? serverOptions = null,
             Action<TelnetClientOptions>? configureClient = null)
         {
@@ -30,7 +30,7 @@ namespace telnet_cs.Tests
             var sessionTap = new WireTap(serverStream);
             var session = new ServerSession(
                 sessionTap, serverOptions ?? new TelnetServerOptions(), CancellationToken.None);
-            var client = new Client(clientTap, CancellationToken.None);
+            var client = await Client.CreateAsync(clientTap, TimeSpan.FromSeconds(30), CancellationToken.None);
             configureClient?.Invoke(client.Settings);
             return (client, session, clientTap, sessionTap, guard);
         }
@@ -38,7 +38,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SendEorAsync_WithoutAgreement_ReturnsFalseSendingNothing()
         {
-            var (client, session, clientTap, _, guard) = CreateTappedPair();
+            var (client, session, clientTap, _, guard) = await CreateTappedPairAsync();
             using (client)
             using (session)
             using (guard)
@@ -53,7 +53,7 @@ namespace telnet_cs.Tests
         {
             // The session asks for EORs (DO); the client WILLs, then its
             // marker goes out as a bare IAC EOR with no SB framing.
-            var (client, session, clientTap, sessionTap, guard) = CreateTappedPair();
+            var (client, session, clientTap, sessionTap, guard) = await CreateTappedPairAsync();
             using (client)
             using (session)
             using (guard)
@@ -84,7 +84,7 @@ namespace telnet_cs.Tests
             // reply — TM is a ping, not an agreement, so the session mirror
             // never latches), the client records the peer, and a repeat
             // after agreement goes out again instead of being suppressed.
-            var (client, session, clientTap, sessionTap, guard) = CreateTappedPair();
+            var (client, session, clientTap, sessionTap, guard) = await CreateTappedPairAsync();
             using (client)
             using (session)
             using (guard)
@@ -119,7 +119,7 @@ namespace telnet_cs.Tests
             // deterministic row: the reference renders every touched option,
             // and a bare STATUS-only exchange volunteers an empty-but-filed
             // snapshot.
-            var (client, session, _, _, guard) = CreateTappedPair();
+            var (client, session, _, _, guard) = await CreateTappedPairAsync();
             using (client)
             using (session)
             using (guard)
@@ -147,7 +147,7 @@ namespace telnet_cs.Tests
         {
             // Server role: the session closes its stream on DO LOGOUT; only
             // the close is observable live (the hook is internal).
-            var (client, session, _, _, guard) = CreateTappedPair();
+            var (client, session, _, _, guard) = await CreateTappedPairAsync();
             using (client)
             using (session)
             using (guard)
@@ -165,7 +165,7 @@ namespace telnet_cs.Tests
         {
             // Client role: DO LOGOUT earns no reply and no close on either
             // end (reference: the client end raises instead).
-            var (client, session, clientTap, _, guard) = CreateTappedPair();
+            var (client, session, clientTap, _, guard) = await CreateTappedPairAsync();
             using (client)
             using (session)
             using (guard)
@@ -190,7 +190,7 @@ namespace telnet_cs.Tests
             // RESTART_ANY mode SB reaches the client. The mode frame is
             // written by the session, so it is the session tap that carries
             // it (taps record writes, not reads).
-            var (client, session, _, sessionTap, guard) = CreateTappedPair();
+            var (client, session, _, sessionTap, guard) = await CreateTappedPairAsync();
             using (client)
             using (session)
             using (guard)

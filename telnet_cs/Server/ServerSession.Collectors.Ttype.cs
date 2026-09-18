@@ -33,7 +33,11 @@ public partial class ServerSession
     /// then one <c>IS</c> per entry): an initial <c>SEND</c>, then another
     /// <c>SEND</c> after every non-terminal answer (the reference
     /// <c>request_ttype</c> per answer, sent by the read's flush so the
-    /// background pump cycles identically). The returned list ends at the
+    /// background pump cycles identically). Answers filed before this
+    /// request started are folded into the returned chain without
+    /// another <c>SEND</c>: each was already chased once on arrival,
+    /// and re-asking would solicit a duplicate past the real chain.
+    /// The returned list ends at the
     /// first repeat: a reply equal to the first entry (cycle looped) or to
     /// the previous entry terminates the list — both compared
     /// case-sensitively, like the reference — as does an <c>MTTS</c>
@@ -63,10 +67,12 @@ public partial class ServerSession
             lock (collectorLock)
             {
                 // Anything the background pump filed after the previous
-                // collection is replayed below as solicited (re-asked):
-                // each replayed answer owes its follow-up SEND exactly
-                // like a live one, so the wire count is deterministic no
-                // matter who consumed first.
+                // collection is replayed below to rebuild the chain, but
+                // never re-solicited: each filed answer was already chased
+                // once at arrival (the reference on_ttype asks per
+                // answer), so arming follow-ups again here would put a
+                // second SEND per answer on the wire whenever the pump
+                // consumed first.
                 // preDone: the pump already finished a cycle (e.g. an empty
                 // answer) — replay it without polling for more. A merely
                 // partial filing (cycle still open) is not done: it is
@@ -94,21 +100,17 @@ public partial class ServerSession
             replayedAny = true;
             lock (collectorLock)
             {
-                // Replayed answers re-ask exactly like live ones
-                // (telnetlib3 sends one SEND per answer no matter who
-                // consumed it): each grown answer owes its follow-up,
-                // drained below before polling starts.
-                bool grown = AppendTerminalTypeAnswerLocked(snapshot[i]);
-                if (grown && TtypeCycleSolicitedLocked())
-                {
-                    ttypeResendsOwed++;
-                }
+                // Re-append only: restores the chain (and the
+                // answer-driven ECHO/ENVIRON arms) without re-chasing.
+                // A live peer answers each SEND once, so a replayed
+                // SEND would solicit a duplicate past the real chain.
+                AppendTerminalTypeAnswerLocked(snapshot[i]);
             }
         }
 
-        // Answers the pump filed ahead of this request still owe their
-        // per-answer follow-ups: emit them here (not in some later
-        // flush) so the count is fixed before polling starts.
+        // Follow-ups still owed for answers that arrived after the
+        // snapshot (filed live by this request's reads or a concurrent
+        // pump pass) are paid here, before polling starts.
         while (true)
         {
             bool owed;
@@ -132,7 +134,7 @@ public partial class ServerSession
         if (preDone && replayedAny)
         {
             // The cycle already ended before this request started: the
-            // replay above re-asked it, nothing more to wait for. A
+            // replay above rebuilt it, nothing more to wait for. A
             // background pass that filed these answers withheld the
             // answer-triggered WILL ECHO / DO NEW_ENVIRON (unsolicited
             // cycle), so flush here — after the SENDs above — instead
@@ -488,6 +490,13 @@ public partial class ServerSession
             return;
         }
 
+        // Stays on the manual throttle pattern instead of the shared
+        // frame gate on purpose: the recheck, the raw marker write, and
+        // the filter publish must all happen while holding the gate, so a
+        // second thread can never slip a duplicate start marker (and a
+        // second compressor) onto the wire between the write and the
+        // publish. The marker also bypasses WriteStream on purpose: it
+        // must go out raw, before the compressing view exists.
         await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
         try
         {
@@ -628,7 +637,7 @@ public partial class ServerSession
         }
         catch (Exception ex)
         {
-            WriteLog("Charset auto-request failed: " + ex.Message);
+            WriteLog($"Charset auto-request failed: {ex.Message}");
         }
         finally
         {

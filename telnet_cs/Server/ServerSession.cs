@@ -322,27 +322,12 @@ public partial class ServerSession : TelnetSessionBase
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
         if (WriteStream.Connected && !linked.Token.IsCancellationRequested)
         {
-            await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
-            try
-            {
-                await WriteTextLockedAsync(command, linked.Token).ConfigureAwait(false);
-            }
-            finally
-            {
-                SendRateLimit.Release();
-            }
+            // The stream spells a null-encoding string write exactly like
+            // the converter (Latin-1 plus IAC escaping), so pre-encode and
+            // send the frame raw: same wire bytes, one throttle choke point.
+            byte[] frame = ByteStringConverter.ConvertStringToByteArray(command, null);
+            await SendFrameLockedAsync(frame, linked.Token, Context.NoteWritten).ConfigureAwait(false);
         }
-    }
-
-    // Null-encoding text send (assumes SendRateLimit is held): the
-    // stream path for prompts when no session encoding is configured.
-    private async Task WriteTextLockedAsync(string command, CancellationToken cancellationToken)
-    {
-        await WriteStream.WriteAsync(command, cancellationToken).ConfigureAwait(false);
-        // The stream encodes exactly like the converter with a
-        // null encoding (its TextEncoding is never set): Latin-1
-        // plus IAC escaping, so this is the on-the-wire length.
-        Context.NoteWritten(ByteStringConverter.ConvertStringToByteArray(command, null).Length);
     }
 
     /// <summary>
@@ -362,23 +347,8 @@ public partial class ServerSession : TelnetSessionBase
         return WriteRawAsync(escaped, cancellationToken);
     }
 
-    private async Task WriteRawAsync(byte[] data, CancellationToken cancellationToken)
-    {
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
-        if (WriteStream.Connected && !linked.Token.IsCancellationRequested)
-        {
-            await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
-            try
-            {
-                await WriteStream.WriteAsync(data, 0, data.Length, linked.Token).ConfigureAwait(false);
-                Context.NoteWritten(data.Length);
-            }
-            finally
-            {
-                SendRateLimit.Release();
-            }
-        }
-    }
+    private Task WriteRawAsync(byte[] data, CancellationToken cancellationToken) =>
+        SendFrameLockedAsync(data, cancellationToken, Context.NoteWritten);
 
     /// <summary>
     /// Reports a transmitted <c>IAC GA</c> pair (see

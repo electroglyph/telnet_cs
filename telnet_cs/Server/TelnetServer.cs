@@ -130,7 +130,7 @@ public sealed partial class TelnetServer : IDisposable
         boundPort = ((IPEndPoint)listener.LocalEndpoint).Port;
         if (options.StatusInterval is { } interval && interval > TimeSpan.Zero && statusTimer is null)
         {
-            statusTimer = new System.Threading.Timer(static state => ((TelnetServer)state!).ReportStatus(), this, interval, interval);
+            statusTimer = new System.Threading.Timer(static state => (state as TelnetServer ?? throw new InvalidOperationException("Status timer state must be the owning TelnetServer.")).ReportStatus(), this, interval, interval);
         }
     }
 

@@ -31,6 +31,8 @@ speed), 1091 (terminal type), 1096 (X display), 1184 (linemode), 1372
 - **Client:** `telnet_cs.Client.Client` — connect, negotiate (RFC 1143 state
   machine), read/write, login, NAWS, terminal type/speed, environment,
   linemode, charset negotiation, status/timing-mark, echo, Synch.
+  Construct with `await Client.CreateAsync(...)` (the only path since 0.19;
+  see the [client](docs/client.md) guide).
 - **Server:** `telnet_cs.Server.TelnetServer` + `ServerSession` — accept loop
   (with TLS ClientHello sniffing), server-role negotiation, authentication
   helper, per-client options (terminal type, speed, window size, environment,
@@ -74,19 +76,21 @@ speed), 1091 (terminal type), 1096 (X display), 1184 (linemode), 1372
     `StatusInterval` (default 20 s), clean peer close (TCP FIN and TLS
     close_notify end the session after queued bytes drain), and opt-in
     `TlsAutoDetect` peek.
-- 1745 tests green as of 2026-09-18, full suite with warnings-as-errors. Requires the
+- Full suite green with warnings-as-errors (see `dotnet test` output for the current count). Requires the
   .NET 10 SDK and runtime; build with
   `dotnet build telnet_cs.sln -c Release`.
 - Usage guides: [client](docs/client.md), [server](docs/server.md).
 
 ## Install
 
+The package version is single-sourced from `VersionPrefix` in `telnet_cs/telnet_cs.csproj`; substitute the current value for `<version>`:
+
 ```xml
-<PackageReference Include="telnet_cs" Version="0.18.0" />
+<PackageReference Include="telnet_cs" Version="<version>" />
 ```
 
 ```sh
-dotnet add package telnet_cs --version 0.18.0
+dotnet add package telnet_cs
 ```
 
 Local dev without the feed: `dotnet pack telnet_cs/telnet_cs.csproj -c

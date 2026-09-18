@@ -13,9 +13,9 @@
 
     public class ControlSignalTests
     {
-        private static Client MakeClient(ScriptedStream stream)
+        private static async Task<Client> MakeClient(ScriptedStream stream)
         {
-            return new Client(stream, new CancellationToken());
+            return await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
         }
 
         private static async Task<(string Output, ScriptedStream Stream)> ReadWithStreamAsync(params int[] reads)
@@ -44,7 +44,7 @@
         public async Task SendCommand_WritesIacFramedPair(Commands command, byte code)
         {
             using var stream = new ScriptedStream();
-            using var sut = MakeClient(stream);
+            using var sut = await MakeClient(stream);
             await sut.SendCommand(command);
             stream.ByteWrites.Should().ContainSingle(w => w.SequenceEqual(new byte[] { 255, code }));
         }
@@ -67,7 +67,7 @@
         public async Task SendCommand_RejectsNegotiationVerbs(Commands command)
         {
             using var stream = new ScriptedStream();
-            using var sut = MakeClient(stream);
+            using var sut = await MakeClient(stream);
             var before = stream.ByteWrites.Count;
             Func<Task> act = () => sut.SendCommand(command);
             await act.Should().ThrowAsync<ArgumentOutOfRangeException>();
@@ -200,7 +200,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream(255, 249);
-                using var sut = MakeClient(stream);
+                using var sut = await MakeClient(stream);
                 var fired = 0;
                 sut.GoAheadReceived += (_, _) => fired++;
                 (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
@@ -227,7 +227,7 @@
         public async Task SendSynch_RequiresTcpStream()
         {
             using var stream = new ScriptedStream();
-            using var sut = MakeClient(stream);
+            using var sut = await MakeClient(stream);
             Func<Task> act = () => sut.SendSynchAsync();
             await act.Should().ThrowAsync<NotSupportedException>();
         }

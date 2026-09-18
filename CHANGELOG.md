@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-09-18
+
+### Removed
+
+- The blocking `Client` constructors; `Client.CreateAsync` is now the only
+  construction path. No wire, preset, or default changes.
+
+### Fixed
+
+- `RequestTerminalTypesAsync` no longer re-requests answers the pump already
+  filed, matching the reference chase-one-answer-per-request behavior.
+
+### Changed
+
+- All frame writes throttle through `SendFrameLockedAsync` (server-side byte
+  accounting preserved); SLC triplets share one enumerator; `+` concatenation
+  is now interpolation; new `!` suppressions use real guards. No wire,
+  preset, or default changes.
+
 ## [0.18.0] - 2026-09-18
 
 ### Changed

@@ -67,7 +67,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.ApplyOptions(new TelnetClientOptions { TerminalType = new string('A', 50) });
                 stream.Enqueue(255, 251, 24, 255, 250, 24, 1, 255, 240);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -89,7 +89,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 32, 255, 250, 32, 1, 255, 240);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 ContainsSubsequence(OutboundBytes(stream), Encoding.ASCII.GetBytes("38400,38400")).Should().BeTrue();
@@ -135,7 +135,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 39);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 client.Settings.EnvironmentDisplay = "display:0";
@@ -171,7 +171,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.ApplyOptions(new TelnetClientOptions { TextEncoding = Encoding.UTF8 });
                 stream.Enqueue(255, 253, 39, 255, 250, 39, 1, 255, 240);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();

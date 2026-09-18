@@ -23,7 +23,7 @@
             var byteStream = A.Fake<IByteStream>();
             A.CallTo(() => byteStream.Connected).Returns(true);
 
-            using (var sut = new Client(byteStream, new TimeSpan(0, 0, 0, 0, 1), default))
+            using (var sut = await Client.CreateAsync(byteStream, new TimeSpan(0, 0, 0, 0, 1), default))
             {
                 var start = DateTime.Now;
                 sut.MillisecondReadDelay = 1;
@@ -42,7 +42,7 @@
             var stopwatch = new Stopwatch();
             var byteStream = ArrangeByteStreamToRespondWithTerminationOnceAfterMillisecondSpin();
 
-            using (var sut = new Client(byteStream, new TimeSpan(0, 0, 0, 0, 1), default))
+            using (var sut = await Client.CreateAsync(byteStream, new TimeSpan(0, 0, 0, 0, 1), default))
             {
                 stopwatch.Start();
                 await sut.TerminatedReadAsync(".", new TimeSpan(0, 0, 0, 3), millisecondsSpin);
@@ -84,7 +84,7 @@
             using (var cancellationToken = new CancellationTokenSource())
             {
                 var stopwatch = new Stopwatch();
-                using (var sut = new Client(byteStream, new TimeSpan(0, 0, 0, 0, 1), default))
+                using (var sut = await Client.CreateAsync(byteStream, new TimeSpan(0, 0, 0, 0, 1), default))
                 {
                     cancellationToken.CancelAfter(100);
                     await sut.ReadAsync(TimeSpan.FromMilliseconds(1000));

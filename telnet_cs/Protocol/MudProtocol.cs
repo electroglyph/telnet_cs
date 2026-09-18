@@ -159,7 +159,7 @@ public static class MudProtocol
         }
         catch (JsonException ex)
         {
-            throw new ArgumentException("Invalid JSON in GMCP payload: " + ex.Message, nameof(payload), ex);
+            throw new ArgumentException($"Invalid JSON in GMCP payload: {ex.Message}", nameof(payload), ex);
         }
     }
 

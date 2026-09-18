@@ -37,7 +37,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestNewEnvironment_LiveExchange_ReturnsUserAndUserVars()
         {
-            var pair = LiveExchange.CreatePair(null, o =>
+            var pair = await LiveExchange.CreatePairAsync(null, o =>
             {
                 o.EnvironmentUser = "liveuser";
                 o.EnvironmentUserVars["LIVEVAR"] = "liveval";
@@ -64,7 +64,7 @@ namespace telnet_cs.Tests
             // Even with EnvironmentDisplay configured, the SB IS carries no
             // DISPLAY (empty values are dropped by the session store); the
             // value only rides spontaneous INFO.
-            var pair = LiveExchange.CreatePair(null, o => o.EnvironmentDisplay = "livehost:0");
+            var pair = await LiveExchange.CreatePairAsync(null, o => o.EnvironmentDisplay = "livehost:0");
             using (pair.Client)
             using (pair.Session)
             using (pair.Guard)
@@ -82,7 +82,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestEnvironment_OldFormRoundTrips()
         {
-            var pair = LiveExchange.CreatePair(null, o => o.EnvironmentUser = "olduser");
+            var pair = await LiveExchange.CreatePairAsync(null, o => o.EnvironmentUser = "olduser");
             using (pair.Client)
             using (pair.Session)
             using (pair.Guard)
@@ -109,7 +109,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SpontaneousInfo_ChangedValue_LandsInClientEnvironment()
         {
-            var pair = LiveExchange.CreatePair(null, o => o.EnvironmentUser = "liveuser");
+            var pair = await LiveExchange.CreatePairAsync(null, o => o.EnvironmentUser = "liveuser");
             using (pair.Client)
             using (pair.Session)
             using (pair.Guard)
@@ -137,7 +137,7 @@ namespace telnet_cs.Tests
         public async Task EnvironCap_MaxEnvironVars_KeepsFirstEntries()
         {
             var options = new TelnetServerOptions { MaxEnvironVars = 2 };
-            var pair = LiveExchange.CreatePair(options, o =>
+            var pair = await LiveExchange.CreatePairAsync(options, o =>
             {
                 o.EnvironmentUser = "liveuser";
                 o.EnvironmentUserVars["VAR_A"] = "a";

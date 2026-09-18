@@ -60,7 +60,7 @@ namespace telnet_cs.Tests
             {
                 var (clientStream, serverStream) = InMemoryPipe.Create();
                 using var session = new ServerSession(serverStream, new TelnetServerOptions(), CancellationToken.None);
-                using var client = new Client(clientStream, CancellationToken.None);
+                using var client = await Client.CreateAsync(clientStream, TimeSpan.FromSeconds(30), CancellationToken.None);
                 await session.SendOpeningPresetAsync(CancellationToken.None);
 
                 var sw = Stopwatch.StartNew();

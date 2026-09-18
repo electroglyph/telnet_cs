@@ -46,7 +46,7 @@ namespace telnet_cs.Tests
             // true and emit FF F9; false/empty proves the over-broad gate. This test is
             // correct.
             using var stream = new ScriptedStream(255, 251, 3);
-            using var client = new Client(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None);
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None);
             (await client.ReadAsync(TimeSpan.FromMilliseconds(300))).Should().BeEmpty();
             (await client.SendGaAsync(CancellationToken.None)).Should().BeTrue();
             byte[] writes = stream.ByteWrites.SelectMany(w => w).ToArray();
@@ -71,7 +71,7 @@ namespace telnet_cs.Tests
             // is correct for the timeout half; wake-latency and no-consume are pinned
             // by the same fix.
             using var stream = new ScriptedStream();
-            using var client = new Client(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None);
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None);
             Func<Task> act = () => client.WaitForNegotiationAsync(_ => false, TimeSpan.FromMilliseconds(200));
             await act.Should().ThrowAsync<TimeoutException>();
         }
@@ -88,7 +88,7 @@ namespace telnet_cs.Tests
             // OperationCanceledException; returning false proves the swallow. This
             // test is correct.
             using var stream = new ScriptedStream();
-            using var client = new Client(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None);
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None);
             using var cts = new CancellationTokenSource();
             cts.Cancel();
             Func<Task> act = () => client.WaitForNegotiationAsync(_ => false, Timeout.InfiniteTimeSpan, cts.Token);
@@ -253,7 +253,7 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public void ClientCtor_Default_SendsNothingOnConnect()
+        public async Task ClientCtor_Default_SendsNothingOnConnect()
         {
             // Source of truth: a default client sends zero bytes on connect.
             // client_base.py begin_negotiation iterates always_will/always_do, both
@@ -267,7 +267,7 @@ namespace telnet_cs.Tests
             // elsewhere. Deliberately outside any global skip guard. This test is
             // correct.
             using var stream = new ScriptedStream();
-            using var client = new Client(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None);
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None);
             stream.ByteWrites.Should().BeEmpty();
         }
 

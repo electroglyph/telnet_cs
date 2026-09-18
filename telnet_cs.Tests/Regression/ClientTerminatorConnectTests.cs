@@ -11,11 +11,12 @@
     using FluentAssertions;
     using Xunit;
     using telnet_cs.Client;
+    using telnet_cs.Protocol;
     using telnet_cs.Transport;
 
     public class ClientTerminatorConnectTests
     {
-        internal sealed class ProbeClient : Client
+        internal sealed class ProbeClient : TelnetSessionBase
         {
             public ProbeClient(IByteStream stream)
               : base(stream, new CancellationToken())
@@ -31,6 +32,12 @@
             {
                 CancelPendingReads();
             }
+
+            // Never exercised: the probe only reaches the terminator
+            // matcher and the read-cancellation path.
+            protected override NegotiationState SessionNegotiation => throw new NotImplementedException();
+
+            public override Task<string> ReadAsync(TimeSpan timeout, CancellationToken cancellationToken) => throw new NotImplementedException();
         }
 
         [Fact]
@@ -50,7 +57,7 @@
         public async Task WriteAsyncNullStringThrows()
         {
             using var stream = new ScriptedStream();
-            using var client = new Client(stream, new CancellationToken());
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             Func<Task> act = () => client.WriteAsync((string)null!);
             (await act.Should().ThrowAsync<ArgumentNullException>())
               .WithParameterName("command");
@@ -60,7 +67,7 @@
         public async Task NullTerminatorThrows()
         {
             using var stream = new ScriptedStream();
-            using var client = new Client(stream, new CancellationToken());
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             Func<Task> act = () => client.TerminatedReadAsync((string)null!, TimeSpan.FromMilliseconds(10));
             (await act.Should().ThrowAsync<ArgumentNullException>())
               .WithParameterName("terminator");
@@ -70,7 +77,7 @@
         public async Task NullRegexThrows()
         {
             using var stream = new ScriptedStream();
-            using var client = new Client(stream, new CancellationToken());
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             Func<Task> act = () => client.TerminatedReadAsync((Regex)null!, TimeSpan.FromMilliseconds(10));
             (await act.Should().ThrowAsync<ArgumentNullException>())
               .WithParameterName("regex");
@@ -80,7 +87,7 @@
         public async Task NullTerminatorCollectionThrows()
         {
             using var stream = new ScriptedStream();
-            using var client = new Client(stream, new CancellationToken());
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             Func<Task> act = () => client.TerminatedReadAsync((IEnumerable<string>)null!, TimeSpan.FromMilliseconds(10));
             (await act.Should().ThrowAsync<ArgumentNullException>())
               .WithParameterName("terminators");
@@ -92,7 +99,7 @@
             using (GlobalStateGuard.SkipProactive(false))
             {
                 using var stream = new DummyByteStream();
-                using var client = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false);
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false);
                 var result = await client.TerminatedReadAsync(
                   new[] { "Nope>", "Account:" }, TimeSpan.FromSeconds(5), 1);
                 result.Should().Be("Account:");
@@ -105,7 +112,7 @@
             using (GlobalStateGuard.TerminalType("vt100"))
             {
                 using var stream = new ScriptedStream(255, 250, 24, 1, 255, 240);
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.TerminalType = "xterm";
                 await client.ReadAsync(TimeSpan.FromMilliseconds(200));
                 stream.ByteWrites.Should().HaveCount(1);
@@ -122,7 +129,7 @@
             // (reference: UnicodeEncodeError on strict ASCII); agreeing BINARY
             // first lets the configured encoding through pre-encoded.
             using var stream = new ScriptedStream(255, 253, 0);
-            using var client = new Client(stream, new CancellationToken());
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             (await client.ReadAsync(TimeSpan.FromMilliseconds(200))).Should().BeEmpty();
             client.Settings.TextEncoding = Encoding.UTF8;
             await client.WriteAsync("caf\u00E9");
@@ -136,7 +143,7 @@
         {
             using var stream = new ScriptedStream("AB");
             using var cts = new CancellationTokenSource();
-            using var client = new Client(stream, cts.Token);
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), cts.Token);
             cts.Cancel();
             (await client.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
         }
@@ -145,7 +152,7 @@
         public async Task ConcurrentReadsAreSerialised()
         {
             using var stream = new ScriptedStream("AB");
-            using var client = new Client(stream, new CancellationToken());
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             var first = client.ReadAsync(TimeSpan.FromMilliseconds(100));
             var second = client.ReadAsync(TimeSpan.FromMilliseconds(100));
             var results = await Task.WhenAll(first, second);

@@ -20,7 +20,7 @@ namespace telnet_cs.Tests
             Action<TelnetClientOptions>? configureClient = null,
             TelnetServerOptions? serverOptions = null)
         {
-            var pair = LiveExchange.CreatePair(serverOptions, configureClient);
+            var pair = await LiveExchange.CreatePairAsync(serverOptions, configureClient);
             await pair.Session.SendOpeningPresetAsync(CancellationToken.None);
             await LiveExchange.PumpUntilAsync(
                 pair.Client,

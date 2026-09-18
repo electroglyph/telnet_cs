@@ -407,7 +407,11 @@ public partial class ByteStreamHandler
             // Resuming a subnegotiation stalled mid-scan on an earlier
             // read: the continuation bytes belong to this frame.
             inputOption = sbResumeOption.Value;
-            payload = sbResumePayload!;
+            // A null payload only arrives via a hand-built resume
+            // snapshot (the stashers and the snapshot getter never emit
+            // one); read it as "nothing scanned yet", like an empty scan
+            // buffer on a fresh stall.
+            payload = sbResumePayload ?? [];
             overCap = sbResumeOverCap;
             iacPending = sbResumeIacPending;
             sbResumeOption = null;

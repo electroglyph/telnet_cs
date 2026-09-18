@@ -22,7 +22,7 @@ namespace telnet_cs.Tests
     {
         private static readonly TimeSpan Budget = TimeSpan.FromSeconds(10);
 
-        private static (Client Client, ServerSession Session, WireTap ClientTap, WireTap SessionTap, IDisposable Guard, List<string> Logs) CreateLoggedPair(
+        private static async Task<(Client Client, ServerSession Session, WireTap ClientTap, WireTap SessionTap, IDisposable Guard, List<string> Logs)> CreateLoggedPairAsync(
             TelnetServerOptions? serverOptions = null,
             Action<TelnetClientOptions>? configureClient = null)
         {
@@ -35,7 +35,7 @@ namespace telnet_cs.Tests
             var prior = options.Log;
             options.Log = m => { lock (logs) { logs.Add(m); } prior?.Invoke(m); };
             var session = new ServerSession(sessionTap, options, CancellationToken.None);
-            var client = new Client(clientTap, CancellationToken.None);
+            var client = await Client.CreateAsync(clientTap, TimeSpan.FromSeconds(30), CancellationToken.None);
             configureClient?.Invoke(client.Settings);
             return (client, session, clientTap, sessionTap, guard, logs);
         }
@@ -60,7 +60,7 @@ namespace telnet_cs.Tests
         public async Task EnvironCap_OversizedClientAnswer_LogsAndSurvives()
         {
             var options = new TelnetServerOptions { MaxEnvironValueChars = 4 };
-            var (client, session, _, _, guard, logs) = CreateLoggedPair(
+            var (client, session, _, _, guard, logs) = await CreateLoggedPairAsync(
                 options, o => o.EnvironmentUserVars["BIGVAR"] = new string('x', 100));
             using (client)
             using (session)
@@ -94,7 +94,7 @@ namespace telnet_cs.Tests
             // needs a raw frame burst no public client API can emit, so it
             // stays scripted.)
             var options = new TelnetServerOptions { OfferEcho = false };
-            var (client, session, _, sessionTap, guard, _) = CreateLoggedPair(options);
+            var (client, session, _, sessionTap, guard, _) = await CreateLoggedPairAsync(options);
             using (client)
             using (session)
             using (guard)
@@ -120,7 +120,7 @@ namespace telnet_cs.Tests
             // inflates): a 10-byte outstanding cap trips on the first real
             // chunk, the stream fails, and WONT goes out.
             var options = new TelnetServerOptions { OfferMccp3 = true, MaxDecompressedBytes = 10 };
-            var (client, session, clientTap, _, guard, logs) = CreateLoggedPair(options);
+            var (client, session, clientTap, _, guard, logs) = await CreateLoggedPairAsync(options);
             using (client)
             using (session)
             using (guard)

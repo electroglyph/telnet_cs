@@ -19,14 +19,14 @@ namespace telnet_cs.Tests
     {
         private static readonly TimeSpan Budget = TimeSpan.FromSeconds(10);
 
-        private static (Client Client, ServerSession Session, IDisposable Guard) CreateAuthPair(
+        private static async Task<(Client Client, ServerSession Session, IDisposable Guard)> CreateAuthPairAsync(
             TelnetServerOptions? serverOptions = null)
         {
             var guard = GlobalStateGuard.SkipProactive(true);
             var (clientStream, serverStream) = InMemoryPipe.Create();
             var session = new ServerSession(
                 serverStream, serverOptions ?? new TelnetServerOptions(), CancellationToken.None);
-            var client = new Client(clientStream, CancellationToken.None);
+            var client = await Client.CreateAsync(clientStream, TimeSpan.FromSeconds(30), CancellationToken.None);
             return (client, session, guard);
         }
 
@@ -41,7 +41,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Authenticate_ValidCredentials_ReturnsTrue()
         {
-            var (client, session, guard) = CreateAuthPair();
+            var (client, session, guard) = await CreateAuthPairAsync();
             using (client)
             using (session)
             using (guard)
@@ -61,7 +61,7 @@ namespace telnet_cs.Tests
         public async Task Authenticate_WrongPassword_ReturnsFalseWithoutPrompt()
         {
             var options = new TelnetServerOptions { MaxLoginAttempts = 1, LoginAttemptDelay = TimeSpan.Zero };
-            var (client, session, guard) = CreateAuthPair(options);
+            var (client, session, guard) = await CreateAuthPairAsync(options);
             using (client)
             using (session)
             using (guard)
@@ -88,7 +88,7 @@ namespace telnet_cs.Tests
                 LoginAttemptDelay = TimeSpan.Zero,
                 DisconnectOnExhaustion = true,
             };
-            var (client, session, guard) = CreateAuthPair(options);
+            var (client, session, guard) = await CreateAuthPairAsync(options);
             using (client)
             using (session)
             using (guard)
@@ -108,7 +108,7 @@ namespace telnet_cs.Tests
         public async Task Authenticate_SilentPeer_FailsClosedOnTimeout()
         {
             var options = new TelnetServerOptions { LoginAttemptDelay = TimeSpan.Zero };
-            var (client, session, guard) = CreateAuthPair(options);
+            var (client, session, guard) = await CreateAuthPairAsync(options);
             using (client)
             using (session)
             using (guard)
@@ -124,7 +124,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Authenticate_Cancelled_ThrowsOperationCanceled()
         {
-            var (client, session, guard) = CreateAuthPair();
+            var (client, session, guard) = await CreateAuthPairAsync();
             using (client)
             using (session)
             using (guard)
@@ -144,7 +144,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Repl_Quit_BannerPromptAndGoodbye()
         {
-            var (client, session, guard) = CreateAuthPair();
+            var (client, session, guard) = await CreateAuthPairAsync();
             using (client)
             using (session)
             using (guard)
@@ -162,7 +162,7 @@ namespace telnet_cs.Tests
         public async Task Repl_LineTooLong_ClosesWithNotice()
         {
             var options = new TelnetServerOptions { MaxReplLineLength = 8 };
-            var (client, session, guard) = CreateAuthPair(options);
+            var (client, session, guard) = await CreateAuthPairAsync(options);
             using (client)
             using (session)
             using (guard)

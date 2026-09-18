@@ -25,7 +25,7 @@ namespace telnet_cs.Tests
     {
         private static readonly TimeSpan Slice = TimeSpan.FromMilliseconds(50);
 
-        internal static (Client Client, ServerSession Session, IDisposable Guard) CreatePair(
+        internal static async Task<(Client Client, ServerSession Session, IDisposable Guard)> CreatePairAsync(
             TelnetServerOptions? serverOptions = null,
             Action<TelnetClientOptions>? configureClient = null)
         {
@@ -33,7 +33,7 @@ namespace telnet_cs.Tests
             var (clientStream, serverStream) = InMemoryPipe.Create();
             var session = new ServerSession(
                 serverStream, serverOptions ?? new TelnetServerOptions(), CancellationToken.None);
-            var client = new Client(clientStream, CancellationToken.None);
+            var client = await Client.CreateAsync(clientStream, TimeSpan.FromSeconds(30), CancellationToken.None).ConfigureAwait(false);
             configureClient?.Invoke(client.Settings);
             return (client, session, guard);
         }

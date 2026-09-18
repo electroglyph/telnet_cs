@@ -91,7 +91,7 @@ public partial class Client
     private (string? Term, string? Lang, string? Columns, string? Lines) SystemEnvironment()
     {
         var term = Settings.TerminalType ?? TerminalType;
-        var lang = Settings.TextEncoding is null ? "C" : "en_US." + Settings.TextEncoding.WebName.Replace("-", string.Empty, StringComparison.Ordinal);
+        var lang = Settings.TextEncoding is null ? "C" : $"en_US.{Settings.TextEncoding.WebName.Replace("-", string.Empty, StringComparison.Ordinal)}";
         var (width, height) = NawsProtocol.GetEffectiveSize(Settings.WindowWidth, Settings.WindowHeight);
         return (
           string.IsNullOrEmpty(term) ? null : term,

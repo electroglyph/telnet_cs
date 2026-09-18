@@ -192,7 +192,7 @@ namespace telnet_cs.Tests
             // which conflated the ack-silence rule with the split bug; it now isolates
             // the split path. This test is correct as fixed.
             using var stream = new ScriptedStream(255);
-            using var client = new Client(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None, [], skipProactiveNegotiation: true);
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None, [], skipProactiveNegotiation: true);
             (await client.ReadAsync(TimeSpan.FromMilliseconds(200))).Should().BeEmpty();
             stream.Enqueue(251, 3);
             await client.ReadAsync(TimeSpan.FromMilliseconds(200));

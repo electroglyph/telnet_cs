@@ -20,7 +20,7 @@ namespace telnet_cs.Tests
     {
         private static readonly TimeSpan Budget = TimeSpan.FromSeconds(10);
 
-        private static (Client Client, ServerSession Session, WireTap ClientTap, WireTap SessionTap, IDisposable Guard) CreateTappedPair(
+        private static async Task<(Client Client, ServerSession Session, WireTap ClientTap, WireTap SessionTap, IDisposable Guard)> CreateTappedPairAsync(
             TelnetServerOptions? serverOptions = null,
             Action<TelnetClientOptions>? configureClient = null)
         {
@@ -30,7 +30,7 @@ namespace telnet_cs.Tests
             var sessionTap = new WireTap(serverStream);
             var session = new ServerSession(
                 sessionTap, serverOptions ?? new TelnetServerOptions(), CancellationToken.None);
-            var client = new Client(clientTap, CancellationToken.None);
+            var client = await Client.CreateAsync(clientTap, TimeSpan.FromSeconds(30), CancellationToken.None);
             configureClient?.Invoke(client.Settings);
             return (client, session, clientTap, sessionTap, guard);
         }
@@ -51,7 +51,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task ReadAsync_QuietWire_ReturnsEmpty()
         {
-            var (client, session, _, _, guard) = CreateTappedPair();
+            var (client, session, _, _, guard) = await CreateTappedPairAsync();
             using (client)
             using (session)
             using (guard)
@@ -64,7 +64,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task TerminatedRead_String_TruncatesAndStashesRemainder()
         {
-            var (client, session, _, _, guard) = CreateTappedPair();
+            var (client, session, _, _, guard) = await CreateTappedPairAsync();
             using (client)
             using (session)
             using (guard)
@@ -78,7 +78,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task TerminatedRead_Regex_CutsAtMatchEnd()
         {
-            var (client, session, _, _, guard) = CreateTappedPair();
+            var (client, session, _, _, guard) = await CreateTappedPairAsync();
             using (client)
             using (session)
             using (guard)
@@ -92,7 +92,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task TerminatedRead_Multi_FirstTerminatorWins()
         {
-            var (client, session, _, _, guard) = CreateTappedPair();
+            var (client, session, _, _, guard) = await CreateTappedPairAsync();
             using (client)
             using (session)
             using (guard)
@@ -111,7 +111,7 @@ namespace telnet_cs.Tests
             // InflatedIacEscape handler pin (here without compression).
             // (Under UTF-8 the same wire byte correctly surfaces as U+FFFD;
             // that decode half is pinned scripted.)
-            var (client, session, _, sessionTap, guard) = CreateTappedPair(
+            var (client, session, _, sessionTap, guard) = await CreateTappedPairAsync(
                 configureClient: c => c.TextEncoding = null);
             using (client)
             using (session)
@@ -126,7 +126,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task WriteLine_CrlfOnWire()
         {
-            var (client, session, _, sessionTap, guard) = CreateTappedPair();
+            var (client, session, _, sessionTap, guard) = await CreateTappedPairAsync();
             using (client)
             using (session)
             using (guard)
@@ -140,7 +140,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SendGa_WithoutSga_SendsBareMarker()
         {
-            var (client, session, _, sessionTap, guard) = CreateTappedPair();
+            var (client, session, _, sessionTap, guard) = await CreateTappedPairAsync();
             using (client)
             using (session)
             using (guard)
@@ -158,7 +158,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SendGa_WithSga_Suppressed()
         {
-            var (client, session, _, sessionTap, guard) = CreateTappedPair();
+            var (client, session, _, sessionTap, guard) = await CreateTappedPairAsync();
             using (client)
             using (session)
             using (guard)
@@ -178,7 +178,7 @@ namespace telnet_cs.Tests
         {
             // AYT is silent (no reply), but the IAC AYT bytes cross and the
             // session survives them.
-            var (client, session, clientTap, _, guard) = CreateTappedPair();
+            var (client, session, clientTap, _, guard) = await CreateTappedPairAsync();
             using (client)
             using (session)
             using (guard)

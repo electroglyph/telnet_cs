@@ -24,7 +24,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task TerminatedReadAsync_OverlongLine_ThrowsNamingLimit()
         {
-            using var client = new Client(new ScriptedStream("AAAAAAAAAAA"), CancellationToken.None);
+            using var client = await Client.CreateAsync(new ScriptedStream("AAAAAAAAAAA"), TimeSpan.FromSeconds(30), CancellationToken.None);
             client.ApplyOptions(new TelnetClientOptions { MaxTerminatedReadChars = 10 });
             await TerminatedReadLimitCases.OverlongLine_ThrowsNamingLimitAndSurvives(
                 () => client.TerminatedReadAsync("\n", TimeSpan.FromSeconds(2)),
@@ -35,7 +35,7 @@ namespace telnet_cs.Tests
         public async Task TerminatedReadAsync_ZeroLimit_Disables()
         {
             string overlong = new string('A', 100) + "\n";
-            using var client = new Client(new ScriptedStream(overlong), CancellationToken.None);
+            using var client = await Client.CreateAsync(new ScriptedStream(overlong), TimeSpan.FromSeconds(30), CancellationToken.None);
             client.ApplyOptions(new TelnetClientOptions { MaxTerminatedReadChars = 0 });
             await TerminatedReadLimitCases.ZeroLimit_Disables(
                 () => client.TerminatedReadAsync("\n", TimeSpan.FromSeconds(2)),
@@ -45,7 +45,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task TerminatedReadAsync_InstanceOverride_BeatsOptions()
         {
-            using var client = new Client(new ScriptedStream("AAAAAAAAAAA"), CancellationToken.None);
+            using var client = await Client.CreateAsync(new ScriptedStream("AAAAAAAAAAA"), TimeSpan.FromSeconds(30), CancellationToken.None);
             client.ApplyOptions(new TelnetClientOptions { MaxTerminatedReadChars = 100 });
             client.MaxTerminatedReadChars = 10;
             await TerminatedReadLimitCases.OverlongLine_ThrowsNamingLimitAndSurvives(
@@ -54,9 +54,9 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public void InstanceOverride_Negative_ThrowsArgumentOutOfRange()
+        public async Task InstanceOverride_Negative_ThrowsArgumentOutOfRange()
         {
-            using var client = new Client(new ScriptedStream(string.Empty), CancellationToken.None);
+            using var client = await Client.CreateAsync(new ScriptedStream(string.Empty), TimeSpan.FromSeconds(30), CancellationToken.None);
             TerminatedReadLimitCases.NegativeLimit_ThrowsArgumentOutOfRange(() => client.MaxTerminatedReadChars = -1);
         }
 
@@ -65,7 +65,7 @@ namespace telnet_cs.Tests
         {
             var (clientStream, serverStream) = DuplexPipe.Create();
             using var session = new ServerSession(serverStream, new TelnetServerOptions(), CancellationToken.None);
-            using var client = new Client(clientStream, CancellationToken.None);
+            using var client = await Client.CreateAsync(clientStream, TimeSpan.FromSeconds(30), CancellationToken.None);
             client.MaxTerminatedReadChars = 10;
 
             await session.WriteAsync("AAAAAAAAAAA", CancellationToken.None);

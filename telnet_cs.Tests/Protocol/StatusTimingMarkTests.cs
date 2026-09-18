@@ -226,7 +226,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 await client.SendTimingMarkAsync();
                 stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 253, 6 });
             }
@@ -238,7 +238,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 await client.SendTimingMarkAsync();
                 await client.SendTimingMarkAsync();
                 stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 253, 6 });
@@ -251,7 +251,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 await client.SendTimingMarkAsync();
                 stream.Enqueue(255, 251, 6);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -268,7 +268,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 await client.SendTimingMarkAsync();
                 stream.Enqueue(255, 251, 6);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -286,7 +286,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 await client.SendTimingMarkAsync();
                 stream.Enqueue(255, 251, 6);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -300,7 +300,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 await client.SendTimingMarkAsync();
                 stream.Enqueue(255, 253, 5, 255, 250, 5, 1, 255, 240);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -317,7 +317,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(
+                using var client = await Client.CreateAsync(
                   stream,
                   TimeSpan.FromSeconds(30),
                   new CancellationToken(),
@@ -340,7 +340,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 await client.RequestEnableAsync((Options)240);
                 stream.Enqueue(255, 253, 5, 255, 250, 5, 1, 255, 240);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();

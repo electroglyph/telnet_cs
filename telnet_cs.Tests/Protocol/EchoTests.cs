@@ -237,7 +237,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 251, 1);
                 (await client.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
                 CountWrites(stream, 253, 1).Should().Be(1);
@@ -253,7 +253,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.AllowRemoteEcho = true;
                 stream.Enqueue(255, 253, 1);
                 (await client.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();

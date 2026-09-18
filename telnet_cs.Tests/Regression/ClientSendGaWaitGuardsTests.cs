@@ -21,7 +21,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var sut = new Client(stream, TimeSpan.FromMilliseconds(50), default);
+                using var sut = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), default);
                 stream.Close();
                 (await sut.SendGaAsync()).Should().BeFalse();
             }
@@ -37,7 +37,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream("HI");
-                using var sut = new Client(stream, TimeSpan.FromMilliseconds(50), default);
+                using var sut = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), default);
                 Func<Task> act = () => sut.WaitForNegotiationAsync(_ => false, TimeSpan.FromMilliseconds(200));
                 await act.Should().ThrowAsync<TimeoutException>();
                 (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().Be("HI");
@@ -54,7 +54,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var sut = new Client(stream, new CancellationToken());
+                using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 Func<Task> write = () => sut.WriteLineAsync(null!);
                 await write.Should().ThrowAsync<ArgumentNullException>();
             }
@@ -70,7 +70,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream("data");
-                using var sut = new Client(stream, new CancellationToken());
+                using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 Func<Task<string>> read = () => sut.TerminatedReadAsync(string.Empty, TimeSpan.FromMilliseconds(100));
                 await read.Should().ThrowAsync<ArgumentException>();
             }
@@ -85,7 +85,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream("OK");
-                using var sut = new Client(stream, new CancellationToken());
+                using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 Func<Task<string>> read = () => sut.TerminatedReadAsync(new[] { "OK", string.Empty }, TimeSpan.FromMilliseconds(100));
                 await read.Should().ThrowAsync<ArgumentException>();
             }
@@ -100,14 +100,14 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream("OK");
-                using var sut = new Client(stream, new CancellationToken());
+                using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 Func<Task<string>> read = () => sut.TerminatedReadAsync(new Regex[] { null! }, TimeSpan.FromMilliseconds(100));
                 await read.Should().ThrowAsync<ArgumentException>();
             }
         }
 
         [Fact]
-        public void ApplyOptions_Certificates_AreClonedNotShared()
+        public async Task ApplyOptions_Certificates_AreClonedNotShared()
         {
             // ApplyOptions documents "collections are re-seated, not
             // shared" and re-seats the other collections; the mutable
@@ -116,7 +116,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var sut = new Client(stream, new CancellationToken());
+                using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 var options = new TelnetClientOptions
                 {
                     TlsClientCertificates = new System.Security.Cryptography.X509Certificates.X509CertificateCollection(),
@@ -141,7 +141,7 @@ namespace telnet_cs.Tests
             {
                 using var stream = new ScriptedStream();
                 using var cts = new CancellationTokenSource();
-                using var sut = new Client(stream, cts.Token);
+                using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), cts.Token);
                 cts.Cancel();
                 await sut.WriteAsync("hello");
                 stream.StringWrites.Should().BeEmpty();

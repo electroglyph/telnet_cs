@@ -173,7 +173,7 @@ namespace telnet_cs.Tests
             var log = new HookLog();
             var (clientStream, serverStream) = DuplexPipe.Create();
             using var session = new ServerSession(serverStream, CappedOptions(log, 64), CancellationToken.None);
-            using var client = new telnet_cs.Client.Client(clientStream, CancellationToken.None);
+            using var client = await telnet_cs.Client.Client.CreateAsync(clientStream, TimeSpan.FromSeconds(30), CancellationToken.None);
 
             for (int i = 0; i < 4; i++)
             {

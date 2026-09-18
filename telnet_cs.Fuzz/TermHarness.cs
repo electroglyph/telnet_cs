@@ -22,10 +22,8 @@ internal static class TermHarness
     {
         ArgumentNullException.ThrowIfNull(input);
         using var clientStream = new FuzzStream();
-        using var client = new Client(clientStream, TimeSpan.FromSeconds(5), CancellationToken.None, [], skipProactiveNegotiation: true)
-        {
-            MillisecondReadDelay = 1,
-        };
+        using var client = await Client.CreateAsync(clientStream, TimeSpan.FromSeconds(5), CancellationToken.None, [], skipProactiveNegotiation: true);
+        client.MillisecondReadDelay = 1;
         await DriveClientAsync(client, clientStream, input, cancellationToken).ConfigureAwait(false);
 
         var options = new TelnetServerOptions

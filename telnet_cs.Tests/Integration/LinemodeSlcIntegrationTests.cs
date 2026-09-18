@@ -19,10 +19,10 @@ namespace telnet_cs.Tests
     {
         private static readonly TimeSpan Budget = TimeSpan.FromSeconds(10);
 
-        private static (Client Client, ServerSession Session, IDisposable Guard) CreateLinemodePair()
+        private static async Task<(Client Client, ServerSession Session, IDisposable Guard)> CreateLinemodePairAsync()
         {
             var options = new TelnetServerOptions { RequestLinemode = true };
-            return LiveExchange.CreatePair(options);
+            return await LiveExchange.CreatePairAsync(options);
         }
 
         private static async Task AgreeLinemodeAsync(Client client, ServerSession session)
@@ -43,7 +43,7 @@ namespace telnet_cs.Tests
             // The server's MODE proposal lands in the client table on the
             // client's next read; the client's ACK folds into the server
             // table on the server's next read.
-            var (client, session, guard) = CreateLinemodePair();
+            var (client, session, guard) = await CreateLinemodePairAsync();
             using (client)
             using (session)
             using (guard)
@@ -65,7 +65,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Linemode_PublishSpecialCharacters_LandsInClientTable()
         {
-            var (client, session, guard) = CreateLinemodePair();
+            var (client, session, guard) = await CreateLinemodePairAsync();
             using (client)
             using (session)
             using (guard)
@@ -85,7 +85,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Linemode_ExportSpecialCharacters_LandsInServerTable()
         {
-            var (client, session, guard) = CreateLinemodePair();
+            var (client, session, guard) = await CreateLinemodePairAsync();
             using (client)
             using (session)
             using (guard)

@@ -37,7 +37,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 3);
                 (await ReadOnceAsync(client)).Should().BeEmpty();
                 stream.Enqueue(255, 253, 3);
@@ -52,7 +52,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 251, 3);
                 (await ReadOnceAsync(client)).Should().BeEmpty();
                 stream.Enqueue(255, 251, 3);
@@ -70,7 +70,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 251, 24);
                 (await ReadOnceAsync(client)).Should().BeEmpty();
                 stream.Enqueue(255, 252, 24);
@@ -93,7 +93,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 201);
                 (await ReadOnceAsync(client)).Should().BeEmpty();
                 CountWrites(stream, 251, 201).Should().Be(1);
@@ -107,7 +107,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 251, 201);
                 (await ReadOnceAsync(client)).Should().BeEmpty();
                 CountWrites(stream, 253, 201).Should().Be(1);
@@ -121,7 +121,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.ApplyOptions(new TelnetClientOptions { EnableMudOptions = true });
                 stream.Enqueue(255, 253, 201);
                 (await ReadOnceAsync(client)).Should().BeEmpty();
@@ -147,7 +147,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, TimeSpan.FromMilliseconds(10), default,
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(10), default,
                   new[] { (Commands.Do, Options.Echo) }, skipProactiveNegotiation: false);
                 CountWrites(stream, 253, 1).Should().Be(1);
                 stream.Enqueue(255, 252, 1);
@@ -166,7 +166,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 await client.RequestEnableAsync(Options.SuppressGoAhead);
                 CountWrites(stream, 253, 3).Should().Be(1);
                 // The disable goes out at once (DO then DONT: 2 writes), not
@@ -189,7 +189,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 await client.RequestEnableAsync(Options.TerminalType);
                 await client.RequestEnableAsync(Options.TerminalType);
                 CountWrites(stream, 253, 24).Should().Be(1);

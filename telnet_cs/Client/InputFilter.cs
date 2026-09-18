@@ -198,9 +198,9 @@ public sealed class InputFilter
                 }
             }
 
-            if (matchLength >= 0)
+            if (replacement is not null)
             {
-                output.AddRange(replacement!);
+                output.AddRange(replacement);
                 i += matchLength;
                 continue;
             }

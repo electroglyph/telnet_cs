@@ -23,10 +23,8 @@ internal static class ClientHarness
     {
         var bytes = Truncate(input);
         using var stream = new FuzzStream();
-        using var client = new Client(stream, TimeSpan.FromSeconds(5), CancellationToken.None, [], skipProactiveNegotiation: true)
-        {
-            MillisecondReadDelay = 1,
-        };
+        using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(5), CancellationToken.None, [], skipProactiveNegotiation: true);
+        client.MillisecondReadDelay = 1;
         foreach (var (start, length) in Feed.Chunks(bytes))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -60,10 +58,8 @@ internal static class ClientHarness
     {
         ArgumentNullException.ThrowIfNull(inputs);
         using var stream = new FuzzStream();
-        using var client = new Client(stream, TimeSpan.FromSeconds(5), CancellationToken.None, [], skipProactiveNegotiation: true)
-        {
-            MillisecondReadDelay = 1,
-        };
+        using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(5), CancellationToken.None, [], skipProactiveNegotiation: true);
+        client.MillisecondReadDelay = 1;
         foreach (var input in inputs)
         {
             var bytes = Truncate(input);

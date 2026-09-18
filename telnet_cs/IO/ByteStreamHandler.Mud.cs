@@ -109,7 +109,7 @@ public partial class ByteStreamHandler
                 }
                 catch (ArgumentException ex)
                 {
-                    WriteLog("Ignoring malformed GMCP payload: " + ex.Message);
+                    WriteLog($"Ignoring malformed GMCP payload: {ex.Message}");
                     break;
                 }
 

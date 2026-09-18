@@ -543,7 +543,7 @@ namespace telnet_cs.Tests
             // then compresses everything it sends: the bytes after the start
             // marker inflate back to the written payload.
             using var stream = new ScriptedStream();
-            using var client = new Client(stream, new CancellationToken());
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             stream.Enqueue(Iac, Will, Mccp3);
             (await client.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             await client.WriteAsync([(byte)'h', (byte)'i']);
@@ -565,7 +565,7 @@ namespace telnet_cs.Tests
             // stops its outbound compressor), so later writes stay
             // compressed in the same stream.
             using var stream = new ScriptedStream();
-            using var client = new Client(stream, new CancellationToken());
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             stream.Enqueue(Iac, Will, Mccp3);
             (await client.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             stream.Enqueue(Iac, Wont, Mccp3);
@@ -586,7 +586,7 @@ namespace telnet_cs.Tests
             // Compression off: the client answers WILL MCCP3 with DONT and
             // never compresses.
             using var stream = new ScriptedStream();
-            using var client = new Client(stream, new CancellationToken());
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             client.Settings.EnableMccp = false;
             stream.Enqueue(Iac, Will, Mccp3);
             (await client.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
@@ -891,7 +891,7 @@ namespace telnet_cs.Tests
             for (int split = 1; split < full.Length; split++)
             {
                 using var stream = new ScriptedStream(full[..split]);
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 var first = await client.ReadAsync(TimeSpan.FromMilliseconds(500));
                 stream.Enqueue(full[split..]);
                 var second = await client.ReadAsync(TimeSpan.FromMilliseconds(500));
@@ -933,7 +933,7 @@ namespace telnet_cs.Tests
             foreach (var payload in payloads)
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(Iac, Will, Mccp3);
                 (await client.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
                 await client.WriteAsync(payload);

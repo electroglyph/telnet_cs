@@ -2,6 +2,7 @@
 {
     using System;
     using System.Diagnostics.CodeAnalysis;
+    using System.Threading.Tasks;
     using FakeItEasy;
     using FluentAssertions;
     using Xunit;
@@ -12,15 +13,13 @@
     public class WithUnconnectableClient
     {
         [Fact]
-        public void Ctor_UnconnectedStream_ThrowsUnableToConnect()
+        public async Task CreateAsync_UnconnectedStream_ThrowsUnableToConnect()
         {
             var byteStream = A.Fake<IByteStream>();
             A.CallTo(() => byteStream.Connected).Returns(false);
-            Client? sut = null;
-            Action act = () => sut = new Client(byteStream, new TimeSpan(0, 0, 0, 0, 1), default);
+            Func<Task> act = () => Client.CreateAsync(byteStream, new TimeSpan(0, 0, 0, 0, 1), default);
 
-            act.Should().Throw<InvalidOperationException>().WithMessage("Unable to connect to the host.");
-            sut.Should().BeNull();
+            await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("Unable to connect to the host.");
         }
     }
 }

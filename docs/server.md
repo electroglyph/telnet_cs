@@ -276,7 +276,7 @@ hermetically:
 ```csharp
 var (clientStream, serverStream) = InMemoryPipe.Create();
 using var session = new ServerSession(serverStream, new TelnetServerOptions(), ct);
-using var client = new Client(clientStream, ct);
+using var client = await Client.CreateAsync(clientStream, TimeSpan.FromSeconds(5), ct);
 ```
 
 Reserve loopback for what memory cannot prove: the TCP accept lifecycle,

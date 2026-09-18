@@ -18,12 +18,13 @@ using telnet_cs.Transport;
 /// Automation scope (intentional differences from a full interactive
 /// stack): a client is single-use — connect, script the exchange, dispose;
 /// there is no reconnect, no interactive shell, and no blocking
-/// "wait until connected" beyond the constructor timeout (the constructor
-/// throws when the stream is not connected in time). Size changes have no
-/// SIGWINCH equivalent: poll <see cref="RefreshWindowSizeAsync"/> after
-/// updating <c>Settings.WindowWidth</c>/<c>WindowHeight</c> before
-/// calling; unchanged sizes send nothing (a 0 dimension is sent as-is,
-/// RFC 1073 "unspecified").
+/// "wait until connected": <see cref="CreateAsync"/> waits with
+/// <c>Task.Delay</c> and throws when the stream is not connected in time.
+/// Size changes have no SIGWINCH equivalent: poll
+/// <see cref="RefreshWindowSizeAsync"/> after updating
+/// <c>Settings.WindowWidth</c>/<c>WindowHeight</c> before calling;
+/// unchanged sizes send nothing (a 0 dimension is sent as-is, RFC 1073
+/// "unspecified").
 /// One deliberate extension differs from the reference here: a TCP-urgent
 /// Synch enters a discard scan that drops data until in-band <c>IAC
 /// DM</c> — the reference delivers that data. It is pinned by tests and
@@ -45,8 +46,8 @@ public partial class Client
 
     /// <summary>
     /// Skips the proactive option negotiation on connect. Prefer the
-    /// per-instance constructor flag on new code; this static remains for
-    /// backward compatibility.
+    /// per-instance <see cref="CreateAsync"/> flag on new code; this static
+    /// remains for backward compatibility.
     /// </summary>
     public static bool SkipProactiveOptionNegotiation
     {
@@ -72,80 +73,6 @@ public partial class Client
 
     private static readonly FlowLocal<Action<string>?> _traceFlow = new();
 
-    /// <summary>
-    /// Initialises a new instance of the <see cref="Client"/> class.
-    /// </summary>
-    /// <param name="byteStream">The stream served by the host connected to.</param>
-    /// <param name="token">The cancellation token.</param>
-    public Client(IByteStream byteStream, CancellationToken token)
-      : this(byteStream, TimeSpan.FromSeconds(30), token)
-    {
-    }
-
-    /// <summary>
-    /// Initialises a new instance of the <see cref="Client"/> class.
-    /// </summary>
-    /// <param name="byteStream">The stream served by the host connected to.</param>
-    /// <param name="timeout">The timeout to wait for initial successful connection to <paramref name="byteStream"/>. Other overloads default to 30 seconds.</param>
-    /// <param name="token">The cancellation token.</param>
-    public Client(IByteStream byteStream, TimeSpan timeout, CancellationToken token)
-      : this(byteStream, timeout, token, Array.Empty<(Commands Command, Options Option)>())
-    { }
-
-    /// <summary>
-    /// Initialises a new instance of the <see cref="Client"/> class.
-    /// </summary>
-    /// <param name="byteStream">The byte stream served by the host connected to.</param>
-    /// <param name="timeout">The timeout to wait for initial successful connection to <paramref name="byteStream"/>.</param>
-    /// <param name="token">The cancellation token.</param>
-    /// <param name="options">Additional options to send during negotiation.</param>
-    /// <param name="skipProactiveNegotiation">When <c>true</c> (the default),
-    /// suppresses the opening <c>IAC DO SuppressGoAhead</c> (and the
-    /// <paramref name="options"/> sends). Per-instance alternative to the
-    /// process-global <see cref="SkipProactiveOptionNegotiation"/>: a client
-    /// and a server session can coexist in one process with different choices.</param>
-    public Client(IByteStream byteStream, TimeSpan timeout, CancellationToken token, (Commands Command, Options Option)[] options, bool skipProactiveNegotiation = true)
-      : base(byteStream, token)
-    {
-        // NOTE: byteStream is validated by the base constructor; options cannot
-        // be validated before the base call, so a null options array still
-        // constructs (and connects) the client before throwing below.
-        // New code should prefer CreateAsync, which validates before construction
-        // and never blocks the calling thread.
-        ArgumentNullException.ThrowIfNull(options);
-        var timeoutEnd = DateTime.UtcNow.Add(timeout);
-        using var are = new AutoResetEvent(false);
-        while (!ByteStream.Connected && timeoutEnd > DateTime.UtcNow)
-        {
-            are.WaitOne(2);
-        }
-
-        if (!ByteStream.Connected)
-        {
-            throw new InvalidOperationException("Unable to connect to the host.");
-        }
-        else
-        {
-#pragma warning disable VSTHRD002 // Avoid problematic synchronous waits
-            // https://stackoverflow.com/questions/70964917/optimising-an-asynchronous-call-in-a-constructor-using-joinabletaskfactory-run
-            // GetAwaiter().GetResult() surfaces the real failure directly (an
-            // IOException), unlike Task.Wait() which wraps it in AggregateException.
-            if (!SkipProactiveOptionNegotiation && !skipProactiveNegotiation)
-            {
-                Task.Run(async () => await ProactiveOptionNegotiation().ConfigureAwait(false)).GetAwaiter().GetResult();
-            }
-
-            if (!skipProactiveNegotiation)
-            {
-                foreach (var option in options)
-                {
-                    Task.Run(async () => await NegotiateOption(option.Command, option.Option).ConfigureAwait(false)).GetAwaiter().GetResult();
-                }
-            }
-#pragma warning restore VSTHRD002 // Avoid problematic synchronous waits
-        }
-    }
-
     private Client(IByteStream byteStream, CancellationToken token, bool deferConnect)
       : base(byteStream, token)
     {
@@ -154,15 +81,20 @@ public partial class Client
 
     /// <summary>
     /// Creates a <see cref="Client"/> over an already-provided <see cref="IByteStream"/>
-    /// without blocking the calling thread. Unlike the constructors, this factory waits
-    /// for <c>Connected</c> with <c>Task.Delay</c> and runs the proactive negotiation
-    /// asynchronously, so it never blocks on async work and honours cancellation.
+    /// without blocking the calling thread: waits for <c>Connected</c> with
+    /// <c>Task.Delay</c> and runs the proactive negotiation asynchronously,
+    /// so it never blocks on async work and honours cancellation. This
+    /// factory is the only way to build a client over an existing stream.
     /// </summary>
     /// <param name="byteStream">The stream served by the host connected to.</param>
     /// <param name="timeout">The timeout to wait for initial successful connection to <paramref name="byteStream"/>.</param>
     /// <param name="cancellationToken">The token to monitor for cancellation requests.</param>
     /// <param name="options">Additional options to send during negotiation. Null behaves like an empty array.</param>
-    /// <param name="skipProactiveNegotiation">When <c>true</c> (the default), suppresses the opening negotiation.</param>
+    /// <param name="skipProactiveNegotiation">When <c>true</c> (the default),
+    /// suppresses the opening <c>IAC DO SuppressGoAhead</c> (and the
+    /// <paramref name="options"/> sends). Per-instance alternative to the
+    /// process-global <see cref="SkipProactiveOptionNegotiation"/>: a client
+    /// and a server session can coexist in one process with different choices.</param>
     /// <returns>A connected <see cref="Client"/> owning its stream. Dispose it when done.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="byteStream"/> is <c>null</c>.</exception>
     /// <exception cref="InvalidOperationException">The stream did not connect within <paramref name="timeout"/>.</exception>
@@ -271,7 +203,9 @@ public partial class Client
                 socket = await HandshakeTlsAsync(tcpSocket, hostname, options, deadline, cancellationToken).ConfigureAwait(false);
             }
 
-            var client = new Client(new TcpByteStream(socket), CancellationToken.None);
+            // The socket just connected, so no connect wait remains: build
+            // directly on the deferred constructor instead of CreateAsync.
+            var client = new Client(new TcpByteStream(socket), CancellationToken.None, deferConnect: true);
             if (options is not null)
             {
                 client.ApplyOptions(options);
@@ -283,7 +217,7 @@ public partial class Client
         catch
         {
             // Ownership transfers to the Client only on success. A failed connect,
-            // handshake, or Client constructor must still release the socket itself
+            // handshake, or client setup must still release the socket itself
             // (disposing the raw client releases the connection; only an
             // SslStream native context created mid-handshake falls to
             // finalization).

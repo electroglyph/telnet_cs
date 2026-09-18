@@ -22,7 +22,7 @@ namespace telnet_cs.Tests
         private const byte Mccp2 = 86;
         private const byte Mccp3 = 87;
 
-        private static (Client Client, ServerSession Session, WireTap ClientTap, WireTap SessionTap, IDisposable Guard) CreateTappedPair(
+        private static async Task<(Client Client, ServerSession Session, WireTap ClientTap, WireTap SessionTap, IDisposable Guard)> CreateTappedPairAsync(
             TelnetServerOptions? serverOptions = null,
             Action<TelnetClientOptions>? configureClient = null)
         {
@@ -32,7 +32,7 @@ namespace telnet_cs.Tests
             var sessionTap = new WireTap(serverStream);
             var session = new ServerSession(
                 sessionTap, serverOptions ?? new TelnetServerOptions(), CancellationToken.None);
-            var client = new Client(clientTap, CancellationToken.None);
+            var client = await Client.CreateAsync(clientTap, TimeSpan.FromSeconds(30), CancellationToken.None);
             configureClient?.Invoke(client.Settings);
             return (client, session, clientTap, sessionTap, guard);
         }
@@ -62,7 +62,7 @@ namespace telnet_cs.Tests
             // original text, and the wire image after the marker is far
             // smaller than the raw payload.
             var options = new TelnetServerOptions { OfferMccp2 = true };
-            var (client, session, _, sessionTap, guard) = CreateTappedPair(options);
+            var (client, session, _, sessionTap, guard) = await CreateTappedPairAsync(options);
             using (client)
             using (session)
             using (guard)
@@ -95,7 +95,7 @@ namespace telnet_cs.Tests
             // SB START marker, then its writes arrive compressed and the
             // session inflates them back.
             var options = new TelnetServerOptions { OfferMccp3 = true };
-            var (client, session, clientTap, _, guard) = CreateTappedPair(options);
+            var (client, session, clientTap, _, guard) = await CreateTappedPairAsync(options);
             using (client)
             using (session)
             using (guard)
@@ -120,7 +120,7 @@ namespace telnet_cs.Tests
             // EnableMccp = false: the client WONTs the offer, no START
             // marker ever goes out, and text flows uncompressed both ways.
             var options = new TelnetServerOptions { OfferMccp2 = true };
-            var (client, session, _, sessionTap, guard) = CreateTappedPair(
+            var (client, session, _, sessionTap, guard) = await CreateTappedPairAsync(
                 options, c => c.EnableMccp = false);
             using (client)
             using (session)
@@ -146,7 +146,7 @@ namespace telnet_cs.Tests
             // Both offers agreed: each direction compresses independently in
             // the same session.
             var options = new TelnetServerOptions { OfferMccp2 = true, OfferMccp3 = true };
-            var (client, session, _, _, guard) = CreateTappedPair(options);
+            var (client, session, _, _, guard) = await CreateTappedPairAsync(options);
             using (client)
             using (session)
             using (guard)

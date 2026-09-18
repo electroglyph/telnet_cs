@@ -299,7 +299,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 36);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 client.Settings.EnvironmentUser = "carol";
@@ -324,7 +324,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 client.Settings.EnvironmentUser = "carol";
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -338,7 +338,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 36);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 client.Settings.EnvironmentUser = "carol";

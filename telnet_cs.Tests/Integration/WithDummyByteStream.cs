@@ -13,11 +13,11 @@
         private const int timeoutMs = 500;
 
         [Fact]
-        public void Ctor_ConnectedStream_IsConnected()
+        public async Task Ctor_ConnectedStream_IsConnected()
         {
             using (var stream = new DummyByteStream())
             {
-                using (var client = new Client(stream, new CancellationToken()))
+                using (var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken()))
                 {
                     client.IsConnected.Should().Be(true);
                 }
@@ -31,7 +31,7 @@
             {
                 using (var stream = new DummyByteStream())
                 {
-                    using (var client = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
+                    using (var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
                     {
                         client.IsConnected.Should().Be(true);
                         (await client.TerminatedReadAsync(":", TimeSpan.FromMilliseconds(timeoutMs)))
@@ -48,7 +48,7 @@
             {
                 using (var stream = new DummyByteStream())
                 {
-                    using (var client = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
+                    using (var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
                     {
                         client.IsConnected.Should().Be(true);
                         var s = await client.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(timeoutMs));
@@ -66,7 +66,7 @@
             {
                 using (var stream = new DummyByteStream())
                 {
-                    using (var client = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
+                    using (var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
                     {
                         client.IsConnected.Should().Be(true);
                         var s = await client.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(timeoutMs));
@@ -85,7 +85,7 @@
             {
                 using (var stream = new DummyByteStream())
                 {
-                    using (var client = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
+                    using (var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
                     {
                         client.IsConnected.Should().Be(true);
                         await client.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(timeoutMs));
@@ -105,7 +105,7 @@
             {
                 using (var stream = new DummyByteStream())
                 {
-                    using (var client = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
+                    using (var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
                     {
                         client.IsConnected.Should().Be(true);
                         await client.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(timeoutMs));
@@ -132,7 +132,7 @@
             {
                 using (var stream = new DummyByteStream())
                 {
-                    using (var client = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
+                    using (var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
                     {
                         client.IsConnected.Should().Be(true);
                         await client.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(timeoutMs));
@@ -152,7 +152,7 @@
             {
                 using (var stream = new DummyByteStream())
                 {
-                    using (var client = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
+                    using (var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
                     {
                         client.IsConnected.Should().Be(true);
                         await client.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(timeoutMs));

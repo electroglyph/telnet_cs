@@ -39,7 +39,7 @@
         public async Task SendCommand_EofSuspendAbort_WritesIacFramedPair(Commands command, byte code)
         {
             using var stream = new ScriptedStream();
-            using var sut = new Client(stream, new CancellationToken());
+            using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             await sut.SendCommand(command);
             stream.ByteWrites.Should().ContainSingle(w => w.SequenceEqual(new byte[] { 255, code }));
         }
@@ -107,7 +107,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 34);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 stream.Enqueue(255, 250, 34, 1, 3, 255, 240);
@@ -524,7 +524,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 34);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 await client.ImportRemoteSpecialCharactersAsync();
@@ -543,7 +543,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 await client.ImportRemoteSpecialCharactersAsync();
                 stream.ByteWrites.Should().BeEmpty();
             }
@@ -558,7 +558,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 34);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 client.SetLinemodeEntry(3, 2, 9);
@@ -586,7 +586,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 34);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 await client.ExportSpecialCharactersAsync();
@@ -616,7 +616,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 34);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 stream.Enqueue(255, 250, 34, 3, 2, 34, 7, 255, 240);
@@ -638,7 +638,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 34);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
                 client.SetLinemodeEntry(3, 2, 3, 64);
@@ -658,7 +658,7 @@
             using (GlobalStateGuard.SkipProactive(true))
             {
                 using var stream = new ScriptedStream();
-                using var client = new Client(stream, new CancellationToken());
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.SetLinemodeEntry(2, 2, 7, 32);
                 await client.SendCommand(Commands.Break);
                 stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 243 });

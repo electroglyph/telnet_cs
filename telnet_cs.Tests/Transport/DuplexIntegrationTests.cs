@@ -61,7 +61,7 @@ namespace telnet_cs.Tests
             {
                 var (clientStream, serverStream) = DuplexPipe.Create();
                 using var session = new ServerSession(serverStream, new TelnetServerOptions(), CancellationToken.None);
-                using var client = new Client(clientStream, CancellationToken.None);
+                using var client = await Client.CreateAsync(clientStream, TimeSpan.FromSeconds(30), CancellationToken.None);
                 client.Settings.WindowWidth = 100;
                 client.Settings.WindowHeight = 30;
                 await session.SendOpeningPresetAsync(CancellationToken.None);

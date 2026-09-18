@@ -70,22 +70,15 @@ public partial class Client : TelnetSessionBase, IClient
     private Task WriteRawAsync(byte[] data, CancellationToken cancellationToken) =>
       SendFrameLockedAsync(data, cancellationToken);
 
-    private async Task WriteStringAsync(string value, CancellationToken cancellationToken)
+    private Task WriteStringAsync(string value, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(value);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
-        if (WriteStream.Connected && !linked.Token.IsCancellationRequested)
-        {
-            await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
-            try
-            {
-                await WriteStream.WriteAsync(value, linked.Token).ConfigureAwait(false);
-            }
-            finally
-            {
-                SendRateLimit.Release();
-            }
-        }
+        // The stream spells a string write exactly like the converter
+        // with a null encoding (its TextEncoding is never set), so
+        // pre-encode and send the frame raw: same wire bytes, one
+        // throttle choke point.
+        byte[] frame = ByteStringConverter.ConvertStringToByteArray(value, null);
+        return SendFrameLockedAsync(frame, cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -122,6 +115,9 @@ public partial class Client : TelnetSessionBase, IClient
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
         if (ByteStream.Connected && !linked.Token.IsCancellationRequested)
         {
+            // Stays on the manual throttle pattern: Synch is TCP urgent
+            // data, not a stream frame, so the shared frame gate (a
+            // WriteAsync(byte[]) choke point) cannot send it.
             await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
             try
             {

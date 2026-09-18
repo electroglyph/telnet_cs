@@ -97,7 +97,7 @@ namespace telnet_cs.Tests
                 serverStream,
                 new TelnetServerOptions { MaxTerminatedReadChars = 10 },
                 CancellationToken.None);
-            using var client = new telnet_cs.Client.Client(clientStream, CancellationToken.None);
+            using var client = await telnet_cs.Client.Client.CreateAsync(clientStream, TimeSpan.FromSeconds(30), CancellationToken.None);
 
             await client.WriteAsync("AAAAAAAAAAA", CancellationToken.None);
             var ex = await Assert.ThrowsAsync<InvalidOperationException>(

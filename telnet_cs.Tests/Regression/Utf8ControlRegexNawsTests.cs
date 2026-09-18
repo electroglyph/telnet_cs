@@ -42,7 +42,7 @@
             using (GlobalStateGuard.SkipProactive(false))
             {
                 using var stream = new DummyByteStream();
-                using var client = new Client(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false);
+                using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false);
                 var result = await client.TerminatedReadAsync(
                   new[] { new Regex("Nope>"), new Regex("Account") }, TimeSpan.FromSeconds(5), 1);
                 // The match ("Account") ends before the buffer: the cut keeps the
@@ -58,7 +58,7 @@
             // Nothing can ever match: the wait runs out and throws
             // TimeoutException instead of returning the buffered text.
             using var stream = new ScriptedStream("AB");
-            using var client = new Client(stream, new CancellationToken());
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             Func<Task<string>> act = () => client.TerminatedReadAsync(
               new string[0], TimeSpan.FromMilliseconds(50), 1);
             await act.Should().ThrowAsync<TimeoutException>();
@@ -70,7 +70,7 @@
             // Nothing can ever match: the wait runs out and throws
             // TimeoutException instead of returning the buffered text.
             using var stream = new ScriptedStream("AB");
-            using var client = new Client(stream, new CancellationToken());
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             Func<Task<string>> act = () => client.TerminatedReadAsync(
               new Regex[0], TimeSpan.FromMilliseconds(50), 1);
             await act.Should().ThrowAsync<TimeoutException>();

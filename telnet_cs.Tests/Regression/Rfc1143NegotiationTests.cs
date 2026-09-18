@@ -204,7 +204,7 @@ namespace telnet_cs.Tests
             // Proof: feed a Client FF FB 1F; the reference bytes contain FF FE 1F.
             // Missing DONT proves the symmetric agree. This test is correct.
             using var stream = new ScriptedStream(255, 251, 31);
-            using var client = new Client(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None);
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None);
             await client.ReadAsync(TimeSpan.FromMilliseconds(300));
             byte[] writes = stream.ByteWrites.SelectMany(w => w).ToArray();
             ContainsFrame(writes, new byte[] { 255, 254, 31 }).Should().BeTrue();
@@ -253,7 +253,7 @@ namespace telnet_cs.Tests
             // role-blind. These tests are correct.
             // (NAWS pinned separately by Client_WillNaws_RefusedWithDont.)
             using var stream = new ScriptedStream(255, 251, option);
-            using var client = new Client(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None);
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None);
             await client.ReadAsync(TimeSpan.FromMilliseconds(300));
             byte[] writes = stream.ByteWrites.SelectMany(w => w).ToArray();
             ContainsFrame(writes, new byte[] { 255, 254, (byte)option }).Should().BeTrue();
@@ -274,7 +274,7 @@ namespace telnet_cs.Tests
             // bytes contain FF FC 01 and never FF FB 01. Asserting both directions
             // fails only while the opt-in overrides the role gate. This test is correct.
             using var stream = new ScriptedStream();
-            using var client = new Client(stream, new CancellationToken());
+            using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             client.ApplyOptions(new TelnetClientOptions { AllowRemoteEcho = true });
             stream.Enqueue(255, 253, 1);
             await client.ReadAsync(TimeSpan.FromMilliseconds(300));

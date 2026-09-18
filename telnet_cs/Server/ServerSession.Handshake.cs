@@ -3,6 +3,7 @@ namespace telnet_cs.Server;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using telnet_cs.IO;
 
 public partial class ServerSession
 {
@@ -148,26 +149,20 @@ public partial class ServerSession
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, InternalCancellation.Token);
-            if (WriteStream.Connected && !linked.Token.IsCancellationRequested)
+            // Best effort: the stream spells this exactly like the
+            // converter with a null encoding, so pre-encode and send the
+            // frame raw through the shared throttle choke point.
+            byte[] notice = ByteStringConverter.ConvertStringToByteArray("\r\nHandshake timeout.\r\n", null);
+            try
             {
-                await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
-                try
-                {
-                    await WriteStream.WriteAsync("\r\nHandshake timeout.\r\n", linked.Token).ConfigureAwait(false);
-                    Context.NoteWritten("\r\nHandshake timeout.\r\n".Length);
-                }
-                catch (OperationCanceledException)
-                {
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine(ex.Message);
-                }
-                finally
-                {
-                    try { SendRateLimit.Release(); } catch { }
-                }
+                await SendFrameLockedAsync(notice, cts.Token, Context.NoteWritten).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(ex.Message);
             }
         }
         catch (Exception ex)

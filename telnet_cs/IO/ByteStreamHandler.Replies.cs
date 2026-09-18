@@ -18,7 +18,7 @@ public partial class ByteStreamHandler
     private Task ReplyStatusAsync()
     {
         var items = StatusProtocol.BuildIsPayload(Negotiation);
-        WriteLog("Sending: " + nameof(Options.Status));
+        WriteLog($"Sending: {nameof(Options.Status)}");
         var frame = StatusProtocol.FrameStatusIs(items);
         return WriteWireAsync(frame, 0, frame.Length, internalCancellation.Token);
     }
@@ -77,7 +77,7 @@ public partial class ByteStreamHandler
             LineflowXonAny = mode == LineflowProtocol.RestartXon;
         }
 
-        WriteLog("Received LFLOW mode: " + mode);
+        WriteLog($"Received LFLOW mode: {mode}");
         LineflowReceived?.Invoke(mode);
         return Task.CompletedTask;
     }
@@ -118,7 +118,7 @@ public partial class ByteStreamHandler
             return WriteWireAsync(frame, 0, frame.Length, internalCancellation.Token);
         }
 
-        WriteLog("Sending: " + nameof(Options.CharacterSet) + " ACCEPTED " + selected);
+        WriteLog($"Sending: {nameof(Options.CharacterSet)} ACCEPTED {selected}");
         AdoptCharset(selected);
         CharsetAccepted?.Invoke(selected);
         var accepted = EnvironmentProtocol.FrameSubnegotiation(
@@ -196,7 +196,7 @@ public partial class ByteStreamHandler
                 return Task.CompletedTask;
             }
 
-            WriteLog("CHARSET accepted: " + charset);
+            WriteLog($"CHARSET accepted: {charset}");
             AdoptCharset(charset);
             CharsetRequestPending = false;
             CharsetAccepted?.Invoke(charset);
@@ -224,7 +224,7 @@ public partial class ByteStreamHandler
             return Task.CompletedTask;
         }
 
-        WriteLog("Ignoring CHARSET table-transfer verb: " + payload[0]);
+        WriteLog($"Ignoring CHARSET table-transfer verb: {payload[0]}");
         return Task.CompletedTask;
     }
 
@@ -254,7 +254,7 @@ public partial class ByteStreamHandler
     internal Task SendLocationPayloadAsync(string location)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(location);
-        WriteLog("Sending: " + nameof(Options.SendLocation));
+        WriteLog($"Sending: {nameof(Options.SendLocation)}");
         var frame = EnvironmentProtocol.FrameSubnegotiation(
           (int)Options.SendLocation, Encoding.ASCII.GetBytes(location));
         return WriteWireAsync(frame, 0, frame.Length, internalCancellation.Token);
@@ -276,7 +276,7 @@ public partial class ByteStreamHandler
         }
 
         var mode = restartOnAny ? LineflowProtocol.RestartAny : LineflowProtocol.RestartXon;
-        WriteLog("Sending: " + nameof(Options.RemoteFlowControl) + " mode " + mode);
+        WriteLog($"Sending: {nameof(Options.RemoteFlowControl)} mode {mode}");
         var frame = EnvironmentProtocol.FrameSubnegotiation((int)Options.RemoteFlowControl, [mode]);
         await WriteWireAsync(frame, 0, frame.Length, internalCancellation.Token).ConfigureAwait(false);
         return true;
@@ -309,7 +309,7 @@ public partial class ByteStreamHandler
             return false;
         }
 
-        WriteLog("Sending: " + nameof(Options.CharacterSet) + " REQUEST.");
+        WriteLog($"Sending: {nameof(Options.CharacterSet)} REQUEST.");
         var frame = EnvironmentProtocol.FrameSubnegotiation(
           (int)Options.CharacterSet, CharsetProtocol.BuildRequest(CharsetOffers));
         await WriteWireAsync(frame, 0, frame.Length, internalCancellation.Token).ConfigureAwait(false);
@@ -336,7 +336,7 @@ public partial class ByteStreamHandler
 
         if (!Negotiation.IsEnabledByPeer(number) && !Negotiation.IsEnabledByUs(number))
         {
-            WriteLog("Cannot send " + option + " without negotiating it first.");
+            WriteLog($"Cannot send {option} without negotiating it first.");
             return false;
         }
 

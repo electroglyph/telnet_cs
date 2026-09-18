@@ -187,7 +187,7 @@ public partial class ServerSession
                         // never the pump: the loop condition re-checks. A
                         // wire error (malformed SLC) is stashed for the
                         // next ReadAsync to rethrow.
-                        WriteLog("Inbound pump pass failed: " + ex.Message);
+                        WriteLog($"Inbound pump pass failed: {ex.Message}");
                         idleIterations++;
                         if (ex is not OperationCanceledException
                             && ex is not System.Net.Sockets.SocketException

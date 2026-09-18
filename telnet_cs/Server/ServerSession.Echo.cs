@@ -87,34 +87,21 @@ public partial class ServerSession
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
         if (WriteStream.Connected && !linked.Token.IsCancellationRequested)
         {
-            await SendRateLimit.WaitAsync(linked.Token).ConfigureAwait(false);
-            try
+            // Fuse toggle + prompt into one frame before touching the
+            // throttle, so the single choke-point write stays atomic: no
+            // broadcast from another thread can land between the toggle
+            // and the prompt text. Protocol bytes bypass
+            // WriteAsync(byte[]) (it would IAC-escape the frame's own
+            // IAC), so the raw frame goes out through the shared gate.
+            byte[] frame = verb is null
+                ? encoded
+                : [(byte)Commands.InterpretAsCommand, (byte)verb.Value, (byte)Options.Echo, .. encoded];
+            if (frame.Length == 0)
             {
-                if (verb is null)
-                {
-                    if (encoded.Length == 0)
-                    {
-                        return;
-                    }
+                return;
+            }
 
-                    await SendRawBytesLockedAsync(encoded, linked.Token).ConfigureAwait(false);
-                }
-                else
-                {
-                    byte[] buffer =
-                    [
-                        (byte)Commands.InterpretAsCommand,
-                        (byte)verb.Value,
-                        (byte)Options.Echo,
-                        .. encoded,
-                    ];
-                    await SendRawBytesLockedAsync(buffer, linked.Token).ConfigureAwait(false);
-                }
-            }
-            finally
-            {
-                SendRateLimit.Release();
-            }
+            await SendFrameLockedAsync(frame, linked.Token, Context.NoteWritten).ConfigureAwait(false);
         }
     }
 }

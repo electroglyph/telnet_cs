@@ -112,7 +112,7 @@ namespace telnet_cs.Tests
             var port = ((IPEndPoint)listener.LocalEndpoint).Port;
             using var byteStream = new TcpByteStream("127.0.0.1", port);
             using Socket server = await listener.AcceptSocketAsync();
-            using var sut = new Client(byteStream, TimeSpan.FromSeconds(5), CancellationToken.None);
+            using var sut = await Client.CreateAsync(byteStream, TimeSpan.FromSeconds(5), CancellationToken.None);
             await sut.SendSynchAsync();
             server.ReceiveTimeout = 5000;
             var buf = new byte[16];
@@ -162,7 +162,7 @@ namespace telnet_cs.Tests
                 var port = ((IPEndPoint)listener.LocalEndpoint).Port;
                 using var byteStream = new TcpByteStream("127.0.0.1", port);
                 using Socket server = await listener.AcceptSocketAsync();
-                using var sut = new Client(byteStream, TimeSpan.FromSeconds(5), CancellationToken.None);
+                using var sut = await Client.CreateAsync(byteStream, TimeSpan.FromSeconds(5), CancellationToken.None);
                 _ = server.Send(new byte[] { 255, 253, 34 });
                 (await sut.ReadAsync(TimeSpan.FromSeconds(1))).Should().BeEmpty();
                 sut.Negotiation.IsEnabledByUs((int)Options.LineMode).Should().BeTrue();
