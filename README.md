@@ -83,7 +83,7 @@ speed), 1091 (terminal type), 1096 (X display), 1184 (linemode), 1372
 
 ## Install
 
-From NuGet (the published version tracks `VersionPrefix` in `telnet_cs/telnet_cs.csproj` — nothing to fill in):
+From NuGet:
 
 ```sh
 dotnet add package telnet_cs
