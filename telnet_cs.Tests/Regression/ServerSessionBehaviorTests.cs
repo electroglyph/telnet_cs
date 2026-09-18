@@ -125,7 +125,7 @@ namespace telnet_cs.Tests
             var options = new TelnetServerOptions { IdleTimeout = TimeSpan.FromMinutes(7) };
             using var session = new ServerSession(stream, options, CancellationToken.None);
             session.Timeout.Should().Be(TimeSpan.FromMinutes(7));
-            session.SetTimeout(TimeSpan.FromMinutes(9));
+            session.Timeout = TimeSpan.FromMinutes(9);
             session.Timeout.Should().Be(TimeSpan.FromMinutes(9));
         }
 

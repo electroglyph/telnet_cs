@@ -341,7 +341,7 @@ namespace telnet_cs.Tests
             using var session = NewSession(stream);
             await session.SendOpeningPresetAsync();
             (await session.RequestTerminalTypesAsync(TimeSpan.FromMilliseconds(300))).Should().BeEmpty();
-            session.Negotiation.GetStates((int)Options.TerminalType).Him
+            session.Negotiation[(int)Options.TerminalType].Him
                 .Should().Be(NegotiationState.SideState.WantYes);
         }
 
@@ -386,7 +386,7 @@ namespace telnet_cs.Tests
             stream.Enqueue(255, 251, 24);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             CountFrame(OutboundBytes(stream), [255, 251, 3]).Should().Be(1);
-            session.Negotiation.GetStates((int)Options.SuppressGoAhead).Us
+            session.Negotiation[(int)Options.SuppressGoAhead].Us
                 .Should().Be(NegotiationState.SideState.WantYes);
         }
 
@@ -2068,7 +2068,7 @@ namespace telnet_cs.Tests
             session.PeerStatusReport.Should().Equal(
                 new ServerSession.StatusReportItem(Commands.Will, 3, null),
                 new ServerSession.StatusReportItem(Commands.Do, 3, null));
-            session.Negotiation.GetStates(3).Should().Be((NegotiationState.SideState.No, NegotiationState.SideState.No));
+            session.Negotiation[3].Should().Be((NegotiationState.SideState.No, NegotiationState.SideState.No));
         }
 
         [Fact]
@@ -2105,7 +2105,7 @@ namespace telnet_cs.Tests
             session.PeerStatusReport.Should().Equal(
                 new ServerSession.StatusReportItem(Commands.Will, 3, null),
                 new ServerSession.StatusReportItem(Commands.Will, 0, null));
-            session.Negotiation.GetStates(3).Should().Be((NegotiationState.SideState.No, NegotiationState.SideState.No));
+            session.Negotiation[3].Should().Be((NegotiationState.SideState.No, NegotiationState.SideState.No));
         }
 
         [Fact]

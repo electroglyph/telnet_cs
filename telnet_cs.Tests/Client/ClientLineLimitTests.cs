@@ -26,10 +26,9 @@ namespace telnet_cs.Tests
         {
             using var client = new Client(new ScriptedStream("AAAAAAAAAAA"), CancellationToken.None);
             client.ApplyOptions(new TelnetClientOptions { MaxTerminatedReadChars = 10 });
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(
-                () => client.TerminatedReadAsync("\n", TimeSpan.FromSeconds(2)));
-            ex.Message.Should().Contain("10-character");
-            client.IsConnected.Should().BeTrue();
+            await TerminatedReadLimitCases.OverlongLine_ThrowsNamingLimitAndSurvives(
+                () => client.TerminatedReadAsync("\n", TimeSpan.FromSeconds(2)),
+                () => client.IsConnected);
         }
 
         [Fact]
@@ -38,7 +37,9 @@ namespace telnet_cs.Tests
             string overlong = new string('A', 100) + "\n";
             using var client = new Client(new ScriptedStream(overlong), CancellationToken.None);
             client.ApplyOptions(new TelnetClientOptions { MaxTerminatedReadChars = 0 });
-            (await client.TerminatedReadAsync("\n", TimeSpan.FromSeconds(2))).Should().Be(overlong);
+            await TerminatedReadLimitCases.ZeroLimit_Disables(
+                () => client.TerminatedReadAsync("\n", TimeSpan.FromSeconds(2)),
+                overlong);
         }
 
         [Fact]
@@ -47,16 +48,16 @@ namespace telnet_cs.Tests
             using var client = new Client(new ScriptedStream("AAAAAAAAAAA"), CancellationToken.None);
             client.ApplyOptions(new TelnetClientOptions { MaxTerminatedReadChars = 100 });
             client.MaxTerminatedReadChars = 10;
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(
-                () => client.TerminatedReadAsync("\n", TimeSpan.FromSeconds(2)));
-            ex.Message.Should().Contain("10-character");
+            await TerminatedReadLimitCases.OverlongLine_ThrowsNamingLimitAndSurvives(
+                () => client.TerminatedReadAsync("\n", TimeSpan.FromSeconds(2)),
+                () => client.IsConnected);
         }
 
         [Fact]
         public void InstanceOverride_Negative_ThrowsArgumentOutOfRange()
         {
             using var client = new Client(new ScriptedStream(string.Empty), CancellationToken.None);
-            Assert.Throws<ArgumentOutOfRangeException>(() => client.MaxTerminatedReadChars = -1);
+            TerminatedReadLimitCases.NegativeLimit_ThrowsArgumentOutOfRange(() => client.MaxTerminatedReadChars = -1);
         }
 
         [Fact]

@@ -1,9 +1,9 @@
-namespace telnet_cs.Transport;
+namespace telnet_cs.IO;
 
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using telnet_cs.IO;
+using telnet_cs.Transport;
 
 /// <summary>
 /// Compressing outbound view over a session byte stream (MCCP2, option 86,

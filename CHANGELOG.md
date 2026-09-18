@@ -1,5 +1,49 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- God-class splits (pure moves, no wire/preset/default changes):
+  `ByteStreamHandler` into pump/parsing/negotiation/MUD/replies/linemode
+  parts, `ServerSession.Collectors` into TTYPE/requester/consumer parts,
+  `ServerSession.Negotiation` into terminated-read/auth parts,
+  `TelnetServer` into accept/session-bookkeeping parts, and
+  `MccpDecompressor` into core/raw-end-locator parts.
+- Shared internal helpers replace client/server twins with identical
+  output: enable/disable resolvers, the linemode state property, the
+  send-throttle helper, terminator finders, SLC import/export payload and
+  triplet helpers, the MSDP table encoder, and the CHARSET separator
+  selector. No wire, preset, or default changes.
+- `NegotiationState.GetStates(option)` is now the `this[option]` indexer
+  (same lock-guarded snapshot); `ServerSession.SetTimeout` is now the
+  settable `Timeout` property (setting it re-arms the timer, as before).
+- `BaseClient` is renamed `TelnetSessionBase` to reflect server use; the
+  `IBaseClient` contract is unchanged.
+- Enforcement unification: the buffer/environ/MUD cap partials read
+  through one `CapsGate` helper and are renamed `*CapEnforcement`;
+  `StatusReportItem` lives in its own `ServerSession` part file.
+- `MccpWriteFilter` moves to `telnet_cs.IO` alongside the MCCP
+  compressor/decompressor; `DuplexEnd` is a top-level internal type.
+- One-type-per-file promotions (no API changes): `LinemodeEdit`,
+  `SlcEntry`, `MttsCapabilities`, `NegotiationStormGuard`.
+- Allocation-only cleanups with identical bytes: span-based MSDP/MSSP/ZMP
+  and CHARSET/ENVIRON parsing (the MSDP parser is a zero-copy `ref`
+  struct), pooled decode buffers, collection-expression frames, and
+  `SequenceEqual` input matching.
+- Tests: `Wire`/`WireTap` live in `Helpers/`; login/socket suites in
+  `Integration/`; shared `TerminatedReadLimitCases`; TCP relay twins and
+  the empty `MudDetectorTests` shell merged away; `WriteHandler` doubles
+  collapsed to a `Func<>` queue.
+- Docs: new `docs/fuzz.md`; guide cross-links to the vendored
+  `mud-protocols/` notes and `telnet-rfcs/` texts; echo/STATUS,
+  `DuplexPipe`-vs-`InMemoryPipe`, and retro-accessory coverage.
+- Catch-up for previously unlogged features (all predate this release;
+  behavior unchanged): `DuplexPipe`, `TelnetEncodingProvider` codepages
+  80001–80004, `InputFilter`/`LinemodeBuffer`, `SyncTermFont`,
+  `MttsCapabilities`, `AardwolfMessage`, `TelnetAccessories.Hexdump`, and
+  the `ServerShells` REPL commands.
+
 ## [0.17.0] - 2026-09-18
 
 ### Added

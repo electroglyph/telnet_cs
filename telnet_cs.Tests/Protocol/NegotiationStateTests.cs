@@ -223,7 +223,7 @@
             var state = new NegotiationState();
             state.OfferEnable(5).Should().Be(Commands.Will);
             state.ReceivedWill(5, agree: true).Should().Be(Commands.Do);
-            state.GetStates(5).Should().Be((NegotiationState.SideState.WantYes, NegotiationState.SideState.Yes));
+            state[5].Should().Be((NegotiationState.SideState.WantYes, NegotiationState.SideState.Yes));
             state.IsEnabledByUs(5).Should().BeFalse();
             state.IsEnabledByPeer(5).Should().BeTrue();
         }
@@ -234,7 +234,7 @@
             var state = new NegotiationState();
             state.RequestEnable(5).Should().Be(Commands.Do);
             state.ReceivedDo(5, agree: true).Should().Be(Commands.Will);
-            state.GetStates(5).Should().Be((NegotiationState.SideState.Yes, NegotiationState.SideState.WantYes));
+            state[5].Should().Be((NegotiationState.SideState.Yes, NegotiationState.SideState.WantYes));
             state.IsEnabledByUs(5).Should().BeTrue();
             state.IsEnabledByPeer(5).Should().BeFalse();
         }
@@ -452,7 +452,7 @@
         {
             var state = new NegotiationState();
             state.RequestTimingMark().Should().Be(Commands.Do);
-            state.GetStates(6).Him.Should().Be(NegotiationState.SideState.WantYes);
+            state[6].Him.Should().Be(NegotiationState.SideState.WantYes);
             state.RequestTimingMark().Should().BeNull();
         }
 
@@ -467,7 +467,7 @@
             state.ReceivedWill(6, agree: true).Should().BeNull();
             state.IsEnabledByPeer(6).Should().BeTrue();
             state.RequestTimingMark().Should().Be(Commands.Do);
-            state.GetStates(6).Him.Should().Be(NegotiationState.SideState.WantYes);
+            state[6].Him.Should().Be(NegotiationState.SideState.WantYes);
         }
 
         [Fact]

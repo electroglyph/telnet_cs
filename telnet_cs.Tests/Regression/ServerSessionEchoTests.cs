@@ -71,14 +71,14 @@ namespace telnet_cs.Tests
             using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.SetEchoAsync(true, CancellationToken.None);
             OutboundBytes(stream).Should().Equal(255, 251, 1);
-            session.Negotiation.GetStates((int)Options.Echo).Us.Should().Be(NegotiationState.SideState.WantYes);
+            session.Negotiation[(int)Options.Echo].Us.Should().Be(NegotiationState.SideState.WantYes);
 
             // The peer's DO confirmation completes the offer with no reply
             // (the confirmation itself advances negotiation, so the same
             // flush also releases the advanced preset — pin echo, not that).
             stream.Enqueue(255, 253, 1);
             (await session.ReadAsync(TimeSpan.FromSeconds(5), CancellationToken.None)).Should().BeEmpty();
-            session.Negotiation.GetStates((int)Options.Echo).Us.Should().Be(NegotiationState.SideState.Yes);
+            session.Negotiation[(int)Options.Echo].Us.Should().Be(NegotiationState.SideState.Yes);
             ContainsSubsequence(OutboundBytes(stream), [255, 251, 1]).Should().BeTrue();
             ContainsSubsequence(OutboundBytes(stream), [255, 252, 1]).Should().BeFalse();
         }
@@ -91,11 +91,11 @@ namespace telnet_cs.Tests
             await session.SetEchoAsync(true, CancellationToken.None);
             stream.Enqueue(255, 253, 1);
             (await session.ReadAsync(TimeSpan.FromSeconds(5), CancellationToken.None)).Should().BeEmpty();
-            session.Negotiation.GetStates((int)Options.Echo).Us.Should().Be(NegotiationState.SideState.Yes);
+            session.Negotiation[(int)Options.Echo].Us.Should().Be(NegotiationState.SideState.Yes);
 
             await session.SetEchoAsync(false, CancellationToken.None);
             OutboundBytes(stream).TakeLast(3).Should().Equal(255, 252, 1);
-            session.Negotiation.GetStates((int)Options.Echo).Us.Should().Be(NegotiationState.SideState.WantNo);
+            session.Negotiation[(int)Options.Echo].Us.Should().Be(NegotiationState.SideState.WantNo);
         }
 
         [Fact]
@@ -106,7 +106,7 @@ namespace telnet_cs.Tests
             using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.SetEchoAsync(false, CancellationToken.None);
             OutboundBytes(stream).Should().BeEmpty();
-            session.Negotiation.GetStates((int)Options.Echo).Us.Should().Be(NegotiationState.SideState.No);
+            session.Negotiation[(int)Options.Echo].Us.Should().Be(NegotiationState.SideState.No);
         }
 
         [Fact]
@@ -123,7 +123,7 @@ namespace telnet_cs.Tests
             stream.Enqueue(255, 253, 1);
             (await session.ReadAsync(TimeSpan.FromSeconds(5), CancellationToken.None)).Should().BeEmpty();
             OutboundBytes(stream).Should().Equal(255, 251, 1, 255, 252, 1);
-            session.Negotiation.GetStates((int)Options.Echo).Us.Should().Be(NegotiationState.SideState.WantNo);
+            session.Negotiation[(int)Options.Echo].Us.Should().Be(NegotiationState.SideState.WantNo);
         }
 
         [Fact]
@@ -148,7 +148,7 @@ namespace telnet_cs.Tests
             await session.SetEchoAsync(true, CancellationToken.None);
             stream.Enqueue(255, 253, 1);
             (await session.ReadAsync(TimeSpan.FromSeconds(5), CancellationToken.None)).Should().BeEmpty();
-            session.Negotiation.GetStates((int)Options.Echo).Us.Should().Be(NegotiationState.SideState.Yes);
+            session.Negotiation[(int)Options.Echo].Us.Should().Be(NegotiationState.SideState.Yes);
             ContainsSubsequence(OutboundBytes(stream), [255, 251, 1]).Should().BeTrue();
             ContainsSubsequence(OutboundBytes(stream), [255, 252, 1]).Should().BeFalse();
         }
@@ -182,7 +182,7 @@ namespace telnet_cs.Tests
             }
 
             stream.ByteWrites.Should().ContainSingle(w => w.SequenceEqual(expected));
-            session.Negotiation.GetStates((int)Options.Echo).Us.Should().Be(NegotiationState.SideState.WantYes);
+            session.Negotiation[(int)Options.Echo].Us.Should().Be(NegotiationState.SideState.WantYes);
         }
 
         [Theory]
@@ -226,7 +226,7 @@ namespace telnet_cs.Tests
             stream.ByteWrites.Should().BeEmpty();
             stream.SingleByteWrites.Should().BeEmpty();
             stream.StringWrites.Should().BeEmpty();
-            session.Negotiation.GetStates((int)Options.Echo).Us.Should().Be(NegotiationState.SideState.No);
+            session.Negotiation[(int)Options.Echo].Us.Should().Be(NegotiationState.SideState.No);
         }
 
         [Fact]
@@ -239,7 +239,7 @@ namespace telnet_cs.Tests
             OutboundBytes(stream).Should().Equal((byte)'h', (byte)'i');
             ContainsSubsequence(OutboundBytes(stream), [255, 251, 1]).Should().BeFalse();
             ContainsSubsequence(OutboundBytes(stream), [255, 252, 1]).Should().BeFalse();
-            session.Negotiation.GetStates((int)Options.Echo).Us.Should().Be(NegotiationState.SideState.No);
+            session.Negotiation[(int)Options.Echo].Us.Should().Be(NegotiationState.SideState.No);
         }
 
         [Fact]
@@ -255,7 +255,7 @@ namespace telnet_cs.Tests
             stream.ByteWrites.Should().BeEmpty();
             stream.SingleByteWrites.Should().BeEmpty();
             stream.StringWrites.Should().BeEmpty();
-            session.Negotiation.GetStates((int)Options.SuppressGoAhead).Him.Should().Be(NegotiationState.SideState.No);
+            session.Negotiation[(int)Options.SuppressGoAhead].Him.Should().Be(NegotiationState.SideState.No);
         }
     }
 }

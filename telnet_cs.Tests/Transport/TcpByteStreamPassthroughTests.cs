@@ -1,5 +1,6 @@
 ﻿namespace telnet_cs.Tests
 {
+    using System;
     using System.Threading;
     using System.Threading.Tasks;
     using FakeItEasy;
@@ -99,6 +100,36 @@
             sut.Dispose();
             A.CallTo(() => socket.Close()).MustHaveHappened();
             A.CallTo(() => socket.Dispose()).MustHaveHappened();
+        }
+
+        [Fact]
+        public void Construct_WithFakedSocket_DoesNotThrow()
+        {
+            var socket = A.Fake<ISocket>();
+            TcpByteStream? sut = null;
+            Action act = () => sut = new TcpByteStream(socket);
+            act.Should().NotThrow();
+            sut.Should().NotBeNull();
+            sut?.Dispose();
+        }
+
+        [Fact]
+        public void Construct_AgainstLiveServer_DoesNotThrowAndDisposes()
+        {
+            using var server = new DummyTelnetServer();
+            TcpByteStream? sut = null;
+            Action act = () => sut = new TcpByteStream(server.IPAddress.ToString(), server.Port);
+            act.Should().NotThrow();
+            sut.Should().NotBeNull();
+            sut?.Dispose();
+        }
+
+        [Fact]
+        public void ReceiveTimeout_DefaultsToZero()
+        {
+            using var server = new DummyTelnetServer();
+            using var sut = new TcpByteStream(server.IPAddress.ToString(), server.Port);
+            sut.ReceiveTimeout.Should().Be(0);
         }
     }
 }

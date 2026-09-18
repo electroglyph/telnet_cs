@@ -14,7 +14,7 @@
     {
         private readonly Queue<byte> buffer = new Queue<byte>();
         private bool isErrored = false;
-        private readonly Queue<WriteHandlerBase> handlers;
+        private readonly Queue<(Func<byte[], bool> Check, Action Handle)> handlers;
 
         /// <summary>
         /// Supplies the lineFeed character expected: default = "\r\n" (RFC 854).
@@ -31,7 +31,7 @@
         {
             Connected = true;
 
-            handlers = new Queue<WriteHandlerBase>();
+            handlers = new Queue<(Func<byte[], bool> Check, Action Handle)>();
             handlers.Enqueue(BuildNegotiationHandler());
             handlers.Enqueue(BuildUsernameHandler());
             handlers.Enqueue(BuildPasswordHandler());
@@ -40,45 +40,48 @@
             LineFeed = lineFeed;
         }
 
-        private WriteHandler BuildGetStatisticsHandler()
+        private (Func<byte[], bool> Check, Action Handle) BuildGetStatisticsHandler()
         {
-            return new WriteHandler(
+            return (
                       o => ByteStringConverter.ToString(o) == $"show statistic wan2{this.LineFeed}",
                       () =>
                       {
                           Console.WriteLine("Command entered, respond with WAN2 terminated reply");
                           Encoding.ASCII.GetBytes("show statistic wan2\n\r WAN1 total TX: 0 Bytes ,RX: 0 Bytes \n\r WAN2 total TX: 6.3 GB ,RX: 6.9 GB \n\r WAN3 total TX: 0 Bytes ,RX: 0 Bytes \n\r WAN4 total TX: 0 Bytes ,RX: 0 Bytes \n\r WAN5 total TX: 0 Bytes ,RX: 0 Bytes \n\r>").ToList().ForEach(o => this.buffer.Enqueue(o));
                           return;
-                      });
+                      }
+            );
         }
 
-        private WriteHandler BuildPasswordHandler()
+        private (Func<byte[], bool> Check, Action Handle) BuildPasswordHandler()
         {
-            return new WriteHandler(
+            return (
                       o => ByteStringConverter.ToString(o) == $"password{this.LineFeed}",
                       () =>
                       {
                           Console.WriteLine("Password entered, respond with Command> prompt");
                           Encoding.ASCII.GetBytes("Command >").ToList().ForEach(o => this.buffer.Enqueue(o));
                           return;
-                      });
+                      }
+            );
         }
 
-        private WriteHandler BuildUsernameHandler()
+        private (Func<byte[], bool> Check, Action Handle) BuildUsernameHandler()
         {
-            return new WriteHandler(
+            return (
                     o => ByteStringConverter.ToString(o) == $"username{this.LineFeed}",
                     () =>
                     {
                         Console.WriteLine("Account entered, respond with Password: prompt");
                         Encoding.ASCII.GetBytes("Password:").ToList().ForEach(o => this.buffer.Enqueue(o));
                         return;
-                    });
+                    }
+            );
         }
 
-        private WriteHandler BuildNegotiationHandler()
+        private (Func<byte[], bool> Check, Action Handle) BuildNegotiationHandler()
         {
-            return new WriteHandler(
+            return (
                       bytes => Enumerable.SequenceEqual(bytes, Client.SuppressGoAheadBuffer),
                       () =>
                       {
@@ -86,7 +89,8 @@
                           Console.WriteLine("Connection made, respond with Account: prompt");
                           Encoding.ASCII.GetBytes("Account:").ToList().ForEach(o => this.buffer.Enqueue(o));
                           return;
-                      });
+                      }
+            );
         }
 
         public int Available => buffer.Count;
@@ -162,7 +166,7 @@
 
         public async Task WriteByteAsync(byte value, CancellationToken cancellationToken)
         {
-            await WriteAsync(new byte[] { value }, 0, 1, cancellationToken);
+            await WriteAsync([value], 0, 1, cancellationToken);
         }
     }
 }

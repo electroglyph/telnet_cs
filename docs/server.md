@@ -1,10 +1,10 @@
 # Server usage guide
 
-Last verified: 2026-09-17 (suite 1709/1709 green).
+Last verified: 2026-09-18 (suite 1745/1745 green).
 
 The server lives in the `telnet_cs.Server` namespace. `TelnetServer` owns
 only the listen socket; each accepted connection is a `ServerSession`
-(which derives from `Client.BaseClient`, so the read/write/waiter API
+(which derives from `Client.TelnetSessionBase`, so the read/write/waiter API
 mirrors the client). Options are carried by `TelnetServerOptions`.
 I/O is async-only; construction, disposal, and a few inspectors are sync.
 
@@ -215,6 +215,24 @@ await session.RequestRemoteSpecialCharactersAsync();
 await session.SendLineflowModeAsync(restartOnAny: true);   // false unless the peer WILLed LFLOW
 ```
 
+## Game-driven echo and STATUS reports
+
+```csharp
+await session.SetEchoAsync(suppress: true);                 // WILL ECHO: we take over echo
+await session.WriteWithEchoAsync("Password: ", suppress: true);  // toggle + prompt in one atomic write
+```
+
+`WriteWithEchoAsync` fuses the `IAC WILL|WONT ECHO` toggle ahead of the
+prompt in a single frame, so no other thread's broadcast can land between
+them (use it for masked password prompts). The first manual call stands
+down the deferred auto-ECHO offer for the session. Both are no-ops under
+`DisableAllNegotiation` (the prompt still goes out as plain data).
+
+`PeerStatusReport` holds the peer's last STATUS IS report (RFC 859) as a
+list of `StatusReportItem(Verb, Option, Data)` — verb pairs carry
+`Data: null`, SB blocks carry the bytes — or null when none arrived.
+Display only: reports never affect negotiation state.
+
 ## Sessions, context, and timeouts
 
 Each session carries a `Context` (`TelnetSessionContext`): `ConnectedAtUtc`,
@@ -224,7 +242,7 @@ an optional `Typescript` writer that records inbound text chunks only (writes ar
 `Properties` bag for your own per-session state.
 
 Idle handling: `IdleTimeout` (default 300 s; `InfiniteTimeSpan` or `<= 0`
-disables) writes `\r\nTimeout.\r\n` and closes the session. `SetTimeout`
+disables) writes `\r\nTimeout.\r\n` and closes the session. Setting `Timeout`
 overrides it per session and re-arms the timer (it never stamps activity, so the
 deadline stays `LastActivityUtc + Timeout`);
 `IsIdleTimedOut` latches after a fire. `StatusInterval` (default 20 s,
@@ -262,7 +280,10 @@ using var client = new Client(clientStream, ct);
 ```
 
 Reserve loopback for what memory cannot prove: the TCP accept lifecycle,
-the TLS handshake, urgent data, and per-IP accounting.
+the TLS handshake, urgent data, and per-IP accounting. `DuplexPipe` (in
+`telnet_cs.Transport`, internal) is the lower-level primitive —
+`InMemoryPipe` wraps the same idea for public use; prefer `InMemoryPipe`
+unless a test needs the raw `DuplexEnd` ends.
 
 ## The REPL shell
 
@@ -295,3 +316,10 @@ own loop for anything real.
   (`false`) on a timed-out line.
 - `TextEncoding` defaults to UTF-8; a negotiated CHARSET can
   override the read encoding per session.
+
+## References
+
+- [MUD protocol notes](mud-protocols/README.md) (`MSDP`, `MSSP`, `GMCP`,
+  `MCCP`, `MTTS`, `MXP`, `MSP`, `ZMP`, `ATCP`) and the [RFC texts](telnet-rfcs/)
+  are the wire ground truth; [divergences](divergences.md) logs intentional
+  deviations. The [fuzz harness](fuzz.md) exercises these paths.

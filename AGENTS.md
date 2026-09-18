@@ -10,7 +10,7 @@ Telnet client **and** server library for .NET 10 (C# 14).
 
 ## Conventions
 
-- Layout: `telnet_cs/` (library: `Client/`, `Server/`, `Transport/`, `Protocol/`, `IO/`), `telnet_cs.Tests/` (xUnit suites, `Helpers/` shared fixtures + `Fakes/` socket doubles).
+- Layout: `telnet_cs/` (library: `Client/`, `Server/`, `Transport/`, `Protocol/`, `IO/`, `Encodings/` for the retro codecs), `telnet_cs.Tests/` (xUnit suites, `Helpers/` shared fixtures + `Fakes/` socket doubles). Shared process-wide infra with no better home (`FlowLocal<T>`) lives at the library root; client-side input translation (`InputFilter`, `LinemodeBuffer`, `LinemodeEdit`) lives in `Client/`; `Protocol/` hosts stateless wire codecs plus the two role-adjacent helpers (`MudClientDetector`, `TerminalTypeCycler`), which stay there so both roles share one namespace.
 - Language reference: [csharp.md](./csharp.md) — local copy (C# 9 → C# 14). The [Best practices (C# 14)](#best-practices-c-14) section below states which practices to apply; per-feature details live in `csharp.md`.
 - All new and rewritten code must follow [Best practices (C# 14)](#best-practices-c-14). Modernize surrounding lines you touch; do not reformat untouched code.
 - Wire discipline: keep established wire bytes / negotiation behavior byte-for-byte unless a technical reason and a test pin justify the change. Do not paraphrase protocol behavior or "improve" message framing without a wire-exact regression test.
@@ -51,8 +51,12 @@ reference (C# 9 → C# 14) with examples. This file states which practices to ap
 - Prefer `init` accessors for construction-time-only state; `required` for mandatory members.
 - Use primary constructors for simple dependency capture (services, DTOs). If the constructor needs
   validation or logic, write an explicit constructor body instead of clever parameter tricks.
-- One type per file; file name matches type name. File-scoped namespaces; `global using` for
-  ubiquitous imports only.
+- One type per file; file name matches type name. `Type.Suffix.cs` partial parts are the
+  carve-out: a large type may split by responsibility (`Client.*.cs`, `ServerSession.*.cs`,
+  `ByteStreamHandler.*.cs`, `TelnetSessionBase.*.cs`), and a part file may additionally host one
+  closely-held helper owned by that part (e.g. the semaphore releaser next to its
+  collector wiring).
+  File-scoped namespaces; `global using` for ubiquitous imports only.
 
 ## Properties
 

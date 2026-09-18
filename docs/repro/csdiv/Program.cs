@@ -13,7 +13,7 @@ switch (mode)
         var ns = new NegotiationState();
         var r1 = ns.OfferEnable(3);
         var r2 = ns.OfferDisable(3);
-        var st = ns.GetStates(3);
+        var st = ns[3];
         Console.WriteLine($"offerEnable => reply={(r1 is null ? "null" : ((int)r1).ToString())}");
         Console.WriteLine($"offerDisable => reply={(r2 is null ? "null" : ((int)r2).ToString())} us={st.Us}");
         break;
@@ -102,7 +102,7 @@ switch (mode)
                 "do" => ns.ReceivedDo(int.Parse(p[1]), bool.Parse(p[2])),
                 _ => throw new Exception("bad verb " + p[0]),
             };
-            var st = ns.GetStates(int.Parse(p[1]));
+            var st = ns[int.Parse(p[1])];
             Console.WriteLine($"{s} => reply={(r is null ? "null" : ((int)r).ToString())} us={st.Us} him={st.Him}");
         }
         break;
@@ -219,8 +219,8 @@ switch (mode)
         static string R(object? r) => r is null ? "null" : ((int)r).ToString();
         var ns = new NegotiationState();
         Console.WriteLine($"offerEnable => reply={R(ns.OfferEnable(3))}");
-        Console.WriteLine($"offerDisable => reply={R(ns.OfferDisable(3))} us={ns.GetStates(3).Us}");
-        Console.WriteLine($"receivedDo => reply={R(ns.ReceivedDo(3, true))} us={ns.GetStates(3).Us}");
+        Console.WriteLine($"offerDisable => reply={R(ns.OfferDisable(3))} us={ns[3].Us}");
+        Console.WriteLine($"receivedDo => reply={R(ns.ReceivedDo(3, true))} us={ns[3].Us}");
         break;
     }
     case "d7":

@@ -1,6 +1,6 @@
 # Client usage guide
 
-Last verified: 2026-09-16 (suite 1605/1605 green).
+Last verified: 2026-09-18 (suite 1745/1745 green).
 
 The client lives in the `telnet_cs.Client` namespace. The main type is
 `Client` (implements `IClient`); options are carried by the
@@ -148,7 +148,13 @@ For client-side line editing, feed keystrokes through `LinemodeBuffer` (EC/EL/
 EW editing, TRAPSIG-to-`IAC` commands, forwardmask flush) and send the
 resulting `Data`. For retro endpoints, `InputFilter.CreateAtascii()` /
 `CreatePetscii()` translate sessions keymaps longest-first; call `Flush()`
-after the ~350 ms ESC delay to release a held lone `ESC`.
+after the ~350 ms ESC delay to release a held lone `ESC`. A SyncTERM
+font-selection sequence auto-adopts its encoding for later reads (an
+explicit `TextEncoding` always wins; the sequence stays inert data on
+server sessions).
+`TelnetAccessories.Hexdump` renders wire bytes `hexdump -C` style for
+diagnostics, and `MttsCapabilities` decodes the MTTS bitvector from the
+third TTYPE answer.
 
 ## Gotchas
 
@@ -162,3 +168,10 @@ after the ~350 ms ESC delay to release a held lone `ESC`.
   throw `NotSupportedException` on fakes.
 - Negotiation repeats are suppressed; refusals stick until you re-request
   explicitly.
+
+## References
+
+- [MUD protocol notes](mud-protocols/README.md) (`MSDP`, `MSSP`, `GMCP`,
+  `MCCP`, `MTTS`, `MXP`, `MSP`, `ZMP`, `ATCP`) and the [RFC texts](telnet-rfcs/)
+  are the wire ground truth; [divergences](divergences.md) logs intentional
+  deviations. The [fuzz harness](fuzz.md) exercises these paths.

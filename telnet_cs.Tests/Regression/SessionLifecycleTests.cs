@@ -39,7 +39,7 @@ namespace telnet_cs.Tests
             // stream_writer.py send_ga returns False only when local SGA is enabled;
             // a peer WILL SGA alone (remote, affecting our receive path) never blocks
             // our transmit GA.
-            // Our code: Client/BaseClient.GaWaiters.cs suppresses when either
+            // Our code: Client/TelnetSessionBase.GaWaiters.cs suppresses when either
             // IsEnabledByUs(SGA) or IsEnabledByPeer(SGA) is true, so a peer-only WILL
             // wrongly blocks SendGaAsync.
             // Proof: after peer WILL SGA with no local WILL, SendGaAsync must return
@@ -62,7 +62,7 @@ namespace telnet_cs.Tests
             // sync.py raises TimeoutError on timeout. This C# method bundles the
             // timeout role, so throwing TimeoutException matches the blocking
             // semantics.
-            // Our code: Client/BaseClient.GaWaiters.cs returns false on timeout, polls
+            // Our code: Client/TelnetSessionBase.GaWaiters.cs returns false on timeout, polls
             // on a 50 ms slice, and consumes application data into PendingText while
             // waiting (the reference never reads; data stays in TelnetReader and the
             // waiter fires via _check_waiters).
@@ -137,7 +137,7 @@ namespace telnet_cs.Tests
             // correct.
             using var stream = new ScriptedStream();
             using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
-            session.SetTimeout(TimeSpan.FromMilliseconds(300));
+            session.Timeout = TimeSpan.FromMilliseconds(300);
             for (int i = 0; i < 5; i++)
             {
                 await session.WriteAsync("tick", CancellationToken.None);

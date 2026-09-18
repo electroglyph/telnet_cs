@@ -207,7 +207,7 @@
             sut.Negotiation.RequestTimingMark().Should().Be(Commands.Do);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
-            sut.Negotiation.GetStates((int)Options.TimingMark).Him
+            sut.Negotiation[(int)Options.TimingMark].Him
               .Should().Be(NegotiationState.SideState.No);
             sut.Negotiation.WasRefusedByPeer((int)Options.TimingMark).Should().BeTrue();
         }
@@ -275,7 +275,7 @@
                 await client.SendTimingMarkAsync();
                 stream.ByteWrites.Should().HaveCount(2);
                 stream.ByteWrites[1].Should().Equal(new byte[] { 255, 253, 6 });
-                client.Negotiation.GetStates((int)Options.TimingMark).Him
+                client.Negotiation[(int)Options.TimingMark].Him
                   .Should().Be(NegotiationState.SideState.WantYes);
             }
         }

@@ -70,7 +70,7 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
-        public async Task SetTimeout_RearmsWithoutActivityStamp()
+        public async Task TimeoutSet_RearmsWithoutActivityStamp()
         {
             var options = new TelnetServerOptions { IdleTimeout = Timeout.InfiniteTimeSpan };
             var (client, session, guard) = CreateTimeoutPair(options);
@@ -80,7 +80,7 @@ namespace telnet_cs.Tests
             {
                 // Arming a timeout is not itself peer activity.
                 var before = session.Context.LastActivityUtc;
-                session.SetTimeout(TimeSpan.FromMilliseconds(300));
+                session.Timeout = TimeSpan.FromMilliseconds(300);
                 session.Timeout.Should().Be(TimeSpan.FromMilliseconds(300));
                 session.Context.LastActivityUtc.Should().Be(before);
 

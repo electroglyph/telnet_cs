@@ -1,0 +1,48 @@
+namespace telnet_cs.Protocol;
+
+/// <summary>
+/// MTTS capability flags; a client's vector is the sum of its supported
+/// flags (e.g. <c>"MTTS 13"</c> = Ansi | Utf8 | Colors256).
+/// </summary>
+[Flags]
+public enum MttsCapabilities
+{
+    /// <summary>No capabilities reported.</summary>
+    None = 0,
+
+    /// <summary>Client supports common ANSI color codes (1).</summary>
+    Ansi = 1,
+
+    /// <summary>Client supports common VT100 codes (2).</summary>
+    Vt100 = 2,
+
+    /// <summary>Client is using UTF-8 character encoding (4).</summary>
+    Utf8 = 4,
+
+    /// <summary>Client supports 256 colors (8).</summary>
+    Colors256 = 8,
+
+    /// <summary>Client supports xterm mouse tracking (16).</summary>
+    MouseTracking = 16,
+
+    /// <summary>Client supports OSC color palette (32).</summary>
+    OscColorPalette = 32,
+
+    /// <summary>Client is using a screen reader (64).</summary>
+    ScreenReader = 64,
+
+    /// <summary>Client is a proxy for multiple users (128).</summary>
+    Proxy = 128,
+
+    /// <summary>Client supports truecolor (256).</summary>
+    Truecolor = 256,
+
+    /// <summary>Client supports MNES information exchange (512).</summary>
+    Mnes = 512,
+
+    /// <summary>Client supports MSLP clickable links (1024).</summary>
+    Mslp = 1024,
+
+    /// <summary>Client supports SSL/TLS encryption (2048).</summary>
+    Ssl = 2048,
+}

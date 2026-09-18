@@ -250,7 +250,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             var options = new TelnetServerOptions { IdleTimeout = Timeout.InfiniteTimeSpan };
             using var session = new ServerSession(stream, options, CancellationToken.None);
-            session.SetTimeout(TimeSpan.FromMilliseconds(150));
+            session.Timeout = TimeSpan.FromMilliseconds(150);
             session.Timeout.Should().Be(TimeSpan.FromMilliseconds(150));
             bool closed = false;
             for (int i = 0; i < 60 && !closed; i++)
@@ -271,7 +271,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             var options = new TelnetServerOptions { IdleTimeout = TimeSpan.FromMilliseconds(150) };
             using var session = new ServerSession(stream, options, CancellationToken.None);
-            session.SetTimeout(Timeout.InfiniteTimeSpan);
+            session.Timeout = Timeout.InfiniteTimeSpan;
             await Task.Delay(300);
             session.IsConnected.Should().BeTrue();
             session.IsIdleTimedOut.Should().BeFalse();

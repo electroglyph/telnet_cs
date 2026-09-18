@@ -1,159 +1,158 @@
-namespace telnet_cs.Encodings
+namespace telnet_cs.Encodings;
+
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+/// <summary>
+/// <see cref="EncodingProvider"/> exposing the retro-computer codecs by
+/// name: <c>atascii</c> (+ <c>atari8bit</c>, <c>atari_8bit</c>),
+/// <c>petscii</c> (+ <c>cbm</c>, <c>commodore</c>, <c>c64</c>,
+/// <c>c128</c>), <c>atarist</c> (+ <c>atari</c>), <c>big5bbs</c> (+
+/// <c>big5_bbs</c>, <c>big5_pcman</c>, <c>big5_pcmanx</c>,
+/// <c>big5_ptt</c>). Names are matched case-insensitively with hyphens
+/// treated as underscores.
+/// </summary>
+public sealed class TelnetEncodingProvider : EncodingProvider
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Text;
+    private static readonly Dictionary<string, Func<Encoding>> Factories =
+        new(StringComparer.Ordinal)
+        {
+            ["atascii"] = static () => new AtasciiEncoding(),
+            ["atari8bit"] = static () => new AtasciiEncoding(),
+            ["atari_8bit"] = static () => new AtasciiEncoding(),
+            ["petscii"] = static () => new PetsciiEncoding(),
+            ["cbm"] = static () => new PetsciiEncoding(),
+            ["commodore"] = static () => new PetsciiEncoding(),
+            ["c64"] = static () => new PetsciiEncoding(),
+            ["c128"] = static () => new PetsciiEncoding(),
+            ["atarist"] = static () => new AtaristEncoding(),
+            ["atari"] = static () => new AtaristEncoding(),
+            ["big5bbs"] = static () => new Big5BbsEncoding(),
+            ["big5_bbs"] = static () => new Big5BbsEncoding(),
+            ["big5_pcman"] = static () => new Big5BbsEncoding(),
+            ["big5_pcmanx"] = static () => new Big5BbsEncoding(),
+            ["big5_ptt"] = static () => new Big5BbsEncoding(),
+        };
 
     /// <summary>
-    /// <see cref="EncodingProvider"/> exposing the retro-computer codecs by
-    /// name: <c>atascii</c> (+ <c>atari8bit</c>, <c>atari_8bit</c>),
-    /// <c>petscii</c> (+ <c>cbm</c>, <c>commodore</c>, <c>c64</c>,
-    /// <c>c128</c>), <c>atarist</c> (+ <c>atari</c>), <c>big5bbs</c> (+
-    /// <c>big5_bbs</c>, <c>big5_pcman</c>, <c>big5_pcmanx</c>,
-    /// <c>big5_ptt</c>). Names are matched case-insensitively with hyphens
-    /// treated as underscores.
+    /// Gets the shared provider instance.
     /// </summary>
-    public sealed class TelnetEncodingProvider : EncodingProvider
+    public static TelnetEncodingProvider Instance { get; } = new();
+
+    /// <inheritdoc/>
+    public override Encoding? GetEncoding(string name)
     {
-        private static readonly Dictionary<string, Func<Encoding>> Factories =
-            new(StringComparer.Ordinal)
-            {
-                ["atascii"] = static () => new AtasciiEncoding(),
-                ["atari8bit"] = static () => new AtasciiEncoding(),
-                ["atari_8bit"] = static () => new AtasciiEncoding(),
-                ["petscii"] = static () => new PetsciiEncoding(),
-                ["cbm"] = static () => new PetsciiEncoding(),
-                ["commodore"] = static () => new PetsciiEncoding(),
-                ["c64"] = static () => new PetsciiEncoding(),
-                ["c128"] = static () => new PetsciiEncoding(),
-                ["atarist"] = static () => new AtaristEncoding(),
-                ["atari"] = static () => new AtaristEncoding(),
-                ["big5bbs"] = static () => new Big5BbsEncoding(),
-                ["big5_bbs"] = static () => new Big5BbsEncoding(),
-                ["big5_pcman"] = static () => new Big5BbsEncoding(),
-                ["big5_pcmanx"] = static () => new Big5BbsEncoding(),
-                ["big5_ptt"] = static () => new Big5BbsEncoding(),
-            };
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        var normalized = name.ToLowerInvariant().Replace('-', '_');
+        return Factories.TryGetValue(normalized, out var factory) ? factory() : null;
+    }
 
-        /// <summary>
-        /// Gets the shared provider instance.
-        /// </summary>
-        public static TelnetEncodingProvider Instance { get; } = new();
-
-        /// <inheritdoc/>
-        public override Encoding? GetEncoding(string name)
+    /// <inheritdoc/>
+    public override Encoding? GetEncoding(int codepage)
+    {
+        return codepage switch
         {
-            ArgumentException.ThrowIfNullOrEmpty(name);
-            var normalized = name.ToLowerInvariant().Replace('-', '_');
-            return Factories.TryGetValue(normalized, out var factory) ? factory() : null;
+            80001 => new AtasciiEncoding(),
+            80002 => new PetsciiEncoding(),
+            80003 => new AtaristEncoding(),
+            80004 => new Big5BbsEncoding(),
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// Returns the codec with the requested fallbacks installed. The base
+    /// implementation would clone and use the base fallback setters, which
+    /// our codecs shadow (the base setters throw on fresh read-only
+    /// instances and the base property is not virtual), so the fallbacks
+    /// are installed directly on the concrete instance instead.
+    /// </summary>
+    public override Encoding? GetEncoding(string name, EncoderFallback? encoderFallback, DecoderFallback? decoderFallback)
+    {
+        var encoding = GetEncoding(name);
+        if (encoding is null)
+        {
+            return null;
         }
 
-        /// <inheritdoc/>
-        public override Encoding? GetEncoding(int codepage)
+        if (encoderFallback is not null)
         {
-            return codepage switch
+            switch (encoding)
             {
-                80001 => new AtasciiEncoding(),
-                80002 => new PetsciiEncoding(),
-                80003 => new AtaristEncoding(),
-                80004 => new Big5BbsEncoding(),
-                _ => null,
-            };
+                case CharmapEncoding charmap:
+                    charmap.EncoderFallback = encoderFallback;
+                    break;
+                case Big5BbsEncoding big5bbs:
+                    big5bbs.EncoderFallback = encoderFallback;
+                    break;
+            }
         }
 
-        /// <summary>
-        /// Returns the codec with the requested fallbacks installed. The base
-        /// implementation would clone and use the base fallback setters, which
-        /// our codecs shadow (the base setters throw on fresh read-only
-        /// instances and the base property is not virtual), so the fallbacks
-        /// are installed directly on the concrete instance instead.
-        /// </summary>
-        public override Encoding? GetEncoding(string name, EncoderFallback? encoderFallback, DecoderFallback? decoderFallback)
+        if (decoderFallback is not null)
         {
-            var encoding = GetEncoding(name);
-            if (encoding is null)
+            switch (encoding)
             {
-                return null;
+                case CharmapEncoding charmap:
+                    charmap.DecoderFallback = decoderFallback;
+                    break;
+                case Big5BbsEncoding big5bbs:
+                    big5bbs.DecoderFallback = decoderFallback;
+                    break;
             }
-
-            if (encoderFallback is not null)
-            {
-                switch (encoding)
-                {
-                    case CharmapEncoding charmap:
-                        charmap.EncoderFallback = encoderFallback;
-                        break;
-                    case Big5BbsEncoding big5bbs:
-                        big5bbs.EncoderFallback = encoderFallback;
-                        break;
-                }
-            }
-
-            if (decoderFallback is not null)
-            {
-                switch (encoding)
-                {
-                    case CharmapEncoding charmap:
-                        charmap.DecoderFallback = decoderFallback;
-                        break;
-                    case Big5BbsEncoding big5bbs:
-                        big5bbs.DecoderFallback = decoderFallback;
-                        break;
-                }
-            }
-
-            return encoding;
         }
 
-        /// <summary>
-        /// Returns the codec for a codepage with the requested fallbacks
-        /// installed directly on the concrete instance (same shadowing
-        /// reason as the name-based overload).
-        /// </summary>
-        public override Encoding? GetEncoding(int codepage, EncoderFallback? encoderFallback, DecoderFallback? decoderFallback)
+        return encoding;
+    }
+
+    /// <summary>
+    /// Returns the codec for a codepage with the requested fallbacks
+    /// installed directly on the concrete instance (same shadowing
+    /// reason as the name-based overload).
+    /// </summary>
+    public override Encoding? GetEncoding(int codepage, EncoderFallback? encoderFallback, DecoderFallback? decoderFallback)
+    {
+        var encoding = GetEncoding(codepage);
+        if (encoding is null)
         {
-            var encoding = GetEncoding(codepage);
-            if (encoding is null)
-            {
-                return null;
-            }
-
-            if (encoderFallback is not null)
-            {
-                switch (encoding)
-                {
-                    case CharmapEncoding charmap:
-                        charmap.EncoderFallback = encoderFallback;
-                        break;
-                    case Big5BbsEncoding big5bbs:
-                        big5bbs.EncoderFallback = encoderFallback;
-                        break;
-                }
-            }
-
-            if (decoderFallback is not null)
-            {
-                switch (encoding)
-                {
-                    case CharmapEncoding charmap:
-                        charmap.DecoderFallback = decoderFallback;
-                        break;
-                    case Big5BbsEncoding big5bbs:
-                        big5bbs.DecoderFallback = decoderFallback;
-                        break;
-                }
-            }
-
-            return encoding;
+            return null;
         }
 
-        /// <inheritdoc/>
-        public override IEnumerable<EncodingInfo> GetEncodings()
+        if (encoderFallback is not null)
         {
-            yield return new EncodingInfo(this, 80001, "atascii", "ATASCII (Atari 8-bit)");
-            yield return new EncodingInfo(this, 80002, "petscii", "PETSCII (Commodore, shifted mode)");
-            yield return new EncodingInfo(this, 80003, "atarist", "Atari ST");
-            yield return new EncodingInfo(this, 80004, "big5bbs", "Big5-BBS hybrid (Taiwanese BBS)");
+            switch (encoding)
+            {
+                case CharmapEncoding charmap:
+                    charmap.EncoderFallback = encoderFallback;
+                    break;
+                case Big5BbsEncoding big5bbs:
+                    big5bbs.EncoderFallback = encoderFallback;
+                    break;
+            }
         }
+
+        if (decoderFallback is not null)
+        {
+            switch (encoding)
+            {
+                case CharmapEncoding charmap:
+                    charmap.DecoderFallback = decoderFallback;
+                    break;
+                case Big5BbsEncoding big5bbs:
+                    big5bbs.DecoderFallback = decoderFallback;
+                    break;
+            }
+        }
+
+        return encoding;
+    }
+
+    /// <inheritdoc/>
+    public override IEnumerable<EncodingInfo> GetEncodings()
+    {
+        yield return new EncodingInfo(this, 80001, "atascii", "ATASCII (Atari 8-bit)");
+        yield return new EncodingInfo(this, 80002, "petscii", "PETSCII (Commodore, shifted mode)");
+        yield return new EncodingInfo(this, 80003, "atarist", "Atari ST");
+        yield return new EncodingInfo(this, 80004, "big5bbs", "Big5-BBS hybrid (Taiwanese BBS)");
     }
 }

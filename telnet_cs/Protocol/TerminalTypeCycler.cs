@@ -1,66 +1,65 @@
-﻿namespace telnet_cs.Protocol
+﻿namespace telnet_cs.Protocol;
+
+using telnet_cs.Client;
+using telnet_cs.IO;
+
+/// <summary>
+/// RFC 1091 terminal-type cycling: walks an ordered type list (most to
+/// least specific) across successive SENDs. The final entry is sent twice
+/// to signal end-of-list, then the next SEND wraps to the top (RFC 1091
+/// section 6). Owned by <see cref="Client"/> so the position survives
+/// across per-read <see cref="ByteStreamHandler"/> instances.
+/// </summary>
+internal sealed class TerminalTypeCycler
 {
-    using telnet_cs.Client;
-    using telnet_cs.IO;
+    internal const string Unknown = "unknown";
 
-    /// <summary>
-    /// RFC 1091 terminal-type cycling: walks an ordered type list (most to
-    /// least specific) across successive SENDs. The final entry is sent twice
-    /// to signal end-of-list, then the next SEND wraps to the top (RFC 1091
-    /// section 6). Owned by <see cref="Client"/> so the position survives
-    /// across per-read <see cref="ByteStreamHandler"/> instances.
-    /// </summary>
-    internal sealed class TerminalTypeCycler
+    private readonly IReadOnlyList<string> types;
+
+    private readonly Lock sync = new();
+
+    private int index;
+
+    private bool endSignaled;
+
+    internal TerminalTypeCycler(IReadOnlyList<string> types)
     {
-        internal const string Unknown = "unknown";
+        ArgumentNullException.ThrowIfNull(types);
+        this.types = types.Count == 0 ? [Unknown] : types;
+    }
 
-        private readonly IReadOnlyList<string> types;
-
-        private readonly Lock sync = new();
-
-        private int index;
-
-        private bool endSignaled;
-
-        internal TerminalTypeCycler(IReadOnlyList<string> types)
+    internal bool Matches(IReadOnlyList<string> other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        lock (sync)
         {
-            ArgumentNullException.ThrowIfNull(types);
-            this.types = types.Count == 0 ? [Unknown] : types;
+            return types.SequenceEqual(other, StringComparer.OrdinalIgnoreCase);
         }
+    }
 
-        internal bool Matches(IReadOnlyList<string> other)
+    internal string Next()
+    {
+        lock (sync)
         {
-            ArgumentNullException.ThrowIfNull(other);
-            lock (sync)
+            string current = types[index];
+            if (index == types.Count - 1)
             {
-                return types.SequenceEqual(other, StringComparer.OrdinalIgnoreCase);
-            }
-        }
-
-        internal string Next()
-        {
-            lock (sync)
-            {
-                string current = types[index];
-                if (index == types.Count - 1)
+                if (endSignaled)
                 {
-                    if (endSignaled)
-                    {
-                        index = 0;
-                        endSignaled = false;
-                    }
-                    else
-                    {
-                        endSignaled = true;
-                    }
+                    index = 0;
+                    endSignaled = false;
                 }
                 else
                 {
-                    index++;
+                    endSignaled = true;
                 }
-
-                return current;
             }
+            else
+            {
+                index++;
+            }
+
+            return current;
         }
     }
 }

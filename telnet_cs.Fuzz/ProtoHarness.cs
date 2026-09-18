@@ -52,12 +52,12 @@ internal static class ProtoHarness
         _ = state.IsEnabledByPeer(o2);
         _ = state.WasRefusedByUs(o1);
         _ = state.WasRefusedByPeer(o2);
-        _ = state.GetStates(o1);
+        _ = state[o1];
         _ = StatusProtocol.BuildIsPayload(state);
         var isPayload = StatusProtocol.FrameStatusIs(bytes.Length == 0 ? [] : bytes[..Math.Min(bytes.Length, 32)]);
         var sendPayload = StatusProtocol.FrameStatusSend();
         _ = LineflowProtocol.IsDefined(o1);
-        var (us, him) = state.GetStates(o1);
+        var (us, him) = state[o1];
         return FuzzSignature.ForLongs(isPayload.Length, sendPayload.Length, (int)us, (int)him);
     }
 

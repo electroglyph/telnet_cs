@@ -101,11 +101,13 @@ public partial class ServerSession
                 }
                 else
                 {
-                    var buffer = new byte[3 + encoded.Length];
-                    buffer[0] = (byte)Commands.InterpretAsCommand;
-                    buffer[1] = (byte)verb.Value;
-                    buffer[2] = (byte)Options.Echo;
-                    encoded.CopyTo(buffer, 3);
+                    byte[] buffer =
+                    [
+                        (byte)Commands.InterpretAsCommand,
+                        (byte)verb.Value,
+                        (byte)Options.Echo,
+                        .. encoded,
+                    ];
                     await SendRawBytesLockedAsync(buffer, linked.Token).ConfigureAwait(false);
                 }
             }

@@ -111,7 +111,7 @@ namespace telnet_cs.Tests
         public void NetworkStream_NullBacking_ThrowsArgumentNull()
         {
             // Framework convention (cf. BufferedStream(Stream), and this
-            // repo's own BaseClient ctor): public constructors reject null
+            // repo's own TelnetSessionBase ctor): public constructors reject null
             // with ArgumentNullException (CA1062) instead of NRE-ing on
             // first use.
             Action create = () => new NetworkStream(null!);

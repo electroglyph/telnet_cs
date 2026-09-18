@@ -7,6 +7,7 @@ namespace telnet_cs.Tests
     using System.IO;
     using System.IO.Compression;
     using System.Linq;
+    using System.Runtime.InteropServices;
     using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
@@ -42,7 +43,7 @@ namespace telnet_cs.Tests
                 payload.Add((byte)'x');
             }
 
-            var entries = EnvironmentProtocol.ParseEntries(payload, maxEntries: 3);
+            var entries = EnvironmentProtocol.ParseEntries(CollectionsMarshal.AsSpan(payload), maxEntries: 3);
             entries.Should().HaveCount(3);
             entries.Select(e => e.Name).Should().Equal("A", "B", "C");
         }

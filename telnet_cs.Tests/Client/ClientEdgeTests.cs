@@ -66,7 +66,7 @@
         public void DisposeCompletesWithoutArtificialDelay()
         {
             // PROPER: Dispose must not sleep ~100ms on an AutoResetEvent.
-            // Currently fails: BaseClientCancellable.Dispose always waits 100ms.
+            // Currently fails: TelnetSessionBaseCancellable.Dispose always waits 100ms.
             var fake = ConnectedFake();
             var sut = new Client(fake, TimeSpan.FromMilliseconds(10), default);
             var sw = Stopwatch.StartNew();

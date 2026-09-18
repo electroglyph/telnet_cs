@@ -27,10 +27,9 @@ namespace telnet_cs.Tests
                 new ScriptedStream("AAAAAAAAAAA"),
                 new TelnetServerOptions { MaxTerminatedReadChars = 10 },
                 CancellationToken.None);
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(
-                () => session.TerminatedReadAsync("\n", TimeSpan.FromSeconds(2)));
-            ex.Message.Should().Contain("10-character");
-            session.IsConnected.Should().BeTrue();
+            await TerminatedReadLimitCases.OverlongLine_ThrowsNamingLimitAndSurvives(
+                () => session.TerminatedReadAsync("\n", TimeSpan.FromSeconds(2)),
+                () => session.IsConnected);
         }
 
         [Fact]
@@ -41,7 +40,9 @@ namespace telnet_cs.Tests
                 new ScriptedStream(overlong),
                 new TelnetServerOptions { MaxTerminatedReadChars = 0 },
                 CancellationToken.None);
-            (await session.TerminatedReadAsync("\n", TimeSpan.FromSeconds(2))).Should().Be(overlong);
+            await TerminatedReadLimitCases.ZeroLimit_Disables(
+                () => session.TerminatedReadAsync("\n", TimeSpan.FromSeconds(2)),
+                overlong);
         }
 
         [Fact]
@@ -52,9 +53,9 @@ namespace telnet_cs.Tests
                 new TelnetServerOptions { MaxTerminatedReadChars = 100 },
                 CancellationToken.None);
             session.MaxTerminatedReadChars = 10;
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(
-                () => session.TerminatedReadAsync("\n", TimeSpan.FromSeconds(2)));
-            ex.Message.Should().Contain("10-character");
+            await TerminatedReadLimitCases.OverlongLine_ThrowsNamingLimitAndSurvives(
+                () => session.TerminatedReadAsync("\n", TimeSpan.FromSeconds(2)),
+                () => session.IsConnected);
         }
 
         [Fact]
@@ -66,7 +67,9 @@ namespace telnet_cs.Tests
                 new TelnetServerOptions { MaxTerminatedReadChars = 10 },
                 CancellationToken.None);
             session.MaxTerminatedReadChars = 0;
-            (await session.TerminatedReadAsync("\n", TimeSpan.FromSeconds(2))).Should().Be(overlong);
+            await TerminatedReadLimitCases.ZeroLimit_Disables(
+                () => session.TerminatedReadAsync("\n", TimeSpan.FromSeconds(2)),
+                overlong);
         }
 
         [Fact]
@@ -76,7 +79,7 @@ namespace telnet_cs.Tests
                 new ScriptedStream(string.Empty),
                 new TelnetServerOptions(),
                 CancellationToken.None);
-            Assert.Throws<ArgumentOutOfRangeException>(() => session.MaxTerminatedReadChars = -1);
+            TerminatedReadLimitCases.NegativeLimit_ThrowsArgumentOutOfRange(() => session.MaxTerminatedReadChars = -1);
         }
 
         [Fact]

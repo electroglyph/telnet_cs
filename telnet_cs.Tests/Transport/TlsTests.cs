@@ -655,7 +655,7 @@ namespace telnet_cs.Tests
         {
             // A default options object interposes no TLS wrapper: application
             // text goes out as plaintext, observable directly
-            // (BaseClient.ByteStream is protected, so bytes — not
+            // (TelnetSessionBase.ByteStream is protected, so bytes — not
             // internals — are the honest assertion). The client sends nothing
             // on connect by default, so write first and read the app bytes.
             using var listener = new TcpListener(IPAddress.Loopback, 0);

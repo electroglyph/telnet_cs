@@ -141,7 +141,7 @@ namespace telnet_cs.Tests
             using var stream = new ScriptedStream();
             using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
             var before = session.Context.LastActivityUtc;
-            session.SetTimeout(TimeSpan.FromMinutes(5));
+            session.Timeout = TimeSpan.FromMinutes(5);
             session.Context.LastActivityUtc.Should().Be(before);
         }
 
