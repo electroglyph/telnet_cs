@@ -29,6 +29,9 @@ remainder of those areas is covered in D19/D21. Existing entries D2/D5 had
 stale line numbers after those fixes and were re-anchored; D1/D3/D4 were
 re-checked unchanged.
 
+Numbering note: D13, D15, and D17 are unassigned (retired during earlier
+passes) — the sequence runs D1–D12, D14, D16, D18–D26 with those gaps.
+
 ## D1 — withdrawing our own enable request is queued instead of sent (wire)
 
 - Proof: [`repro/py_d1_usdisable.py`](repro/py_d1_usdisable.py) →

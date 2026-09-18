@@ -283,6 +283,34 @@ namespace telnet_cs.Transport
                 }
             }
 
+            /// <summary>
+            /// Waits until the peer writes, the peer closes, or <paramref name="cancellationToken"/>
+            /// is cancelled. The synchronous <see cref="ReadByte"/> keeps its indefinite wait for
+            /// <see cref="IByteStream"/> parity (a close still wakes it); use this overload from
+            /// async code so a hung peer cannot block teardown forever.
+            /// </summary>
+            /// <param name="timeout">How long to wait. Non-positive waits indefinitely until cancel/close/write.</param>
+            /// <param name="cancellationToken">Cancels the wait.</param>
+            /// <returns>True when woken by a write or close; false on timeout.</returns>
+            internal bool WaitForData(TimeSpan timeout, CancellationToken cancellationToken)
+            {
+                try
+                {
+                    if (timeout <= TimeSpan.Zero)
+                    {
+                        dataAvailable.Wait(cancellationToken);
+                        return true;
+                    }
+
+                    return dataAvailable.Wait(timeout, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    return false;
+                }
+            }
+
             private void Deliver(byte[] payload)
             {
                 lock (mutex)

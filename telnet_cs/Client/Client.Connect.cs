@@ -50,13 +50,11 @@
         /// </summary>
         public static bool SkipProactiveOptionNegotiation
         {
-            get => _skipProactiveFlow.CurrentOr(_skipProactiveDefault) == true;
-            set => _skipProactiveDefault = value;
-        }
+            get => _skipProactiveFlow.CurrentOr(field) == true;
+            set => field = value;
+        } = true;
 
         internal static FlowLocal<bool> SkipProactiveOverride => _skipProactiveFlow;
-
-        private static bool _skipProactiveDefault = true;
 
         private static readonly FlowLocal<bool> _skipProactiveFlow = new();
 
@@ -66,13 +64,11 @@
         /// </summary>
         public static Action<string>? Trace
         {
-            get => _traceFlow.CurrentOr(_traceDefault);
-            set => _traceDefault = value;
+            get => _traceFlow.CurrentOr(field);
+            set => field = value;
         }
 
         internal static FlowLocal<Action<string>?> TraceOverride => _traceFlow;
-
-        private static Action<string>? _traceDefault;
 
         private static readonly FlowLocal<Action<string>?> _traceFlow = new();
 
@@ -114,6 +110,8 @@
             // NOTE: byteStream is validated by the base constructor; options cannot
             // be validated before the base call, so a null options array still
             // constructs (and connects) the client before throwing below.
+            // New code should prefer CreateAsync, which validates before construction
+            // and never blocks the calling thread.
             ArgumentNullException.ThrowIfNull(options);
             var timeoutEnd = DateTime.UtcNow.Add(timeout);
             using var are = new AutoResetEvent(false);
@@ -145,6 +143,72 @@
                     }
                 }
 #pragma warning restore VSTHRD002 // Avoid problematic synchronous waits
+            }
+        }
+
+        private Client(IByteStream byteStream, CancellationToken token, bool deferConnect)
+          : base(byteStream, token)
+        {
+            _ = deferConnect;
+        }
+
+        /// <summary>
+        /// Creates a <see cref="Client"/> over an already-provided <see cref="IByteStream"/>
+        /// without blocking the calling thread. Unlike the constructors, this factory waits
+        /// for <c>Connected</c> with <c>Task.Delay</c> and runs the proactive negotiation
+        /// asynchronously, so it never blocks on async work and honours cancellation.
+        /// </summary>
+        /// <param name="byteStream">The stream served by the host connected to.</param>
+        /// <param name="timeout">The timeout to wait for initial successful connection to <paramref name="byteStream"/>.</param>
+        /// <param name="cancellationToken">The token to monitor for cancellation requests.</param>
+        /// <param name="options">Additional options to send during negotiation. Null behaves like an empty array.</param>
+        /// <param name="skipProactiveNegotiation">When <c>true</c> (the default), suppresses the opening negotiation.</param>
+        /// <returns>A connected <see cref="Client"/> owning its stream. Dispose it when done.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="byteStream"/> is <c>null</c>.</exception>
+        /// <exception cref="InvalidOperationException">The stream did not connect within <paramref name="timeout"/>.</exception>
+        /// <exception cref="OperationCanceledException">Cancelled via <paramref name="cancellationToken"/>.</exception>
+        public static async Task<Client> CreateAsync(IByteStream byteStream, TimeSpan timeout, CancellationToken cancellationToken = default, (Commands Command, Options Option)[]? options = null, bool skipProactiveNegotiation = true)
+        {
+            ArgumentNullException.ThrowIfNull(byteStream);
+            var pending = options ?? [];
+            var client = new Client(byteStream, cancellationToken, deferConnect: true);
+            try
+            {
+                await client.WaitForConnectionAsync(timeout, cancellationToken).ConfigureAwait(false);
+                if (!SkipProactiveOptionNegotiation && !skipProactiveNegotiation)
+                {
+                    await client.ProactiveOptionNegotiation().ConfigureAwait(false);
+                }
+
+                if (!skipProactiveNegotiation)
+                {
+                    foreach (var option in pending)
+                    {
+                        await client.NegotiateOption(option.Command, option.Option).ConfigureAwait(false);
+                    }
+                }
+
+                return client;
+            }
+            catch
+            {
+                client.Dispose();
+                throw;
+            }
+        }
+
+        private async Task WaitForConnectionAsync(TimeSpan timeout, CancellationToken cancellationToken)
+        {
+            var timeoutEnd = DateTime.UtcNow.Add(timeout);
+            while (!ByteStream.Connected)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (DateTime.UtcNow >= timeoutEnd)
+                {
+                    throw new InvalidOperationException("Unable to connect to the host.");
+                }
+
+                await Task.Delay(2, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -276,13 +340,11 @@
         /// </summary>
         public static string TerminalType
         {
-            get => _terminalTypeFlow.CurrentOr(_terminalTypeDefault) ?? _terminalTypeDefault;
-            set => _terminalTypeDefault = value;
-        }
+            get => _terminalTypeFlow.CurrentOr(field) ?? field;
+            set => field = value;
+        } = "unknown";
 
         internal static FlowLocal<string> TerminalTypeOverride => _terminalTypeFlow;
-
-        private static string _terminalTypeDefault = "unknown";
 
         private static readonly FlowLocal<string> _terminalTypeFlow = new();
 
@@ -291,13 +353,11 @@
         /// </summary>
         public static string TerminalSpeed
         {
-            get => _terminalSpeedFlow.CurrentOr(_terminalSpeedDefault) ?? _terminalSpeedDefault;
-            set => _terminalSpeedDefault = value;
-        }
+            get => _terminalSpeedFlow.CurrentOr(field) ?? field;
+            set => field = value;
+        } = "38400,38400";
 
         internal static FlowLocal<string> TerminalSpeedOverride => _terminalSpeedFlow;
-
-        private static string _terminalSpeedDefault = "38400,38400";
 
         private static readonly FlowLocal<string> _terminalSpeedFlow = new();
 
@@ -341,7 +401,7 @@
                 return Task.CompletedTask;
             }
 
-            var buffer = new byte[] { (byte)Commands.InterpretAsCommand, (byte)verb, (byte)option };
+            byte[] buffer = [(byte)Commands.InterpretAsCommand, (byte)verb, (byte)option];
             return WriteStream.WriteAsync(buffer, 0, buffer.Length, InternalCancellation.Token);
         }
     }

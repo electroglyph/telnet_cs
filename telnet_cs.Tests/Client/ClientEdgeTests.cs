@@ -30,7 +30,7 @@
         }
 
         [Fact]
-        public void CtorNullStreamThrowsArgumentNull()
+        public void Ctor_NullStream_ThrowsArgumentNull()
         {
             Action act = () => new Client(null!, new CancellationToken());
             act.Should().Throw<ArgumentNullException>().WithParameterName("byteStream");

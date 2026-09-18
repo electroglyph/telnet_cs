@@ -16,8 +16,13 @@
     /// </remarks>
     internal static class ByteStringConverter
     {
+        /// <summary>
+        /// Converts a string to bytes with the legacy Latin-1 mapping.
+        /// </summary>
+        /// <param name="value">The string to convert.</param>
         public static byte[] ConvertStringToByteArray(string value)
         {
+            ArgumentNullException.ThrowIfNull(value);
             return ConvertStringToByteArray(value, null);
         }
 
@@ -37,7 +42,8 @@
         /// </exception>
         public static byte[] ConvertStringToByteArray(string value, Encoding? encoding)
         {
-            if (encoding == null)
+            ArgumentNullException.ThrowIfNull(value);
+            if (encoding is null)
             {
                 // Latin-1 maps bytes 0-255 one-to-one to the first 256 Unicode code
                 // points. (ASCIIEncoding would map everything above 127 to '?'.) A
@@ -122,8 +128,13 @@
             return escaped;
         }
 
+        /// <summary>
+        /// Decodes bytes to a string with the legacy Latin-1 mapping.
+        /// </summary>
+        /// <param name="bytes">The bytes to decode.</param>
         public static string ToString(byte[] bytes)
         {
+            ArgumentNullException.ThrowIfNull(bytes);
             return ToString(bytes, 0, bytes.Length);
         }
 
@@ -134,6 +145,7 @@
         /// <param name="encoding">The encoding to use. When null (default), the legacy Latin-1 mapping is used.</param>
         public static string ToString(byte[] bytes, Encoding? encoding)
         {
+            ArgumentNullException.ThrowIfNull(bytes);
             return ToString(bytes, 0, bytes.Length, encoding);
         }
 
@@ -149,7 +161,7 @@
             ArgumentOutOfRangeException.ThrowIfNegative(count);
             ArgumentOutOfRangeException.ThrowIfGreaterThan(count, bytes.Length - offset);
 
-            if (encoding != null)
+            if (encoding is not null)
             {
                 return encoding.GetString(bytes, offset, count);
             }

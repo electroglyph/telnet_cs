@@ -2,6 +2,7 @@ namespace telnet_cs.Protocol
 {
     using System;
     using System.Collections.Generic;
+    using System.Runtime.InteropServices;
     using System.Text;
 
     /// <summary>
@@ -52,7 +53,8 @@ namespace telnet_cs.Protocol
             var separator = ' ';
             if (offers.Any(static name => name.Contains(' ')))
             {
-                foreach (var candidate in new[] { ';', ',', '/' })
+                char[] fallbacks = [';', ',', '/'];
+                foreach (char candidate in fallbacks)
                 {
                     if (offers.All(name => !name.Contains(candidate)))
                     {
@@ -64,10 +66,7 @@ namespace telnet_cs.Protocol
 
             var joined = string.Join(separator, offers);
             var body = Encoding.ASCII.GetBytes(separator + joined);
-            var payload = new byte[1 + body.Length];
-            payload[0] = Request;
-            body.CopyTo(payload, 1);
-            return payload;
+            return FrameVerb(Request, body);
         }
 
         /// <summary>
@@ -77,9 +76,21 @@ namespace telnet_cs.Protocol
         public static byte[] BuildAccepted(string charset)
         {
             ArgumentNullException.ThrowIfNull(charset);
-            var body = Encoding.ASCII.GetBytes(charset);
+            return FrameVerb(Accepted, Encoding.ASCII.GetBytes(charset));
+        }
+
+        /// <summary>
+        /// Prefixes <paramref name="body"/> with <paramref name="verb"/> to form
+        /// a verb-first subnegotiation payload.
+        /// </summary>
+        /// <param name="verb">The leading verb byte.</param>
+        /// <param name="body">The payload after the verb.</param>
+        /// <returns>A new array with <paramref name="verb"/> followed by <paramref name="body"/>.</returns>
+        internal static byte[] FrameVerb(byte verb, byte[] body)
+        {
+            ArgumentNullException.ThrowIfNull(body);
             var payload = new byte[1 + body.Length];
-            payload[0] = Accepted;
+            payload[0] = verb;
             body.CopyTo(payload, 1);
             return payload;
         }
@@ -102,7 +113,7 @@ namespace telnet_cs.Protocol
             }
 
             var separator = (char)payload[1];
-            var text = Encoding.ASCII.GetString([.. payload.Skip(2)]);
+            var text = TailText(payload, 2);
             var offers = SplitOffers(text, separator);
             if (offers.Count > 0 &&
                 offers.All(static offer => CanonicalName(offer) is null))
@@ -112,7 +123,7 @@ namespace telnet_cs.Protocol
                 // case payload[1] is content, not a separator. Re-read from
                 // payload[1] and split on space; keep it only when something
                 // resolves (otherwise the strict parse stands).
-                var unseparated = Encoding.ASCII.GetString([.. payload.Skip(1)]);
+                var unseparated = TailText(payload, 1);
                 var spaced = SplitOffers(unseparated, ' ');
                 if (spaced.Any(static offer => CanonicalName(offer) is not null))
                 {
@@ -121,6 +132,33 @@ namespace telnet_cs.Protocol
             }
 
             return offers;
+        }
+
+        /// <summary>
+        /// Decodes <paramref name="payload"/> from <paramref name="start"/> as
+        /// ASCII without an intermediate LINQ enumeration: contiguous
+        /// <c>byte[]</c>/<c>List&lt;byte&gt;</c> payloads decode in place, anything
+        /// else copies once by index.
+        /// </summary>
+        private static string TailText(IReadOnlyList<byte> payload, int start)
+        {
+            if (payload is byte[] bytes)
+            {
+                return Encoding.ASCII.GetString(bytes, start, payload.Count - start);
+            }
+
+            if (payload is List<byte> list)
+            {
+                return Encoding.ASCII.GetString(CollectionsMarshal.AsSpan(list).Slice(start));
+            }
+
+            var tail = new byte[payload.Count - start];
+            for (int i = start; i < payload.Count; i++)
+            {
+                tail[i - start] = payload[i];
+            }
+
+            return Encoding.ASCII.GetString(tail);
         }
 
         private static IReadOnlyList<string> SplitOffers(string text, char separator)
@@ -317,24 +355,13 @@ namespace telnet_cs.Protocol
         /// <param name="name">The hyphenated charset name.</param>
         private static string? AliasToCanonical(string name)
         {
-            if (string.Equals(name, "LATIN1", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(name, "LATIN-1", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(name, "ISO8859-1", StringComparison.OrdinalIgnoreCase))
+            return name.ToUpperInvariant() switch
             {
-                return "iso-8859-1";
-            }
-
-            if (string.Equals(name, "UTF8", StringComparison.OrdinalIgnoreCase))
-            {
-                return "utf-8";
-            }
-
-            if (string.Equals(name, "USASCII", StringComparison.OrdinalIgnoreCase))
-            {
-                return "us-ascii";
-            }
-
-            return null;
+                "LATIN1" or "LATIN-1" or "ISO8859-1" => "iso-8859-1",
+                "UTF8" => "utf-8",
+                "USASCII" => "us-ascii",
+                _ => null,
+            };
         }
 
         /// <summary>

@@ -1,10 +1,31 @@
 # Changelog
 
-All notable changes to this project are documented here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/): `Added` /
-`Changed` / `Fixed` per release, with wire, preset, and default changes
-called out explicitly. Behavioral reviews start from this file plus the
-green gates, not from member-name diffing.
+## [0.17.0] - 2026-09-18
+
+### Added
+
+- `Client.CreateAsync`: async factory over an existing `IByteStream` that
+  waits for `Connected` with `Task.Delay` and negotiates asynchronously, so
+  callers never block on async work and cancellation is honoured. The
+  constructors are unchanged. No wire, preset, or default changes.
+- `DuplexPipe.DuplexEnd.WaitForData`: cancellable wait for peer writes/close
+  for async code; the synchronous `ReadByte` keeps its blocking semantics. No
+  wire, preset, or default changes.
+
+### Changed
+
+- Shared internal helpers replace client/server twins with identical output:
+  `TelnetCommands.IsStandaloneControl` (the `SendCommand` allow-list),
+  `CharsetProtocol.FrameVerb`, and the `BaseClient` terminator-cut/limit
+  helpers. No wire, preset, or default changes.
+- Allocation-only cleanups with identical bytes: `AsSpan` in MCCP checksum
+  paths, index copies instead of LINQ `Skip` in CHARSET/LINEMODE parsing, and
+  collection expressions for fixed protocol frames. No wire, preset, or
+  default changes.
+- Style-only: `is null` checks, interpolated messages, `field`-backed static
+  properties, guarded codec/timer initialization instead of `!`, and `switch`
+  expressions for charset-alias/environment selection. No wire, preset, or
+  default changes.
 
 ## [0.16.0] - 2026-09-17
 

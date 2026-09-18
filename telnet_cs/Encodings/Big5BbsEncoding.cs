@@ -22,6 +22,29 @@ namespace telnet_cs.Encodings
         private static char[]? cp437Chars;
         private static Dictionary<string, byte>? cp437EncodeTable;
 
+        // Initialized once by EnsureCodePages under lock. The compiler cannot
+        // see that edge, so reads go through these guards instead of `!`.
+        private static Encoding Big5Codec
+        {
+            get
+            {
+                EnsureCodePages();
+                return big5 ?? throw new InvalidOperationException("The Big5 code page failed to initialize.");
+            }
+        }
+
+        private static char[] Cp437CharsOrThrow()
+        {
+            EnsureCodePages();
+            return cp437Chars ?? throw new InvalidOperationException("The CP437 table failed to initialize.");
+        }
+
+        private static Dictionary<string, byte> Cp437EncodeTableOrThrow()
+        {
+            EnsureCodePages();
+            return cp437EncodeTable ?? throw new InvalidOperationException("The CP437 encode table failed to initialize.");
+        }
+
         /// <summary>
         /// Initializes a new instance of the <see cref="Big5BbsEncoding"/> class.
         /// </summary>
@@ -123,7 +146,7 @@ namespace telnet_cs.Encodings
         private static string DecodePair(byte lead, byte second)
         {
             Span<byte> pair = [(byte)lead, second];
-            return big5!.GetString(pair);
+            return Big5Codec.GetString(pair);
         }
 
         /// <summary>
@@ -134,6 +157,7 @@ namespace telnet_cs.Encodings
         {
             var end = index + count;
             var i = index;
+            char[] art = Cp437CharsOrThrow();
             if (pendingLead >= 0)
             {
                 var lead = pendingLead;
@@ -151,17 +175,17 @@ namespace telnet_cs.Encodings
                         }
                         catch (DecoderFallbackException)
                         {
-                            charIndex += WriteSingle(cp437Chars![lead], chars, charIndex);
+                            charIndex += WriteSingle(art[lead], chars, charIndex);
                         }
                     }
                     else
                     {
-                        charIndex += WriteSingle(cp437Chars![lead], chars, charIndex);
+                        charIndex += WriteSingle(art[lead], chars, charIndex);
                     }
                 }
                 else if (flush)
                 {
-                    charIndex += WriteSingle(cp437Chars![lead], chars, charIndex);
+                    charIndex += WriteSingle(art[lead], chars, charIndex);
                 }
                 else
                 {
@@ -184,7 +208,7 @@ namespace telnet_cs.Encodings
                 {
                     if (flush)
                     {
-                        charIndex += WriteSingle(cp437Chars![current], chars, charIndex);
+                        charIndex += WriteSingle(art[current], chars, charIndex);
                         i++;
                     }
                     else
@@ -198,7 +222,7 @@ namespace telnet_cs.Encodings
                 var follower = data[i + 1];
                 if (!IsSecond(follower))
                 {
-                    charIndex += WriteSingle(cp437Chars![current], chars, charIndex);
+                    charIndex += WriteSingle(art[current], chars, charIndex);
                     i++;
                     continue;
                 }
@@ -213,7 +237,7 @@ namespace telnet_cs.Encodings
                 {
                     // Structurally valid but undefined in Big5: the lone lead
                     // is CP437 art, the second byte is re-processed.
-                    charIndex += WriteSingle(cp437Chars![current], chars, charIndex);
+                    charIndex += WriteSingle(art[current], chars, charIndex);
                     i++;
                 }
             }
@@ -376,7 +400,7 @@ namespace telnet_cs.Encodings
         {
             try
             {
-                var encoded = big5!.GetBytes(text);
+                var encoded = Big5Codec.GetBytes(text);
                 if (bytes is not null)
                 {
                     encoded.CopyTo(bytes, byteIndex);
@@ -387,7 +411,7 @@ namespace telnet_cs.Encodings
             }
             catch (EncoderFallbackException)
             {
-                if (text.Length == 1 && cp437EncodeTable!.TryGetValue(text, out var mapped))
+                if (text.Length == 1 && Cp437EncodeTableOrThrow().TryGetValue(text, out var mapped))
                 {
                     if (bytes is not null)
                     {

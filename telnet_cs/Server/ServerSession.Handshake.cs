@@ -73,7 +73,13 @@ namespace telnet_cs.Server
                 remaining = TimeSpan.FromMilliseconds(1);
             }
 
-            handshakeTimer = new Timer(static state => _ = ((ServerSession)state!).OnHandshakeTimeoutAsync(), this, remaining, System.Threading.Timeout.InfiniteTimeSpan);
+            handshakeTimer = new Timer(static state =>
+            {
+                if (state is ServerSession session)
+                {
+                    _ = session.OnHandshakeTimeoutAsync();
+                }
+            }, this, remaining, System.Threading.Timeout.InfiniteTimeSpan);
         }
 
         private void StopHandshakeTimer()

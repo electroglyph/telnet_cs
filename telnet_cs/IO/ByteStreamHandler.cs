@@ -881,13 +881,11 @@
         /// </summary>
         internal static Action<string>? Trace
         {
-            get => _traceFlow.CurrentOr(_traceDefault);
-            set => _traceDefault = value;
+            get => _traceFlow.CurrentOr(field);
+            set => field = value;
         }
 
         internal static FlowLocal<Action<string>?> TraceOverride => _traceFlow;
-
-        private static Action<string>? _traceDefault;
 
         private static readonly FlowLocal<Action<string>?> _traceFlow = new();
 
@@ -970,12 +968,12 @@
 
         private void WriteLog(string message)
         {
-            if (Log != null)
+            if (Log is not null)
             {
                 Log(message);
             }
 
-            if (Trace != null)
+            if (Trace is not null)
             {
                 Trace(message);
             }
@@ -2876,7 +2874,7 @@
                 return false;
             }
 
-            var frame = new byte[] { (byte)Commands.InterpretAsCommand, (byte)Commands.EndOfRecord };
+            byte[] frame = [(byte)Commands.InterpretAsCommand, (byte)Commands.EndOfRecord];
             await WriteWireAsync(frame, 0, frame.Length, internalCancellation.Token).ConfigureAwait(false);
             return true;
         }
@@ -3156,7 +3154,7 @@
                 return Task.CompletedTask;
             }
 
-            byte[] mask = payload.Skip(2).ToArray();
+            byte[] mask = payload.GetRange(2, payload.Count - 2).ToArray();
             if (!Linemode.ApplyForwardMaskOffer(mask))
             {
                 WriteLog($"Ignoring LINEMODE FORWARDMASK with invalid length: {mask.Length}.");

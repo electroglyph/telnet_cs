@@ -328,7 +328,7 @@
         {
             if (isDisposing)
             {
-                if (cachedStream != null)
+                if (cachedStream is not null)
                 {
                     cachedStream.Dispose();
                     cachedStream = null;

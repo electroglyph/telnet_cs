@@ -16,7 +16,7 @@
     public class WithFakeClient
     {
         [Fact]
-        public async Task GivenByteStreamWillNeverRespondWhenTerminatedReadShouldWaitRoughlyOneTimeout()
+        public async Task TerminatedReadAsync_SilentStream_WaitsFullTimeout()
         {
             var timeout = new TimeSpan(0, 0, 6);
             var millisecondTolerance = 750;
@@ -34,7 +34,7 @@
         }
 
         [Fact]
-        public async Task ShouldWaitRoughlyOneMillisecondSpin()
+        public async Task TerminatedReadAsync_DelayedByte_ResolvesAfterSpin()
         {
             var millisecondsSpin = 5000;
             var millisecondTolerance = 750;
@@ -77,7 +77,7 @@
         }
 
         [Fact]
-        public async Task ClientShouldReturnUponCancellation()
+        public async Task ReadAsync_CancelledToken_ReturnsPromptly()
         {
             var byteStream = A.Fake<IByteStream>();
             A.CallTo(() => byteStream.Connected).Returns(true);

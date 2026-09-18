@@ -312,8 +312,8 @@ internal sealed class MccpDecompressor : IDisposable
                 {
                     totalOut += read;
                     runningCheck = isGzip
-                      ? CrcUpdate(runningCheck, new ReadOnlySpan<byte>(scratch, 0, read))
-                      : AdlerUpdate(runningCheck, new ReadOnlySpan<byte>(scratch, 0, read));
+                      ? CrcUpdate(runningCheck, scratch.AsSpan(0, read))
+                      : AdlerUpdate(runningCheck, scratch.AsSpan(0, read));
                     if (CheckOutputCap())
                     {
                         return;
@@ -453,8 +453,8 @@ internal sealed class MccpDecompressor : IDisposable
             }
 
             var buffer = input.GetBuffer();
-            var crc = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(new ReadOnlySpan<byte>(buffer, (int)consumed - 8, 4));
-            var size = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(new ReadOnlySpan<byte>(buffer, (int)consumed - 4, 4));
+            var crc = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan((int)consumed - 8, 4));
+            var size = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(buffer.AsSpan((int)consumed - 4, 4));
             if (crc != (runningCheck ^ 0xFFFF_FFFFu) || size != (uint)(totalOut & 0xFFFF_FFFF))
             {
                 return false;
@@ -1151,8 +1151,8 @@ internal sealed class MccpDecompressor : IDisposable
             {
                 total += read;
                 expected = isGzip
-                  ? CrcUpdate(expected, new ReadOnlySpan<byte>(scratch, 0, read))
-                  : AdlerUpdate(expected, new ReadOnlySpan<byte>(scratch, 0, read));
+                  ? CrcUpdate(expected, scratch.AsSpan(0, read))
+                  : AdlerUpdate(expected, scratch.AsSpan(0, read));
             }
 
             return total == totalOut && expected == runningCheck;

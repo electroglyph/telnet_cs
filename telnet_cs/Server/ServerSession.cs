@@ -294,7 +294,7 @@
         public async Task WriteAsync(string command, CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(command);
-            if (Settings.TextEncoding != null)
+            if (Settings.TextEncoding is not null)
             {
                 // Custom encoding: pre-encode here so the exact bytes hit the stream.
                 // Already IAC-escaped by the converter, so send raw.

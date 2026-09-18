@@ -185,23 +185,10 @@
         /// <returns>An awaitable Task.</returns>
         public async Task SendCommand(Commands command, CancellationToken cancellationToken = default)
         {
-            switch (command)
+            if (!TelnetCommands.IsStandaloneControl(command))
             {
-                case Commands.Break:
-                case Commands.InterruptProcess:
-                case Commands.AbortOutput:
-                case Commands.AreYouThere:
-                case Commands.EraseCharacter:
-                case Commands.EraseLine:
-                case Commands.GoAhead:
-                case Commands.NoOperation:
-                case Commands.EndOfFile:
-                case Commands.Suspend:
-                case Commands.Abort:
-                    break;
-                default:
-                    throw new ArgumentOutOfRangeException(
-                      nameof(command), command, "Only standalone control commands (BRK, IP, AO, AYT, EC, EL, GA, NOP, EOF, SUSP, ABORT) can be sent with SendCommand. Option negotiation verbs (DO, DONT, WILL, WONT, SB, SE, IAC) go through the RFC 1143 negotiation API.");
+                throw new ArgumentOutOfRangeException(
+                  nameof(command), command, "Only standalone control commands (BRK, IP, AO, AYT, EC, EL, GA, NOP, EOF, SUSP, ABORT) can be sent with SendCommand. Option negotiation verbs (DO, DONT, WILL, WONT, SB, SE, IAC) go through the RFC 1143 negotiation API.");
             }
 
             if (command == Commands.GoAhead && Negotiation.IsEnabledByUs((int)Options.SuppressGoAhead))
@@ -375,15 +362,13 @@
 
         private string CutAtFirstTerminator(string s, string terminator)
         {
-            int at = s.IndexOf(terminator, StringComparison.Ordinal);
-            if (at < 0)
+            string cut = CutAtFirstTerminator(s, terminator, out string remainder);
+            if (remainder.Length != 0)
             {
-                return s;
+                PrependPendingText(remainder);
             }
 
-            int end = at + terminator.Length;
-            PrependPendingText(s.Substring(end));
-            return s.Substring(0, end);
+            return cut;
         }
 
         /// <summary>
@@ -705,7 +690,7 @@
         // non-nullable parameter lets the compiler enforce that contract.
         private Task SendNegotiationBytesAsync(Commands verb, Options option, CancellationToken cancellationToken)
         {
-            var buffer = new byte[] { (byte)Commands.InterpretAsCommand, (byte)verb, (byte)option };
+            byte[] buffer = [(byte)Commands.InterpretAsCommand, (byte)verb, (byte)option];
             return SendRawBytesLockedAsync(buffer, cancellationToken);
         }
 
@@ -736,7 +721,7 @@
                 int limit = MaxTerminatedReadChars ?? Settings.MaxTerminatedReadChars;
                 if (limit > 0 && !isTerminated(s) && s.Length > limit)
                 {
-                    throw new InvalidOperationException(string.Format("Terminated read exceeded the {0}-character limit without locating the terminator.", limit));
+                    throw new InvalidOperationException(TerminatedReadLimitMessage(limit));
                 }
             }
 

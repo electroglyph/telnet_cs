@@ -22,16 +22,13 @@
             _environmentSnapshot = snapshot;
             // Prefer NEW_ENVIRON (RFC 1572): reference servers only DO NEW, so
             // an OLD-only gate drops updates on NEW-only sessions.
-            Options option;
-            if (Negotiation.IsEnabledByUs((int)Options.NewEnvironment))
+            Options? option = (Negotiation.IsEnabledByUs((int)Options.NewEnvironment), Negotiation.IsEnabledByUs((int)Options.OldEnvironment)) switch
             {
-                option = Options.NewEnvironment;
-            }
-            else if (Negotiation.IsEnabledByUs((int)Options.OldEnvironment))
-            {
-                option = Options.OldEnvironment;
-            }
-            else
+                (true, _) => Options.NewEnvironment,
+                (_, true) => Options.OldEnvironment,
+                _ => null,
+            };
+            if (option is null)
             {
                 return;
             }
@@ -54,7 +51,7 @@
               columns,
               lines,
               colorTerm);
-            var frame = EnvironmentProtocol.FrameSubnegotiation((int)option, info);
+            var frame = EnvironmentProtocol.FrameSubnegotiation((int)option.Value, info);
             if (WriteStream.Connected && !InternalCancellation.Token.IsCancellationRequested)
             {
                 await SendRateLimit.WaitAsync(InternalCancellation.Token).ConfigureAwait(false);

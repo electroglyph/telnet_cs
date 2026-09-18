@@ -86,11 +86,11 @@ Pre-1.0 packages publish to nuget.org on every `VersionPrefix` bump (see
 breaking changes until 1.0:
 
 ```xml
-<PackageReference Include="telnet_cs" Version="0.16.0" />
+<PackageReference Include="telnet_cs" Version="0.17.0" />
 ```
 
 ```sh
-dotnet add package telnet_cs --version 0.16.0
+dotnet add package telnet_cs --version 0.17.0
 ```
 
 Local dev without the feed: `dotnet pack telnet_cs/telnet_cs.csproj -c

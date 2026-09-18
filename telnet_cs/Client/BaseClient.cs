@@ -188,7 +188,7 @@
         /// <returns>True if any terminator is located, otherwise false.</returns>
         protected static bool IsAnyTerminatorLocated(IEnumerable<string>? terminators, string? s)
         {
-            if (terminators == null || string.IsNullOrEmpty(s))
+            if (terminators is null || string.IsNullOrEmpty(s))
             {
                 return false;
             }
@@ -211,7 +211,7 @@
         /// <returns>True if the Regex is matched, otherwise false.</returns>
         protected static bool IsRegexLocated(Regex? regex, string? s)
         {
-            if (string.IsNullOrEmpty(s) || regex == null)
+            if (string.IsNullOrEmpty(s) || regex is null)
             {
                 return false;
             }
@@ -228,7 +228,7 @@
         /// <returns>True if any Regex matches, otherwise false.</returns>
         protected static bool IsAnyRegexLocated(IEnumerable<Regex>? regexes, string? s)
         {
-            if (regexes == null || string.IsNullOrEmpty(s))
+            if (regexes is null || string.IsNullOrEmpty(s))
             {
                 return false;
             }
@@ -243,5 +243,37 @@
 
             return false;
         }
+
+        /// <summary>
+        /// Splits <paramref name="s"/> at the end of the first
+        /// <paramref name="terminator"/> occurrence. Unterminated text passes
+        /// through untouched with an empty remainder.
+        /// </summary>
+        /// <param name="s">The text to cut.</param>
+        /// <param name="terminator">The terminator to cut after.</param>
+        /// <param name="remainder">Text past the terminator, or empty when absent.</param>
+        /// <returns>Text through the end of the first terminator, or <paramref name="s"/> when absent.</returns>
+        protected static string CutAtFirstTerminator(string s, string terminator, out string remainder)
+        {
+            int at = s.IndexOf(terminator, StringComparison.Ordinal);
+            if (at < 0)
+            {
+                remainder = string.Empty;
+                return s;
+            }
+
+            int end = at + terminator.Length;
+            remainder = s.Substring(end);
+            return s.Substring(0, end);
+        }
+
+        /// <summary>
+        /// Builds the terminated-read limit message shared by the client and
+        /// server read paths.
+        /// </summary>
+        /// <param name="limit">The character limit that was exceeded.</param>
+        /// <returns>The limit message.</returns>
+        protected static string TerminatedReadLimitMessage(int limit) =>
+          $"Terminated read exceeded the {limit}-character limit without locating the terminator.";
     }
 }

@@ -26,7 +26,7 @@
         public Task WriteLineAsync(string command)
         {
             ArgumentNullException.ThrowIfNull(command);
-            return WriteAsync(string.Format("{0}{1}", command, Rfc854LineFeed));
+            return WriteAsync($"{command}{Rfc854LineFeed}");
         }
 
         /// <inheritdoc/>
@@ -34,7 +34,7 @@
         {
             ArgumentNullException.ThrowIfNull(command);
             ArgumentNullException.ThrowIfNull(lineFeed);
-            return WriteAsync(string.Format("{0}{1}", command, lineFeed));
+            return WriteAsync($"{command}{lineFeed}");
         }
 
         /// <inheritdoc/>
@@ -104,23 +104,10 @@
         /// <inheritdoc/>
         public async Task SendCommand(Commands command, CancellationToken cancellationToken = default)
         {
-            switch (command)
+            if (!TelnetCommands.IsStandaloneControl(command))
             {
-                case Commands.Break:
-                case Commands.InterruptProcess:
-                case Commands.AbortOutput:
-                case Commands.AreYouThere:
-                case Commands.EraseCharacter:
-                case Commands.EraseLine:
-                case Commands.GoAhead:
-                case Commands.NoOperation:
-                case Commands.EndOfFile:
-                case Commands.Suspend:
-                case Commands.Abort:
-                    break;
-                default:
-                    throw new ArgumentOutOfRangeException(
-                      nameof(command), command, "Only standalone control commands (BRK, IP, AO, AYT, EC, EL, GA, NOP, EOF, SUSP, ABORT) can be sent with SendCommand. Option negotiation verbs (DO, DONT, WILL, WONT, SB, SE, IAC) go through the RFC 1143 negotiation API.");
+                throw new ArgumentOutOfRangeException(
+                  nameof(command), command, "Only standalone control commands (BRK, IP, AO, AYT, EC, EL, GA, NOP, EOF, SUSP, ABORT) can be sent with SendCommand. Option negotiation verbs (DO, DONT, WILL, WONT, SB, SE, IAC) go through the RFC 1143 negotiation API.");
             }
 
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, InternalCancellation.Token);
@@ -241,7 +228,7 @@
                 {
                     if (!ByteStream.Connected)
                     {
-                        throw new EndOfStreamException(string.Format("End of stream after {0} of {1} characters.", sb.Length, count));
+                        throw new EndOfStreamException($"End of stream after {sb.Length} of {count} characters.");
                     }
 
                     throw new TimeoutException("ReadExactlyAsync timed out before enough data arrived.");
@@ -317,7 +304,7 @@
             s = CutAtFirstTerminator(s, terminator);
             if (!isTerminated(s))
             {
-                WriteLog(string.Format("Failed to terminate '{0}' with '{1}'", s, terminator));
+                WriteLog($"Failed to terminate '{s}' with '{terminator}'");
             }
 
             return s;
@@ -330,15 +317,13 @@
         /// </summary>
         private string CutAtFirstTerminator(string s, string terminator)
         {
-            int at = s.IndexOf(terminator, StringComparison.Ordinal);
-            if (at < 0)
+            string cut = CutAtFirstTerminator(s, terminator, out string remainder);
+            if (remainder.Length != 0)
             {
-                return s;
+                PrependPendingText(remainder);
             }
 
-            int end = at + terminator.Length;
-            PrependPendingText(s.Substring(end));
-            return s.Substring(0, end);
+            return cut;
         }
 
         /// <inheritdoc/>
@@ -363,7 +348,7 @@
 
             if (!isTerminated(s))
             {
-                WriteLog(string.Format("Failed to match '{0}' with '{1}'", s, regex.ToString()));
+                WriteLog($"Failed to match '{s}' with '{regex}'");
             }
 
             return s;
@@ -398,7 +383,7 @@
 
             if (!isTerminated(s))
             {
-                WriteLog(string.Format("Failed to terminate '{0}' with any known terminator", s));
+                WriteLog($"Failed to terminate '{s}' with any known terminator");
             }
 
             return s;
@@ -433,7 +418,7 @@
 
             if (!isTerminated(s))
             {
-                WriteLog(string.Format("Failed to match '{0}' with any known pattern", s));
+                WriteLog($"Failed to match '{s}' with any known pattern");
             }
 
             return s;
@@ -537,7 +522,7 @@
                 int limit = MaxTerminatedReadChars ?? Settings.MaxTerminatedReadChars;
                 if (limit > 0 && !isTerminated(s) && s.Length > limit)
                 {
-                    throw new InvalidOperationException(string.Format("Terminated read exceeded the {0}-character limit without locating the terminator.", limit));
+                    throw new InvalidOperationException(TerminatedReadLimitMessage(limit));
                 }
             }
 

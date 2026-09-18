@@ -17,7 +17,7 @@
         private const int TimeoutMs = 5000;
 
         [Fact]
-        public async Task ReadMeExample()
+        public async Task ConnectAsync_ReadmeLogin_ParsesWan2Statistics()
         {
             using (var server = new DummyTelnetServer())
             {
@@ -74,7 +74,7 @@
         [InlineData(" WAN2 total TX: 252 KB, RX: 673 KB", 252, "KB", 673, "KB", 0.001)]
         [InlineData("WAN2 total TX: 213 Bytes, RX: 0 Bytes", 213, "Bytes", 0, "Bytes", 0)]
         [InlineData("WAN2 total TX: 550 GB ,RX: 1 MB", 550, "GB", 1, "MB", 550.001)]
-        public void GivenStatisticsWhenRegexThenExpected(string text, int tx, string txUnit, int rx, string rxUnit, decimal total)
+        public void Wan2Pattern_StatisticsLine_ParsesExpectedTotals(string text, int tx, string txUnit, int rx, string rxUnit, decimal total)
         {
             var regEx = new Regex(Pattern);
             MatchCollection matches = regEx.Matches(text);

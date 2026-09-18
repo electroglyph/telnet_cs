@@ -13,7 +13,7 @@
         private const int timeoutMs = 500;
 
         [Fact]
-        public void ShouldConnect()
+        public void Ctor_ConnectedStream_IsConnected()
         {
             using (var stream = new DummyByteStream())
             {
@@ -25,7 +25,7 @@
         }
 
         [Fact(Timeout = 2000)]
-        public async Task ShouldTerminateWithAColon()
+        public async Task TerminatedReadAsync_ColonPrompt_EndsWithColon()
         {
             using (GlobalStateGuard.SkipProactive(false))
             {
@@ -42,7 +42,7 @@
         }
 
         [Fact(Timeout = 2000)]
-        public async Task ShouldBePromptingForAccount()
+        public async Task TerminatedReadAsync_AccountPrompt_ContainsAccount()
         {
             using (GlobalStateGuard.SkipProactive(false))
             {
@@ -60,7 +60,7 @@
         }
 
         [Fact(Timeout = 2000)]
-        public async Task ShouldBePromptingForPassword()
+        public async Task TerminatedReadAsync_AfterUsername_ContainsPassword()
         {
             using (GlobalStateGuard.SkipProactive(false))
             {
@@ -79,7 +79,7 @@
         }
 
         [Fact(Timeout = 3000)]
-        public async Task ShouldPromptForInput()
+        public async Task TerminatedReadAsync_FullLogin_ReachesCommandPrompt()
         {
             using (GlobalStateGuard.SkipProactive(false))
             {
@@ -99,7 +99,7 @@
         }
 
         [Fact(Timeout = 5000)]
-        public async Task ShouldRespondWithWan2Info()
+        public async Task TerminatedReadAsync_Wan2Command_ContainsWan2()
         {
             using (GlobalStateGuard.SkipProactive(false))
             {
@@ -126,7 +126,7 @@
         }
 
         [Fact(Timeout = 5000)]
-        public async Task ShouldLogin()
+        public async Task TerminatedReadAsync_LoginExchange_ContainsPassword()
         {
             using (GlobalStateGuard.SkipProactive(false))
             {
@@ -146,7 +146,7 @@
         }
 
         [Fact]
-        public async Task ShouldRespondWithWan2InfoRegexTerminated()
+        public async Task TerminatedReadAsync_Wan2Regex_ContainsWan2()
         {
             using (GlobalStateGuard.SkipProactive(false))
             {

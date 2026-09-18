@@ -39,8 +39,11 @@ namespace telnet_cs.Protocol
         /// (<c>.</c> for anything outside 0x20-0x7E). Empty input yields the
         /// empty string.
         /// </summary>
+        /// <param name="data">The bytes to dump.</param>
+        /// <param name="prefix">Prepended to every row.</param>
         public static string Hexdump(ReadOnlySpan<byte> data, string prefix = "")
         {
+            ArgumentNullException.ThrowIfNull(prefix);
             if (data.IsEmpty)
             {
                 return string.Empty;

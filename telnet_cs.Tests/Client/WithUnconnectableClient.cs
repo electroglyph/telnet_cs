@@ -12,7 +12,7 @@
     public class WithUnconnectableClient
     {
         [Fact]
-        public void ShouldTimeoutOnCtor()
+        public void Ctor_UnconnectedStream_ThrowsUnableToConnect()
         {
             var byteStream = A.Fake<IByteStream>();
             A.CallTo(() => byteStream.Connected).Returns(false);

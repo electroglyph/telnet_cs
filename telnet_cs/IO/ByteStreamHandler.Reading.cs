@@ -125,7 +125,7 @@
         private string DecodeResult(StringBuilder sb, List<byte> rawBytes)
         {
             ApplySyncTermFont(CollectionsMarshal.AsSpan(rawBytes));
-            if (TextEncoding != null)
+            if (TextEncoding is not null)
             {
                 // Persistent incremental decoder (reference stream_reader
                 // parity): a multibyte sequence split across reads buffers
