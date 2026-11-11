@@ -25,6 +25,10 @@
   emitting a verb-only ACCEPTED frame; `TcpClient` rejects blank hosts
   and out-of-range ports, `TcpByteStream.WriteAsync` validates its
   slice, and negative MCCP caps throw at set time. Pinned by new tests.
+- `Wan2Pattern` expectations moved to `MemberData` decimals (`InlineData`
+  doubles converted inexactly); TTYPE cycling tests assert the returned
+  chain with a timeout that survives loaded schedulers instead of an
+  exact SEND count that raced the background pump.
 
 ## [0.19.0] - 2026-09-18
 

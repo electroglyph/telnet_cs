@@ -74,15 +74,25 @@ namespace telnet_cs.Tests
             // Repro (real writer + real on_ttype as ext-callback, feed
             // driven): WILL TTYPE -> FF FA 18 01 FF F0; IS vt100 ->
             // FF FA 18 01 FF F0 (ttype1=vt100); IS xterm -> FF FA 18 01 FF
-            // F0 (ttype2=xterm). 3 SENDs total, >=2 after answers.
+            // F0 (ttype2=xterm). One SEND per answer on the wire when the
+            // request chases them live; a pump-filed answer is replayed
+            // without re-soliciting, so only initial-plus-one is pinned.
             using ScriptedStream stream = new();
             stream.Enqueue([.. TtypeIsFrame("vt100"), .. TtypeIsFrame("xterm")]);
             using var session = NewSession(stream);
-            await session.RequestTerminalTypesAsync(TimeSpan.FromMilliseconds(300));
+            var chain = await session.RequestTerminalTypesAsync(TimeSpan.FromMilliseconds(2000));
+            // Both answers recorded in order: neither repeats, so the
+            // cycle holds both (the duplicate trim only removes a
+            // closing repeat).
+            chain.Should().Equal("vt100", "xterm");
             // Peer WILL agreement makes the cycle solicited and releases the
-            // advanced preset, so the wire contains the initial SEND plus one
-            // per answer plus the WILL-triggered probe and advanced frames.
-            CountSubsequence(OutboundBytes(stream), new byte[] { 255, 250, 24, 1 }).Should().BeGreaterThanOrEqualTo(3);
+            // advanced preset, so the wire contains the initial SEND plus
+            // per-answer follow-ups. The exact total depends on whether the
+            // background pump or the request consumed each answer (filed
+            // answers are replayed, never re-solicited), and a follow-up
+            // armed just before the timeout need not go out — so only the
+            // initial SEND plus at least one follow-up is pinned here.
+            CountSubsequence(OutboundBytes(stream), new byte[] { 255, 250, 24, 1 }).Should().BeGreaterThanOrEqualTo(2);
         }
 
         [Fact]
@@ -113,15 +123,23 @@ namespace telnet_cs.Tests
             // (ttype == _lastval) use case-sensitive ==.
             // Repro (same harness): IS XTERM -> FF FA 18 01 FF F0
             // (ttype1=XTERM); IS xterm -> FF FA 18 01 FF F0 (ttype2=xterm).
-            // The second SEND proves xterm != XTERM is a new answer.
-            // (This also needs the per-answer SEND continuation; both must hold.)
+            // The returned chain holding both proves xterm != XTERM is a
+            // new answer (a repeat would terminate the cycle with one).
             using ScriptedStream stream = new();
             stream.Enqueue([.. TtypeIsFrame("XTERM"), .. TtypeIsFrame("xterm")]);
             using var session = NewSession(stream);
-            await session.RequestTerminalTypesAsync(TimeSpan.FromMilliseconds(300));
-            // Peer WILL agreement adds the WILL-triggered probe, so at least
-            // the initial SEND plus one per answer is present.
-            CountSubsequence(OutboundBytes(stream), new byte[] { 255, 250, 24, 1 }).Should().BeGreaterThanOrEqualTo(3);
+            var chain = await session.RequestTerminalTypesAsync(TimeSpan.FromMilliseconds(2000));
+            // Case-sensitive compare (reference server.py:630,646): xterm
+            // is a new answer after XTERM, so the cycle holds both instead
+            // of terminating on a repeat.
+            chain.Should().Equal("XTERM", "xterm");
+            // Peer WILL agreement adds the WILL-triggered probe, so at
+            // least the initial SEND plus one follow-up is present. The
+            // exact total depends on whether the background pump or the
+            // request consumed each answer (filed answers are replayed,
+            // never re-solicited), and a follow-up armed just before the
+            // timeout need not go out.
+            CountSubsequence(OutboundBytes(stream), new byte[] { 255, 250, 24, 1 }).Should().BeGreaterThanOrEqualTo(2);
         }
     }
 }

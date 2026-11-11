@@ -70,10 +70,7 @@
         }
 
         [Theory]
-        [InlineData("WAN2 total TX: 2 MB, RX: 9 MB", 2, "MB", 9, "MB", 0.011)]
-        [InlineData(" WAN2 total TX: 252 KB, RX: 673 KB", 252, "KB", 673, "KB", 0.001)]
-        [InlineData("WAN2 total TX: 213 Bytes, RX: 0 Bytes", 213, "Bytes", 0, "Bytes", 0)]
-        [InlineData("WAN2 total TX: 550 GB ,RX: 1 MB", 550, "GB", 1, "MB", 550.001)]
+        [MemberData(nameof(Wan2Cases))]
         public void Wan2Pattern_StatisticsLine_ParsesExpectedTotals(string text, int tx, string txUnit, int rx, string rxUnit, decimal total)
         {
             var regEx = new Regex(Pattern);
@@ -88,6 +85,18 @@
             matches[0].Groups[4].Value.Should().Be(rxUnit);
             (ConvertToGigabytes(matches[0].Groups[1].Value, txUnit) + ConvertToGigabytes(matches[0].Groups[3].Value, rxUnit)).Should().Be(total);
         }
+
+        // MemberData (not InlineData): attribute arguments cannot carry
+        // decimal constants, so double literals convert inexactly at
+        // runtime (0.011 becomes 0.0109999999999999993616217608M) and the
+        // expectation mismatches the correctly computed total.
+        public static TheoryData<string, int, string, int, string, decimal> Wan2Cases => new()
+        {
+            { "WAN2 total TX: 2 MB, RX: 9 MB", 2, "MB", 9, "MB", 0.011M },
+            { " WAN2 total TX: 252 KB, RX: 673 KB", 252, "KB", 673, "KB", 0.001M },
+            { "WAN2 total TX: 213 Bytes, RX: 0 Bytes", 213, "Bytes", 0, "Bytes", 0M },
+            { "WAN2 total TX: 550 GB ,RX: 1 MB", 550, "GB", 1, "MB", 550.001M },
+        };
 
         private static decimal ConvertToGigabytes(string value, string unit)
         {
