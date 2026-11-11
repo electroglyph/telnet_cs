@@ -23,7 +23,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task TerminatedReadAsync_OverlongLine_ThrowsNamingLimit()
         {
-            using var session = new ServerSession(
+            using ServerSession session = new(
                 new ScriptedStream("AAAAAAAAAAA"),
                 new TelnetServerOptions { MaxTerminatedReadChars = 10 },
                 CancellationToken.None);
@@ -36,7 +36,7 @@ namespace telnet_cs.Tests
         public async Task TerminatedReadAsync_ZeroLimit_Disables()
         {
             string overlong = new string('A', 100) + "\n";
-            using var session = new ServerSession(
+            using ServerSession session = new(
                 new ScriptedStream(overlong),
                 new TelnetServerOptions { MaxTerminatedReadChars = 0 },
                 CancellationToken.None);
@@ -48,7 +48,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task TerminatedReadAsync_SessionOverride_BeatsOptions()
         {
-            using var session = new ServerSession(
+            using ServerSession session = new(
                 new ScriptedStream("AAAAAAAAAAA"),
                 new TelnetServerOptions { MaxTerminatedReadChars = 100 },
                 CancellationToken.None);
@@ -62,7 +62,7 @@ namespace telnet_cs.Tests
         public async Task TerminatedReadAsync_SessionOverrideZero_DisablesOptionsLimit()
         {
             string overlong = new string('A', 100) + "\n";
-            using var session = new ServerSession(
+            using ServerSession session = new(
                 new ScriptedStream(overlong),
                 new TelnetServerOptions { MaxTerminatedReadChars = 10 },
                 CancellationToken.None);
@@ -75,7 +75,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void SessionOverride_Negative_ThrowsArgumentOutOfRange()
         {
-            using var session = new ServerSession(
+            using ServerSession session = new(
                 new ScriptedStream(string.Empty),
                 new TelnetServerOptions(),
                 CancellationToken.None);
@@ -85,7 +85,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void Start_NegativeLimit_ThrowsArgumentOutOfRange()
         {
-            using var server = new TelnetServer(0, new TelnetServerOptions { MaxTerminatedReadChars = -1 });
+            using TelnetServer server = new(0, new TelnetServerOptions { MaxTerminatedReadChars = -1 });
             Assert.Throws<ArgumentOutOfRangeException>(() => server.Start());
         }
 
@@ -93,7 +93,7 @@ namespace telnet_cs.Tests
         public async Task Duplex_ServerSideOverlong_ThrowsAndNextLineReadsClean()
         {
             var (clientStream, serverStream) = DuplexPipe.Create();
-            using var session = new ServerSession(
+            using ServerSession session = new(
                 serverStream,
                 new TelnetServerOptions { MaxTerminatedReadChars = 10 },
                 CancellationToken.None);

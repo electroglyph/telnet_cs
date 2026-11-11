@@ -66,8 +66,8 @@ namespace telnet_cs.Tests
             // FF FB 18 (WILL TTYPE) -> FF FA 18 01 FF F0, FF FB 03,
             // FF FB 00, FF FD 1F, FF FD 2A; FF FD 20 / FF FD 24 / FF FD 22
             // absent before and after.
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.SendOpeningPresetAsync();
             var opening = OutboundBytes(stream);
             ContainsSubsequence(opening, new byte[] { 255, 253, 24 }).Should().BeTrue("DO TTYPE opens the reference preset");
@@ -121,8 +121,8 @@ namespace telnet_cs.Tests
             // Repro: seed _last_received -60 s; data_received(b'\xff\xf1')
             // (IAC NOP) advances _last_received to now. IAC keepalives
             // must not idle out.
-            using var stream = new ScriptedStream(255, 241);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new(255, 241);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             var before = session.Context.LastActivityUtc;
             (await session.ReadAsync(TimeSpan.FromMilliseconds(300))).Should().BeEmpty();
             session.Context.LastActivityUtc.Should().BeAfter(before);
@@ -138,8 +138,8 @@ namespace telnet_cs.Tests
             // Repro: _last_received identical before/after
             // set_timeout(300); get_extra_info("timeout")==300. Arming a
             // longer timeout must not itself look like peer activity.
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             var before = session.Context.LastActivityUtc;
             session.Timeout = TimeSpan.FromMinutes(5);
             session.Context.LastActivityUtc.Should().Be(before);
@@ -156,7 +156,7 @@ namespace telnet_cs.Tests
             // registered, is_closing()==False pre-close; after close()
             // the transport is None/closing (True). Leaving sessions past
             // Stop would strand them until GC/Dispose.
-            using var server = new TelnetServer(0);
+            using TelnetServer server = new(0);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var raw = new TcpClient();
@@ -181,8 +181,8 @@ namespace telnet_cs.Tests
             // stalls TTYPE/ENVIRON/CHARSET here.
             // Repro: data_received(b'\xff\xfb\x1f') with zero reads ->
             // outbound FF FD 1F (+ advanced preset).
-            using var stream = new ScriptedStream(255, 251, 31);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new(255, 251, 31);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             await Task.Delay(200);
             ContainsSubsequence(OutboundBytes(stream), new byte[] { 255, 253, 31 }).Should().BeTrue();
         }
@@ -199,8 +199,8 @@ namespace telnet_cs.Tests
             // LinemodeServer:915-919 skip) — deferred ECHO per :258-275.
             // Emitting WILL ECHO at login re-arms the MUD password-mode
             // hazard that deferring ECHO exists to avoid.
-            using var stream = new ScriptedStream("user\npass\n");
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new("user\npass\n");
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             (await session.AuthenticateAsync((user, pass) => Task.FromResult(true), TimeSpan.FromSeconds(5))).Should().BeTrue();
             ContainsSubsequence(OutboundBytes(stream), new byte[] { 255, 251, 1 }).Should().BeFalse();
         }
@@ -215,8 +215,8 @@ namespace telnet_cs.Tests
             // Repro ("slc\rquit\r" input):
             // output is the "Special Line Characters:..." table and
             // 'no such command' not in output.
-            using var stream = new ScriptedStream("slc\nquit\n");
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new("slc\nquit\n");
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             await ServerShells.RunReplAsync(session, CancellationToken.None);
             var text = string.Concat(stream.StringWrites) + Encoding.ASCII.GetString(OutboundBytes(stream));
             text.Should().NotContain("no such command");
@@ -232,8 +232,8 @@ namespace telnet_cs.Tests
             // Repro: _LineEditor after "helpp" -> command=='helpp'; after
             // \x08 -> command=='help', echo=='\x08 \x08'; CR returns
             // 'help' (so the help branch hits, not "no such command").
-            using var stream = new ScriptedStream("helpp\x08\nquit\n");
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new("helpp\x08\nquit\n");
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             await ServerShells.RunReplAsync(session, CancellationToken.None);
             var text = string.Concat(stream.StringWrites) + Encoding.ASCII.GetString(OutboundBytes(stream));
             text.Should().NotContain("no such command");

@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Retargeted to .NET 11 only (C# 15): `TargetFramework net11.0`, CI on
+  the 11.0 SDK, docs updated.
+- Modernized to C# 15 idioms with no wire, preset, or default changes:
+  `Lock` everywhere, collection expressions (incl. `with(...)`
+  capacity/comparer args), target-typed `new()`, range indexing,
+  `switch` + list/`or` patterns, LINQ probes, `params ReadOnlySpan<T>`,
+  `field`-validated MCCP caps, frozen MUD/encoding lookups,
+  primary-constructor session records, `field`-backed pipe timeouts,
+  `u8` wire constants, `static` lambdas.
+
+### Fixed
+
+- `CharsetProtocol` separator selection scans printable ASCII past the
+  documented fallbacks instead of returning a colliding space, so
+  exhaustive offers still round-trip; MSSP byte caps now cover MSSP
+  frames and repeated-`VAL` lists filter over-cap values. Pinned by
+  new tests.
+- `CharsetProtocol.BuildAccepted` rejects null/empty names instead of
+  emitting a verb-only ACCEPTED frame; `TcpClient` rejects blank hosts
+  and out-of-range ports, `TcpByteStream.WriteAsync` validates its
+  slice, and negative MCCP caps throw at set time. Pinned by new tests.
+
 ## [0.19.0] - 2026-09-18
 
 ### Removed

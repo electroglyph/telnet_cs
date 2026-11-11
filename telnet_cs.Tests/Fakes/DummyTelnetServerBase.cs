@@ -159,7 +159,7 @@
 
         private void UntrackAndCloseAcceptedHandler(Socket handler)
         {
-            if (handler == null)
+            if (handler is null)
             {
                 return;
             }

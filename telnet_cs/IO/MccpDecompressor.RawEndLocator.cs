@@ -100,24 +100,22 @@ internal partial class MccpDecompressor
                         TryTakeBits(buffer, ref cursor, 1, out finalBlock);
                         TryTakeBits(buffer, ref cursor, 2, out var blockType);
                         commitBitPos = cursor;
-                        if (blockType == 0)
+                        switch (blockType)
                         {
-                            phase = StoredLength;
-                        }
-                        else if (blockType == 1)
-                        {
-                            litDecoder = FixedLiterals;
-                            distDecoder = FixedDistances;
-                            phase = Decode;
-                        }
-                        else if (blockType == 2)
-                        {
-                            phase = DynamicCounts;
-                        }
-                        else
-                        {
-                            phase = Dead;
-                            return false;
+                            case 0:
+                                phase = StoredLength;
+                                break;
+                            case 1:
+                                litDecoder = FixedLiterals;
+                                distDecoder = FixedDistances;
+                                phase = Decode;
+                                break;
+                            case 2:
+                                phase = DynamicCounts;
+                                break;
+                            default:
+                                phase = Dead;
+                                return false;
                         }
 
                         break;
@@ -197,7 +195,7 @@ internal partial class MccpDecompressor
                         Array.Clear(codeLengthLens);
                         codeLengthsRead = 0;
                         codeLengthDecoder = null;
-                        combined = new List<int>(hlit + hdist);
+                        combined = [with(capacity: hlit + hdist)];
                         litLens = null;
                         distLens = null;
                         commitBitPos = cursor;
@@ -374,59 +372,65 @@ internal partial class MccpDecompressor
                     return false;
                 }
 
-                if (symbol < 16)
+                switch (symbol)
                 {
-                    lens.Add(symbol);
-                }
-                else if (symbol == 16)
-                {
-                    if (lens.Count == 0 || !Have(cursor, totalBits, 2))
-                    {
-                        if (lens.Count == 0)
+                    case < 16:
+                        lens.Add(symbol);
+                        break;
+                    case 16:
                         {
-                            phase = Dead;
+                            if (lens.Count == 0 || !Have(cursor, totalBits, 2))
+                            {
+                                if (lens.Count == 0)
+                                {
+                                    phase = Dead;
+                                }
+
+                                return false;
+                            }
+
+                            TryTakeBits(buffer, ref cursor, 2, out var repeat);
+                            var prev = lens[^1];
+                            for (var i = 0; i < 3 + repeat; i++)
+                            {
+                                lens.Add(prev);
+                            }
                         }
 
-                        return false;
-                    }
+                        break;
+                    case 17:
+                        {
+                            if (!Have(cursor, totalBits, 3))
+                            {
+                                return false;
+                            }
 
-                    TryTakeBits(buffer, ref cursor, 2, out var repeat);
-                    var prev = lens[^1];
-                    for (var i = 0; i < 3 + repeat; i++)
-                    {
-                        lens.Add(prev);
-                    }
-                }
-                else if (symbol == 17)
-                {
-                    if (!Have(cursor, totalBits, 3))
-                    {
-                        return false;
-                    }
+                            TryTakeBits(buffer, ref cursor, 3, out var repeat);
+                            for (var i = 0; i < 3 + repeat; i++)
+                            {
+                                lens.Add(0);
+                            }
+                        }
 
-                    TryTakeBits(buffer, ref cursor, 3, out var repeat);
-                    for (var i = 0; i < 3 + repeat; i++)
-                    {
-                        lens.Add(0);
-                    }
-                }
-                else if (symbol == 18)
-                {
-                    if (!Have(cursor, totalBits, 7))
-                    {
-                        return false;
-                    }
+                        break;
+                    case 18:
+                        {
+                            if (!Have(cursor, totalBits, 7))
+                            {
+                                return false;
+                            }
 
-                    TryTakeBits(buffer, ref cursor, 7, out var repeat);
-                    for (var i = 0; i < 11 + repeat; i++)
-                    {
-                        lens.Add(0);
-                    }
-                }
-                else
-                {
-                    phase = Dead;
-                    return false;
+                            TryTakeBits(buffer, ref cursor, 7, out var repeat);
+                            for (var i = 0; i < 11 + repeat; i++)
+                            {
+                                lens.Add(0);
+                            }
+                        }
+
+                        break;
+                    default:
+                        phase = Dead;
+                        return false;
                 }
 
                 if (lens.Count > hlit + hdist)
@@ -538,7 +542,7 @@ internal partial class MccpDecompressor
                     return false;
                 }
 
-                var result = new HuffmanDecoder(longest);
+                HuffmanDecoder result = new(longest);
                 var counts = new int[16];
                 foreach (var length in lengths)
                 {

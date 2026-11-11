@@ -134,7 +134,7 @@ namespace telnet_cs.Tests
             // conflicts with the pre-existing pin that expects a bare 130
             // reply on one path — that expectation needs revisiting against
             // this RFC text before any implementation change.
-            var state = new LinemodeState();
+            LinemodeState state = new();
             var reply = state.ApplySlc(3, (byte)(2 | 32), 9);
             reply.Should().NotBeNull();
             var entry = state.GetEntry(3);

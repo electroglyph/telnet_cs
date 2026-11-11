@@ -122,7 +122,7 @@ internal static class CodecHarness
 
     private static Dictionary<string, object?> BuildTable(byte[] bytes, int depth)
     {
-        var table = new Dictionary<string, object?>(StringComparer.Ordinal);
+        Dictionary<string, object?> table = [with(StringComparer.Ordinal)];
         var entries = bytes.Length == 0 ? 0 : 1 + (bytes[0] % 3);
         for (var i = 0; i < entries; i++)
         {
@@ -163,7 +163,7 @@ internal static class CodecHarness
         // Deliberately mixes a non-string value in when the input says so,
         // to pin the documented validation path.
         object odd = bytes.Length % 2 == 0 ? (object)42 : FuzzText.Latin1(bytes, 32);
-        return new Dictionary<string, object>(StringComparer.Ordinal)
+        return new(StringComparer.Ordinal)
         {
             ["K0"] = FuzzText.Latin1(bytes, 16),
             ["K1"] = odd,

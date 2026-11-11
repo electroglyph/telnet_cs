@@ -99,7 +99,7 @@ internal static class Minimizer
 
     private static byte[] Assemble(byte[] bytes, List<int> boundaries, bool[] keep)
     {
-        var buf = new List<byte>();
+        List<byte> buf = [];
         for (var s = 0; s < keep.Length; s++)
         {
             if (keep[s])

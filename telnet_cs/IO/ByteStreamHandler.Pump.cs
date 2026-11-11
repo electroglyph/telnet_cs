@@ -99,9 +99,9 @@ public partial class ByteStreamHandler
         }
 
         InboundWireBytes++;
-        if (firstInboundByte == -1)
+        if (FirstInboundByte == -1)
         {
-            firstInboundByte = raw;
+            FirstInboundByte = raw;
         }
     }
 

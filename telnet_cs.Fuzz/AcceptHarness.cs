@@ -211,7 +211,7 @@ internal static class AcceptHarness
 
     private static byte[] EscapeLatin1(string text)
     {
-        var buf = new List<byte>(text.Length);
+        List<byte> buf = [with(capacity: text.Length)];
         foreach (var c in text)
         {
             buf.Add((byte)c);
@@ -226,7 +226,7 @@ internal static class AcceptHarness
 
     private static List<byte> Drain(IByteStream end)
     {
-        var buf = new List<byte>();
+        List<byte> buf = [];
         while (end.Available > 0)
         {
             var next = end.ReadByte();

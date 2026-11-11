@@ -18,21 +18,20 @@ public static class TelnetAccessories
     /// </summary>
     public static string? EncodingFromLang(string? lang)
     {
-        if (string.IsNullOrEmpty(lang))
+        if (lang is null or "")
         {
             return null;
         }
 
         var dot = lang.IndexOf('.');
-        if (dot < 0)
+        if (dot is < 0)
         {
             return null;
         }
 
         var encoding = lang[(dot + 1)..];
         var at = encoding.IndexOf('@');
-        var codeset = at < 0 ? encoding : encoding[..at];
-        return codeset;
+        return at < 0 ? encoding : encoding[..at];
     }
 
     /// <summary>
@@ -51,7 +50,7 @@ public static class TelnetAccessories
             return string.Empty;
         }
 
-        var lines = new StringBuilder();
+        StringBuilder lines = new();
         for (var offset = 0; offset < data.Length; offset += 16)
         {
             if (offset > 0)

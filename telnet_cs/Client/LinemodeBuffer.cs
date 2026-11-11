@@ -59,8 +59,8 @@ public sealed class LinemodeBuffer
       IEnumerable<int>? forwardMask = null,
       bool trapSignal = false)
     {
-        this.slcValues = slcValues is null ? new Dictionary<int, int>(DefaultSlc) : new Dictionary<int, int>(slcValues);
-        this.forwardMask = forwardMask is null ? new HashSet<int>() : new HashSet<int>(forwardMask);
+        this.slcValues = slcValues is null ? new(DefaultSlc) : new(slcValues);
+        this.forwardMask = forwardMask is null ? [] : [.. forwardMask];
         TrapSignal = trapSignal;
     }
 
@@ -92,7 +92,7 @@ public sealed class LinemodeBuffer
         switch (b)
         {
             case var eraseCharacter when eraseCharacter == SlcValue(LinemodeProtocol.SlcEraseCharacter):
-                if (line.Length == 0)
+                if (line.Length is 0)
                 {
                     return new LinemodeEdit(string.Empty, null);
                 }
@@ -108,13 +108,13 @@ public sealed class LinemodeBuffer
             case var eraseWord when eraseWord == SlcValue(SlcEraseWord):
                 int popped = 0;
                 // Skip trailing spaces first (POSIX VWERASE behaviour).
-                while (line.Length != 0 && line[line.Length - 1] == ' ')
+                while (line.Length is not 0 && line[line.Length - 1] == ' ')
                 {
                     line.Remove(line.Length - 1, 1);
                     popped++;
                 }
 
-                while (line.Length != 0 && line[line.Length - 1] != ' ')
+                while (line.Length is not 0 && line[line.Length - 1] != ' ')
                 {
                     line.Remove(line.Length - 1, 1);
                     popped++;
@@ -162,13 +162,11 @@ public sealed class LinemodeBuffer
           (LinemodeProtocol.SlcBreak, Commands.Break),
           (LinemodeProtocol.SlcAyt, Commands.AreYouThere),
         ];
-        foreach (var (function, signal) in traps)
+        var hit = traps.FirstOrDefault(t => b == SlcValue(t.Function));
+        if (hit != default)
         {
-            if (b == SlcValue(function))
-            {
-                command = [(byte)Commands.InterpretAsCommand, (byte)signal];
-                return true;
-            }
+            command = [(byte)Commands.InterpretAsCommand, (byte)hit.Signal];
+            return true;
         }
 
         command = null;

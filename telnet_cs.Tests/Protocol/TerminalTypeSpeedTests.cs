@@ -26,9 +26,9 @@
         private static async Task<(string Output, ScriptedStream Stream)> ReadHandlerOnceAsync(
           Action<ByteStreamHandler> configure, params int[] reads)
         {
-            var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             configure(sut);
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             return (output, stream);
@@ -55,7 +55,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.TerminalTypes.Add("xterm-256color");
                 client.Settings.TerminalTypes.Add("xterm");
@@ -73,7 +73,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.TerminalTypes.Add("aaa");
                 client.Settings.TerminalTypes.Add("bbb");
@@ -93,7 +93,7 @@
             // full TTYPE string).
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.TerminalTypes.Add(new string('a', 41));
                 var writes = await SendThroughClientAsync(client, stream, 1);
@@ -106,7 +106,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.TerminalType = "xterm";
                 var writes = await SendThroughClientAsync(client, stream, 2);
@@ -122,7 +122,7 @@
             // The fallback is lowercase "unknown" (reference term="unknown").
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.TerminalType = string.Empty;
                 var writes = await SendThroughClientAsync(client, stream, 1);
@@ -135,7 +135,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.TerminalTypes.Add("aaa");
                 client.Settings.TerminalTypes.Add("bbb");
@@ -166,7 +166,7 @@
             // instead of resetting.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.TerminalTypes.Add("aaa");
                 client.Settings.TerminalTypes.Add("bbb");

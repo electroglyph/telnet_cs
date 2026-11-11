@@ -181,51 +181,43 @@ public partial class ByteStreamHandler
             return Task.CompletedTask;
         }
 
-        if (payload[0] == CharsetProtocol.Accepted)
+        switch (payload[0])
         {
-            var charset = CharsetProtocol.ParseAccepted(payload);
-            if (charset.Length == 0)
-            {
-                // RFC 2066 section 2: ACCEPTED carries a charset identical
-                // to one of the requested names, so an empty name matches
-                // nothing and takes the rejection path (no binary latch,
-                // no encoding switch).
-                WriteLog("CHARSET ACCEPTED an empty name; treating as rejected.");
+            case CharsetProtocol.Accepted:
+                var charset = CharsetProtocol.ParseAccepted(payload);
+                if (charset.Length == 0)
+                {
+                    // RFC 2066 section 2: ACCEPTED carries a charset identical
+                    // to one of the requested names, so an empty name matches
+                    // nothing and takes the rejection path (no binary latch,
+                    // no encoding switch).
+                    WriteLog("CHARSET ACCEPTED an empty name; treating as rejected.");
+                    CharsetRequestPending = false;
+                    CharsetRejected?.Invoke();
+                    return Task.CompletedTask;
+                }
+
+                WriteLog($"CHARSET accepted: {charset}");
+                AdoptCharset(charset);
+                CharsetRequestPending = false;
+                CharsetAccepted?.Invoke(charset);
+                return Task.CompletedTask;
+            case CharsetProtocol.Rejected:
+                WriteLog("CHARSET rejected by peer.");
                 CharsetRequestPending = false;
                 CharsetRejected?.Invoke();
                 return Task.CompletedTask;
-            }
-
-            WriteLog($"CHARSET accepted: {charset}");
-            AdoptCharset(charset);
-            CharsetRequestPending = false;
-            CharsetAccepted?.Invoke(charset);
-            return Task.CompletedTask;
+            case CharsetProtocol.TTableIs:
+                WriteLog("Ignoring CHARSET table transfer (not implemented).");
+                return Task.CompletedTask;
+            case CharsetProtocol.TTableRejected:
+                WriteLog("CHARSET table transfer rejected; charset unchanged.");
+                CharsetRequestPending = false;
+                return Task.CompletedTask;
+            default:
+                WriteLog($"Ignoring CHARSET table-transfer verb: {payload[0]}");
+                return Task.CompletedTask;
         }
-
-        if (payload[0] == CharsetProtocol.Rejected)
-        {
-            WriteLog("CHARSET rejected by peer.");
-            CharsetRequestPending = false;
-            CharsetRejected?.Invoke();
-            return Task.CompletedTask;
-        }
-
-        if (payload[0] == CharsetProtocol.TTableIs)
-        {
-            WriteLog("Ignoring CHARSET table transfer (not implemented).");
-            return Task.CompletedTask;
-        }
-
-        if (payload[0] == CharsetProtocol.TTableRejected)
-        {
-            WriteLog("CHARSET table transfer rejected; charset unchanged.");
-            CharsetRequestPending = false;
-            return Task.CompletedTask;
-        }
-
-        WriteLog($"Ignoring CHARSET table-transfer verb: {payload[0]}");
-        return Task.CompletedTask;
     }
 
     /// <summary>

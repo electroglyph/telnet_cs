@@ -15,9 +15,9 @@
     {
         private static async Task<(string Output, ScriptedStream Stream)> ReadWithStreamAsync(params int[] reads)
         {
-            var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             return (output, stream);
         }
@@ -38,7 +38,7 @@
         [MemberData(nameof(NewControlCommands))]
         public async Task SendCommand_EofSuspendAbort_WritesIacFramedPair(Commands command, byte code)
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             await sut.SendCommand(command);
             stream.ByteWrites.Should().ContainSingle(w => w.SequenceEqual(new byte[] { 255, code }));
@@ -86,9 +86,9 @@
             // LINEMODE MODE split across reads must be stashed, then
             // answered once the mode byte and IAC SE arrive. Agreement comes
             // first so the completed MODE is answered verbatim plus ACK.
-            using var stream = new ScriptedStream(255, 253, 34, 255, 250, 34, 1);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(255, 253, 34, 255, 250, 34, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.ByteWrites.Should().HaveCount(2);
             stream.ByteWrites[0].Should().Equal(new byte[] { 255, 251, 34 });
@@ -106,7 +106,7 @@
             // verbatim plus ACK, the repeat is already in effect and silent.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 34);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -138,9 +138,9 @@
         {
             // Agreement first: MODE without ACK is echoed verbatim plus ACK,
             // then the ACK echoing the agreed mask is already in effect and silent.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             stream.Enqueue(255, 253, 34);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.Enqueue(255, 250, 34, 1, 3, 255, 240);
@@ -219,9 +219,9 @@
         {
             // RFC 1184 §2.3: a well-formed DO FORWARDMASK is stored silently
             // (no reply) and marks the local sub-state.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             stream.Enqueue(255, 250, 34, 253, 2, 0x01, 0x02, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
@@ -234,9 +234,9 @@
         {
             // Masks longer than 32 bytes are rejected without a reply, like
             // the reference ("invalid length"); the sub-state still flips.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             var frame = new List<int> { 255, 250, 34, 253, 2 };
             frame.AddRange(Enumerable.Repeat(1, 33));
             frame.AddRange([255, 240]);
@@ -252,9 +252,9 @@
         {
             // DONT clears the local sub-state but keeps stored bytes (the
             // reference only flips its local flag).
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             stream.Enqueue(255, 250, 34, 253, 2, 0x01, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.Enqueue(255, 250, 34, 254, 2, 255, 240);
@@ -269,9 +269,9 @@
         {
             // Client role never sends DO, so a WILL/WONT answer has no
             // proposal behind it and records nothing.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             stream.Enqueue(255, 250, 34, 251, 2, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             sut.Linemode.ForwardMaskAccepted.Should().BeFalse();
@@ -285,9 +285,9 @@
         public async Task ForwardMaskWillWont_OnServer_RecordedSilently()
         {
             // Server role accepts WILL/WONT answers without any reply.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.IsServerRole = true;
             stream.Enqueue(255, 250, 34, 251, 2, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
@@ -303,9 +303,9 @@
         {
             // A DONT carrying payload bytes is dropped without clearing
             // the offered sub-state.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             stream.Enqueue(255, 250, 34, 253, 2, 0x01, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             sut.Linemode.ForwardMaskOffered.Should().BeTrue();
@@ -321,9 +321,9 @@
         {
             // Server role rejects wrong-role verbs with no state change:
             // a DO proposal stores nothing, a DONT clears nothing.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.IsServerRole = true;
             stream.Enqueue(255, 250, 34, 253, 2, 0x01, 0x02, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
@@ -339,9 +339,9 @@
         {
             // An empty DO is warned on and ignored: nothing stored, the
             // sub-state unflipped, no reply.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             stream.Enqueue(255, 250, 34, 253, 2, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
@@ -361,9 +361,9 @@
         [Fact]
         public async Task SlcRepeat_Ignored()
         {
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             stream.Enqueue(255, 250, 34, 3, 3, 2, 9, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.Enqueue(255, 250, 34, 3, 3, 2, 9, 255, 240);
@@ -375,9 +375,9 @@
         [Fact]
         public async Task SlcAckedChange_SwitchesSilently()
         {
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             stream.Enqueue(255, 250, 34, 3, 3, 2, 9, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             // Any ACKed triplet is dropped, never stored: the ACKed change to
@@ -405,9 +405,9 @@
             // No LINEMODE agreement exists on this bare handler, so no
             // forwardmask request goes out (reference suppresses DO
             // FORWARDMASK without receipt of WILL LINEMODE).
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.ApplyLinemodeAsServer = true;
             stream.Enqueue(255, 250, 34, 3, 3, 2, 9, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
@@ -426,9 +426,9 @@
             // A valued CANTCHANGE row still adopts the peer value and replies
             // level+mask+ACK (reference _slc_change: valued rows accept the
             // peer value), instead of echoing the own row back.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.Linemode.SetEntry(3, 1, 7);
             stream.Enqueue(255, 250, 34, 3, 3, 2, 9, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
@@ -474,9 +474,9 @@
             // but contains it per byte in its feed loop, so end-to-end the
             // frame is a no-op there too. The whole buffer is rejected,
             // nothing is answered, and later valid frames still dispatch.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             stream.Enqueue(255, 250, 34, 3, 3, 2, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
@@ -491,9 +491,9 @@
         {
             // Peer moves IP to ^E, then sends DEFAULT: the row restores to the
             // configured ^C and the reply carries the restored row without ACK.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.Linemode.SetEntry(3, 2, 3);
             stream.Enqueue(255, 250, 34, 3, 3, 2, 5, 255, 240);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
@@ -523,7 +523,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 34);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -542,7 +542,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 await client.ImportRemoteSpecialCharactersAsync();
                 stream.ByteWrites.Should().BeEmpty();
@@ -557,7 +557,7 @@
             // full-tabset publish.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 34);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -585,7 +585,7 @@
             // something to send.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 34);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -615,7 +615,7 @@
             // negotiated FLUSHOUT bit with ACK (2|32|128 = 162).
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 34);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -637,7 +637,7 @@
             // FLUSHIN on a non-TCP stream: no throw, Synch skipped with a log.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 34);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -657,7 +657,7 @@
             // Flags set but LINEMODE never agreed: the gate blocks both halves.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.SetLinemodeEntry(2, 2, 7, 32);
                 await client.SendCommand(Commands.Break);
@@ -695,7 +695,7 @@
             // Server role (the realistic snooping side): WILL earns DO plus
             // the initial MODE proposal; MODE 0 echoes nothing back (already
             // the default mask). Ownership transfers to the caller.
-            var sut = new ByteStreamHandler(stream, cts, 1);
+            ByteStreamHandler sut = new(stream, cts, 1);
             sut.SlcFunctionReceived = fired.Add;
             sut.IsServerRole = true;
             sut.ApplyLinemodeAsServer = true;
@@ -713,8 +713,8 @@
         {
             // Data byte 0x03 equals the default IP value (function 3): it is
             // delivered in-band and reported, like slc_received + callback.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
             var fired = new List<byte>();
             using var sut = await AgreeRemoteLinemodeAsync(stream, cts, fired);
             stream.Enqueue(3);
@@ -728,8 +728,8 @@
         {
             // The report always describes the last byte: IP then 'A' leaves
             // null (the per-byte reset), with only the match firing the hook.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
             var fired = new List<byte>();
             using var sut = await AgreeRemoteLinemodeAsync(stream, cts, fired);
             stream.Enqueue(3, 65);
@@ -742,10 +742,10 @@
         public async Task SlcSnoop_LocalMode_EditSet_Silent()
         {
             // MODE EDIT means the peer edits locally: data bytes are just data.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
             var fired = new List<byte>();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.SlcFunctionReceived = fired.Add;
             sut.IsServerRole = true;
             sut.ApplyLinemodeAsServer = true;
@@ -762,9 +762,9 @@
         public async Task SlcSnoop_WithoutAgreement_Silent()
         {
             // No LINEMODE, no ECHO+SGA: nothing snoops on a fresh handler.
-            using var stream = new ScriptedStream(3);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(3);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             var fired = new List<byte>();
             sut.SlcFunctionReceived = fired.Add;
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("\x03");
@@ -778,8 +778,8 @@
             // The IAC IAC escape delivers data byte 255, but the escape path
             // never snoops (reference: escaped data bypasses its snoop
             // branch) — so the NOSUPPORT disable value matches nothing.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
             var fired = new List<byte>();
             using var sut = await AgreeRemoteLinemodeAsync(stream, cts, fired);
             stream.Enqueue(255, 255);
@@ -793,8 +793,8 @@
         {
             // Command bytes reset the report like any consumed byte: IP, then
             // a silently-consumed NOP, leaves null.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
             var fired = new List<byte>();
             using var sut = await AgreeRemoteLinemodeAsync(stream, cts, fired);
             stream.Enqueue(3);
@@ -809,9 +809,9 @@
         public async Task SlcSnoop_KludgeServer_EchoAndSga_Snoops()
         {
             // Pre-LINEMODE char mode, server side: our ECHO + SGA snoops.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             var fired = new List<byte>();
             sut.SlcFunctionReceived = fired.Add;
             sut.AllowRemoteEcho = true;
@@ -832,9 +832,9 @@
         {
             // Pre-LINEMODE char mode, client side: their ECHO + SGA snoops
             // (their SGA alone suffices, matching the reference gate).
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             var fired = new List<byte>();
             sut.SlcFunctionReceived = fired.Add;
             sut.AllowRemoteEcho = true;
@@ -856,7 +856,7 @@
             // disable value 255 scans like any other value (first such row is
             // function 17) — it never snoops on the wire only because the
             // IAC IAC escape path bypasses the snoop.
-            var state = new LinemodeState();
+            LinemodeState state = new();
             state.Snoop(3).Should().Be((byte)3);
             state.Snoop(0).Should().BeNull();
             state.Snoop(255).Should().Be((byte)17);

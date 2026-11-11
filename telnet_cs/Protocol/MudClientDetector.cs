@@ -13,8 +13,9 @@ using System.Collections.Generic;
 /// </summary>
 internal static class MudClientDetector
 {
-    private static readonly HashSet<string> MudTerminals = new(StringComparer.OrdinalIgnoreCase)
-    {
+    private static readonly HashSet<string> MudTerminals =
+    [
+        with(StringComparer.OrdinalIgnoreCase),
         "mudlet",
         "cmud",
         "zmud",
@@ -28,7 +29,7 @@ internal static class MudClientDetector
         "portal",
         "beip",
         "savitar",
-    };
+    ];
 
     private static readonly int[] MudOptions =
     [
@@ -55,22 +56,12 @@ internal static class MudClientDetector
             return true;
         }
 
-        for (int i = 0; i < terminalTypeChain.Count && i < 3; i++)
+        // Only the first three TTYPE answers count (reference parity).
+        if (terminalTypeChain.Take(3).Any(static type => type is not null && MudTerminals.Contains(type)))
         {
-            if (terminalTypeChain[i] is not null && MudTerminals.Contains(terminalTypeChain[i]))
-            {
-                return true;
-            }
+            return true;
         }
 
-        foreach (int option in MudOptions)
-        {
-            if (remoteOptionEnabled(option))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return MudOptions.Any(remoteOptionEnabled);
     }
 }

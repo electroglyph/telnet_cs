@@ -103,7 +103,7 @@ public partial class Client
     {
         ArgumentNullException.ThrowIfNull(byteStream);
         var pending = options ?? [];
-        var client = new Client(byteStream, cancellationToken, deferConnect: true);
+        Client client = new(byteStream, cancellationToken, deferConnect: true);
         try
         {
             await client.WaitForConnectionAsync(timeout, cancellationToken).ConfigureAwait(false);
@@ -180,7 +180,7 @@ public partial class Client
         var effectiveTimeout = timeout ?? TimeSpan.FromSeconds(30);
         ArgumentOutOfRangeException.ThrowIfLessThan(effectiveTimeout, TimeSpan.Zero);
         var deadline = DateTime.UtcNow.Add(effectiveTimeout);
-        var tcpClient = new System.Net.Sockets.TcpClient();
+        System.Net.Sockets.TcpClient tcpClient = new();
         try
         {
             var connectTask = tcpClient.ConnectAsync(hostname, port);
@@ -196,7 +196,7 @@ public partial class Client
 
             await connectTask.ConfigureAwait(false);
 #pragma warning disable CA2000 // Ownership of the stream transfers to the Client on success; the catch below releases it otherwise.
-            TcpClient tcpSocket = new TcpClient(tcpClient);
+            TcpClient tcpSocket = new(tcpClient);
             ISocket socket = tcpSocket;
             if (options?.UseTls is true)
             {
@@ -205,7 +205,7 @@ public partial class Client
 
             // The socket just connected, so no connect wait remains: build
             // directly on the deferred constructor instead of CreateAsync.
-            var client = new Client(new TcpByteStream(socket), CancellationToken.None, deferConnect: true);
+            Client client = new(new TcpByteStream(socket), CancellationToken.None, deferConnect: true);
             if (options is not null)
             {
                 client.ApplyOptions(options);
@@ -228,7 +228,7 @@ public partial class Client
 
     private static async Task<TlsSocket> HandshakeTlsAsync(TcpClient socket, string hostname, TelnetClientOptions options, DateTime deadline, CancellationToken cancellationToken)
     {
-        var auth = new SslClientAuthenticationOptions
+        SslClientAuthenticationOptions auth = new()
         {
             TargetHost = options.TlsHost ?? hostname,
             EnabledSslProtocols = options.TlsProtocols,
@@ -328,14 +328,8 @@ public partial class Client
         return SendNegotiationBytesAsync(verb, option);
     }
 
-    private Task SendNegotiationBytesAsync(Commands? verb, Options option)
-    {
-        if (verb is null)
-        {
-            return Task.CompletedTask;
-        }
-
-        byte[] buffer = [(byte)Commands.InterpretAsCommand, (byte)verb, (byte)option];
-        return WriteStream.WriteAsync(buffer, 0, buffer.Length, InternalCancellation.Token);
-    }
+    private Task SendNegotiationBytesAsync(Commands? verb, Options option) =>
+        verb is null
+            ? Task.CompletedTask
+            : WriteStream.WriteAsync([(byte)Commands.InterpretAsCommand, (byte)verb, (byte)option], 0, 3, InternalCancellation.Token);
 }

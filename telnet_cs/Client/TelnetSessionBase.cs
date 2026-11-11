@@ -9,7 +9,12 @@ using telnet_cs.Protocol;
 using telnet_cs.Transport;
 
 /// <summary>
-/// The base class for Clients.
+/// The shared base for the Telnet <see cref="Client.Client"/> and the
+/// server-side session: owns the byte stream, the terminated-read buffer
+/// (<see cref="PendingText"/>) plus its atomic drain/append/prepend
+/// helpers, GO-Ahead fan-out, and the terminator search helpers the
+/// terminated reads poll on. Protocol negotiation lives in the
+/// <see cref="telnet_cs.IO.ByteStreamHandler"/> the derived sessions drive.
 /// </summary>
 public abstract partial class TelnetSessionBase : IBaseClient
 {
@@ -123,24 +128,12 @@ public abstract partial class TelnetSessionBase : IBaseClient
     }
 
     /// <inheritdoc/>
-    public bool IsConnected
-    {
-        get
-        {
-            return byteStream.Connected;
-        }
-    }
+    public bool IsConnected => byteStream.Connected;
 
     /// <summary>
     /// Gets the byte stream.
     /// </summary>
-    protected IByteStream ByteStream
-    {
-        get
-        {
-            return byteStream;
-        }
-    }
+    protected IByteStream ByteStream => byteStream;
 
     /// <summary>
     /// Gets the stream outbound bytes are written to. The base
@@ -170,15 +163,15 @@ public abstract partial class TelnetSessionBase : IBaseClient
     /// <returns>True if the terminator is located, otherwise false.</returns>
     protected static bool IsTerminatorLocated(string? terminator, string? s)
     {
-        if (string.IsNullOrEmpty(s))
-        {
-            return false;
-        }
-
         // Ordinal: terminators are protocol tokens, and a culture-aware
         // comparison treats NUL as ignorable (same class of bug as the old
         // ByteStringConverter "\0xFF" issue).
-        return !string.IsNullOrEmpty(terminator) && s.Contains(terminator, StringComparison.Ordinal);
+        return (terminator, s) switch
+        {
+            (null or "", _) => false,
+            (_, null or "") => false,
+            (var located, var content) => content.Contains(located, StringComparison.Ordinal),
+        };
     }
 
     /// <summary>
@@ -190,7 +183,7 @@ public abstract partial class TelnetSessionBase : IBaseClient
     /// <returns>True if any terminator is located, otherwise false.</returns>
     protected static bool IsAnyTerminatorLocated(IEnumerable<string>? terminators, string? s)
     {
-        if (terminators is null || string.IsNullOrEmpty(s))
+        if (terminators is null || s is null or "")
         {
             return false;
         }
@@ -213,7 +206,7 @@ public abstract partial class TelnetSessionBase : IBaseClient
     /// <returns>True if the Regex is matched, otherwise false.</returns>
     protected static bool IsRegexLocated(Regex? regex, string? s)
     {
-        if (string.IsNullOrEmpty(s) || regex is null)
+        if (s is null or "" || regex is null)
         {
             return false;
         }
@@ -230,7 +223,7 @@ public abstract partial class TelnetSessionBase : IBaseClient
     /// <returns>True if any Regex matches, otherwise false.</returns>
     protected static bool IsAnyRegexLocated(IEnumerable<Regex>? regexes, string? s)
     {
-        if (regexes is null || string.IsNullOrEmpty(s))
+        if (regexes is null || s is null or "")
         {
             return false;
         }
@@ -265,8 +258,8 @@ public abstract partial class TelnetSessionBase : IBaseClient
         }
 
         int end = at + terminator.Length;
-        remainder = s.Substring(end);
-        return s.Substring(0, end);
+        remainder = s[end..];
+        return s[..end];
     }
 
     /// <summary>

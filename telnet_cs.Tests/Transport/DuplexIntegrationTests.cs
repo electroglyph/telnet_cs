@@ -43,8 +43,8 @@ namespace telnet_cs.Tests
             // still double on the wire; that pin lives on
             // SessionCounters_EscapedIacWrite_CountsBothWireBytes.
             var (writerSide, readerSide) = DuplexPipe.Create();
-            using var writer = new ServerSession(writerSide, new TelnetServerOptions(), CancellationToken.None);
-            using var reader = new ServerSession(readerSide, new TelnetServerOptions(), CancellationToken.None);
+            using ServerSession writer = new(writerSide, new TelnetServerOptions(), CancellationToken.None);
+            using ServerSession reader = new(readerSide, new TelnetServerOptions(), CancellationToken.None);
             await writer.WriteAsync("aÿb", CancellationToken.None);
             (await reader.ReadAsync(TimeSpan.FromSeconds(5))).Should().Be("aÿb");
         }
@@ -60,7 +60,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 var (clientStream, serverStream) = DuplexPipe.Create();
-                using var session = new ServerSession(serverStream, new TelnetServerOptions(), CancellationToken.None);
+                using ServerSession session = new(serverStream, new TelnetServerOptions(), CancellationToken.None);
                 using var client = await Client.CreateAsync(clientStream, TimeSpan.FromSeconds(30), CancellationToken.None);
                 client.Settings.WindowWidth = 100;
                 client.Settings.WindowHeight = 30;

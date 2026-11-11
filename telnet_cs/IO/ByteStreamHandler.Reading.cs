@@ -24,7 +24,7 @@ public partial class ByteStreamHandler
     /// </summary>
     /// <param name="byteStream">The byteStream to handle.</param>
     public ByteStreamHandler(IByteStream byteStream)
-      : this(byteStream, new CancellationTokenSource(), Client.DefaultMillisecondReadDelay)
+      : this(byteStream, new(), Client.DefaultMillisecondReadDelay)
     {
         isCancellationTokenOwned = true;
     }
@@ -55,10 +55,7 @@ public partial class ByteStreamHandler
 
     private bool IsCancellationRequested
     {
-        get
-        {
-            return internalCancellation.Token.IsCancellationRequested;
-        }
+        get => internalCancellation.Token.IsCancellationRequested;
     }
 
     /// <summary>
@@ -87,9 +84,9 @@ public partial class ByteStreamHandler
         // partial response via the catch below.
         internalCancellation.Token.ThrowIfCancellationRequested();
 
-        var sb = new StringBuilder();
-        var rawBytes = new List<byte>();
-        var opByteCounts = new List<int>();
+        StringBuilder sb = new();
+        List<byte> rawBytes = [];
+        List<int> opByteCounts = [];
         byteStream.ReceiveTimeout = ClampReceiveTimeout(timeout);
         var endInitialTimeout = DateTime.UtcNow.Add(timeout);
         var rollingTimeout = ExtendRollingTimeout(timeout);

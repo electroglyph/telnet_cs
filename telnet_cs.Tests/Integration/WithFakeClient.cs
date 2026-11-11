@@ -39,7 +39,7 @@
             var millisecondsSpin = 5000;
             var millisecondTolerance = 750;
             var hasResponded = false;
-            var stopwatch = new Stopwatch();
+            Stopwatch stopwatch = new();
             var byteStream = ArrangeByteStreamToRespondWithTerminationOnceAfterMillisecondSpin();
 
             using (var sut = await Client.CreateAsync(byteStream, new TimeSpan(0, 0, 0, 0, 1), default))
@@ -83,7 +83,7 @@
             A.CallTo(() => byteStream.Connected).Returns(true);
             using (var cancellationToken = new CancellationTokenSource())
             {
-                var stopwatch = new Stopwatch();
+                Stopwatch stopwatch = new();
                 using (var sut = await Client.CreateAsync(byteStream, new TimeSpan(0, 0, 0, 0, 1), default))
                 {
                     cancellationToken.CancelAfter(100);
@@ -99,14 +99,14 @@
                 A.CallTo(() => socket.GetStream()).Returns(networkStream);
                 A.CallTo(() => socket.Connected).Returns(true);
                 A.CallTo(() => socket.Available).Returns(1);
-                using (var tcpByteStream = new TcpByteStream(socket))
+                using (TcpByteStream tcpByteStream = new(socket))
                 {
                     A.CallTo(() => networkStream.ReadByte()).Returns(142);
                     tcpByteStream.Connected.Should().BeTrue();
                     using (var cancellationToken = new CancellationTokenSource())
                     {
-                        var stopwatch = new Stopwatch();
-                        using (var sut = new ByteStreamHandler(tcpByteStream, cancellationToken))
+                        Stopwatch stopwatch = new();
+                        using (ByteStreamHandler sut = new(tcpByteStream, cancellationToken))
                         {
 
                             cancellationToken.CancelAfter(100);

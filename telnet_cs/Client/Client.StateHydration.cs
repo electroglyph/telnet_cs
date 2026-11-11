@@ -16,12 +16,12 @@ public partial class Client
 
     private IReadOnlyList<string> BuildTerminalTypes()
     {
-        if (Settings.TerminalTypes.Count > 0)
+        if (Settings.TerminalTypes.Count is > 0)
         {
             List<string>? kept = null;
             foreach (string entry in Settings.TerminalTypes)
             {
-                if (string.IsNullOrEmpty(entry))
+                if (entry is null or "")
                 {
                     continue;
                 }
@@ -37,7 +37,7 @@ public partial class Client
         }
 
         string resolved = Settings.TerminalType ?? TerminalType;
-        if (string.IsNullOrEmpty(resolved))
+        if (resolved is null or "")
         {
             return [TerminalTypeCycler.Unknown];
         }
@@ -57,7 +57,7 @@ public partial class Client
         IReadOnlyList<string> terminalTypes = BuildTerminalTypes();
         if (terminalTypeCycler is null || !terminalTypeCycler.Matches(terminalTypes))
         {
-            terminalTypeCycler = new TerminalTypeCycler(terminalTypes);
+            terminalTypeCycler = new(terminalTypes);
         }
 
         handler.TerminalType = terminalTypes[0];
@@ -144,7 +144,7 @@ public partial class Client
                 return;
             }
 
-            mccp3Filter = new MccpWriteFilter(ByteStream, new MccpCompressor());
+            mccp3Filter = new(ByteStream, new());
         }
     }
 

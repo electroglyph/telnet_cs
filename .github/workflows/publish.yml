@@ -26,7 +26,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: 11.0.x
       - name: Release test gate
         run: dotnet test telnet_cs.sln -c Release
       - name: Pack the library

@@ -62,9 +62,9 @@ namespace telnet_cs.Tests
             // Repro (real TelnetClient.send_charset, default_encoding=
             // utf-8, offered=[utf-8, latin1]): returns 'utf-8',
             // extra['charset']='utf-8' (ACCEPT = FF FA 2A 02, not 03).
-            using var stream = new ScriptedStream([255, 253, 42, 255, 251, 42, 255, 250, 42, 1, .. Ascii("utf-8 latin1"), 255, 240]);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new([255, 253, 42, 255, 251, 42, 255, 250, 42, 1, .. Ascii("utf-8 latin1"), 255, 240]);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.TextEncoding = Encoding.UTF8;
             sut.CharsetOffers = ["LATIN1"];
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(200))).Should().BeEmpty();
@@ -83,9 +83,9 @@ namespace telnet_cs.Tests
             // codecs.lookup('LATIN1').name='iso8859-1'.
             // Repro: default_encoding=None, offered=['LATIN1'] -> returns
             // 'LATIN1', charset='iso8859-1'; _normalize('LATIN1')='LATIN1'.
-            using var stream = new ScriptedStream([255, 253, 42, 255, 251, 42, 255, 250, 42, 1, .. Ascii("LATIN1"), 255, 240]);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new([255, 253, 42, 255, 251, 42, 255, 250, 42, 1, .. Ascii("LATIN1"), 255, 240]);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(200))).Should().BeEmpty();
             ContainsSubsequence(OutboundBytes(stream), new byte[] { 255, 250, 42, 2 }).Should().BeTrue();
         }

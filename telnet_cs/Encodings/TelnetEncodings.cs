@@ -4,17 +4,17 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading;
 
 /// <summary>
 /// Registration and policy helpers for the retro-computer codecs.
 /// </summary>
 public static class TelnetEncodings
 {
-    private static readonly object Sync = new();
+    private static readonly Lock Sync = new();
     private static bool registered;
     private static readonly HashSet<string> ForceBinary =
-    new(StringComparer.OrdinalIgnoreCase)
-    {
+    [with(StringComparer.OrdinalIgnoreCase),
         "atascii",
         "atari8bit",
         "atari_8bit",
@@ -25,7 +25,7 @@ public static class TelnetEncodings
         "c128",
         "atarist",
         "atari",
-    };
+    ];
 
     /// <summary>
     /// Gets the codec names that require 8-bit-transparent (BINARY /
@@ -74,14 +74,6 @@ public static class TelnetEncodings
     /// </summary>
     /// <param name="name">The encoding name (e.g. "petscii"). Null returns false.</param>
     /// <returns>True when the encoding is in <see cref="ForceBinaryEncodings"/>.</returns>
-    public static bool RequiresBinaryMode(string? name)
-    {
-        if (name is null)
-        {
-            return false;
-        }
-
-        var normalized = name.ToLowerInvariant().Replace('-', '_');
-        return ForceBinary.Contains(normalized);
-    }
+    public static bool RequiresBinaryMode(string? name) =>
+        name is null ? false : ForceBinary.Contains(name.ToLowerInvariant().Replace('-', '_'));
 }

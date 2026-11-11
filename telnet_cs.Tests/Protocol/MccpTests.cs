@@ -35,9 +35,9 @@ namespace telnet_cs.Tests
         private static async Task<(string Output, List<byte[]> Writes, ByteStreamHandler Handler)> ReadOnceAsync(
           Action<ByteStreamHandler> configure, params int[] reads)
         {
-            using var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             configure(sut);
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             return (output, [.. stream.ByteWrites], sut);
@@ -50,8 +50,8 @@ namespace telnet_cs.Tests
 
         private static byte[] ZlibCompress(byte[] payload)
         {
-            using var ms = new MemoryStream();
-            using (var compressor = new ZLibStream(ms, CompressionLevel.Optimal, leaveOpen: true))
+            using MemoryStream ms = new();
+            using (ZLibStream compressor = new(ms, CompressionLevel.Optimal, leaveOpen: true))
             {
                 compressor.Write(payload, 0, payload.Length);
             }
@@ -61,7 +61,7 @@ namespace telnet_cs.Tests
 
         private static byte[] RawCompress(byte[] payload)
         {
-            using var ms = new MemoryStream();
+            using MemoryStream ms = new();
             using (var compressor = new DeflateStream(ms, CompressionLevel.Optimal, leaveOpen: true))
             {
                 compressor.Write(payload, 0, payload.Length);
@@ -72,7 +72,7 @@ namespace telnet_cs.Tests
 
         private static byte[] GzipCompress(string text)
         {
-            using var ms = new MemoryStream();
+            using MemoryStream ms = new();
             using (var compressor = new GZipStream(ms, CompressionLevel.Optimal, leaveOpen: true))
             {
                 var bytes = Encoding.ASCII.GetBytes(text);
@@ -135,12 +135,12 @@ namespace telnet_cs.Tests
             var first = Mccp2Stream(compressed[..(compressed.Length / 2)]);
             var second = compressed[(compressed.Length / 2)..].Select(b => (int)b).ToArray();
 
-            using var stream = new ScriptedStream(first);
-            using var cts = new CancellationTokenSource();
+            using ScriptedStream stream = new(first);
+            using CancellationTokenSource cts = new();
             string output1;
             MccpDecompressor? carried;
             bool carriedActive;
-            using (var sut = new ByteStreamHandler(stream, cts, 1))
+            using (ByteStreamHandler sut = new(stream, cts, 1))
             {
                 sut.EnableMccp = true;
                 output1 = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
@@ -152,7 +152,7 @@ namespace telnet_cs.Tests
             carriedActive.Should().BeTrue();
 
             stream.Enqueue(second);
-            using (var sut = new ByteStreamHandler(stream, cts, 1))
+            using (ByteStreamHandler sut = new(stream, cts, 1))
             {
                 sut.EnableMccp = true;
                 // Session carry, exactly what FeedSession/FeedHandler persist.
@@ -286,12 +286,12 @@ namespace telnet_cs.Tests
             var first = Mccp2Stream([0xF3, 0xF0]);
             var second = new byte[] { 0x04, 0x00, (byte)'Y', (byte)'O' }.Select(b => (int)b).ToArray();
 
-            using var stream = new ScriptedStream(first);
-            using var cts = new CancellationTokenSource();
+            using ScriptedStream stream = new(first);
+            using CancellationTokenSource cts = new();
             string output1;
             MccpDecompressor? carried;
             bool carriedActive;
-            using (var sut = new ByteStreamHandler(stream, cts, 1))
+            using (ByteStreamHandler sut = new(stream, cts, 1))
             {
                 sut.EnableMccp = true;
                 output1 = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
@@ -303,7 +303,7 @@ namespace telnet_cs.Tests
             carriedActive.Should().BeTrue();
 
             stream.Enqueue(second);
-            using (var sut = new ByteStreamHandler(stream, cts, 1))
+            using (ByteStreamHandler sut = new(stream, cts, 1))
             {
                 sut.EnableMccp = true;
                 // Session carry, exactly what FeedSession/FeedHandler persist.
@@ -408,8 +408,8 @@ namespace telnet_cs.Tests
             // inflates).
             var compressed = ZlibCompress("Hello, session!");
             var first = Mccp3Stream(compressed[..(compressed.Length / 2)]);
-            using var stream = new ScriptedStream(first);
-            using var session = new ServerSession(
+            using ScriptedStream stream = new(first);
+            using ServerSession session = new(
               stream, new TelnetServerOptions { EnableMccp = true }, CancellationToken.None);
             var output1 = await session.ReadAsync(TimeSpan.FromMilliseconds(50));
             output1.Should().NotBe("Hello, session!");
@@ -473,8 +473,8 @@ namespace telnet_cs.Tests
 
         private static string ZlibInflate(byte[] payload)
         {
-            using var ms = new MemoryStream(payload);
-            using var inflater = new ZLibStream(ms, CompressionMode.Decompress);
+            using MemoryStream ms = new(payload);
+            using ZLibStream inflater = new(ms, CompressionMode.Decompress);
             using var reader = new StreamReader(inflater, Encoding.ASCII);
             return reader.ReadToEnd();
         }
@@ -485,8 +485,8 @@ namespace telnet_cs.Tests
             // Explicit opt-in offer: once the peer advances negotiation
             // (WILL TTYPE, option 24, here), the advanced preset carries
             // IAC WILL MCCP2 exactly once.
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(
+            using ScriptedStream stream = new();
+            using ServerSession session = new(
               stream, new TelnetServerOptions { OfferMccp2 = true }, CancellationToken.None);
             await session.SendOpeningPresetAsync();
             stream.Enqueue(Iac, Will, 24);
@@ -500,8 +500,8 @@ namespace telnet_cs.Tests
             // The peer accepts the offer (DO MCCP2): the session emits the
             // empty SB start marker raw, then compresses everything after
             // it, so the trailing bytes inflate back to the sent text.
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(
+            using ScriptedStream stream = new();
+            using ServerSession session = new(
               stream, new TelnetServerOptions { OfferMccp2 = true }, CancellationToken.None);
             await session.SendOpeningPresetAsync();
             stream.Enqueue(Iac, Will, 24);
@@ -524,8 +524,8 @@ namespace telnet_cs.Tests
         {
             // Compression is never offered over TLS: the advanced preset
             // still negotiates everything else, but stays silent on MCCP2.
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(
+            using ScriptedStream stream = new();
+            using ServerSession session = new(
               stream, new TelnetServerOptions { OfferMccp2 = true }, CancellationToken.None);
             session.IsTls = true;
             await session.SendOpeningPresetAsync();
@@ -542,7 +542,7 @@ namespace telnet_cs.Tests
             // The client answers WILL MCCP3 with DO plus the empty SB start,
             // then compresses everything it sends: the bytes after the start
             // marker inflate back to the written payload.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             stream.Enqueue(Iac, Will, Mccp3);
             (await client.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
@@ -564,7 +564,7 @@ namespace telnet_cs.Tests
             // Strict: a peer WONT only records state (the reference never
             // stops its outbound compressor), so later writes stay
             // compressed in the same stream.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             stream.Enqueue(Iac, Will, Mccp3);
             (await client.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
@@ -585,7 +585,7 @@ namespace telnet_cs.Tests
         {
             // Compression off: the client answers WILL MCCP3 with DONT and
             // never compresses.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             client.Settings.EnableMccp = false;
             stream.Enqueue(Iac, Will, Mccp3);
@@ -735,8 +735,8 @@ namespace telnet_cs.Tests
         {
             // Explicit opt-in offer: once the peer advances negotiation, the
             // preset carries IAC WILL MCCP3 exactly once, after WILL MCCP2.
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(
+            using ScriptedStream stream = new();
+            using ServerSession session = new(
               stream,
               new TelnetServerOptions { OfferMccp2 = true, OfferMccp3 = true },
               CancellationToken.None);
@@ -753,8 +753,8 @@ namespace telnet_cs.Tests
         public async Task OfferMccp3_Tls_SendsNoWillMccp3()
         {
             // Compression is never offered over TLS, MCCP3 included.
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(
+            using ScriptedStream stream = new();
+            using ServerSession session = new(
               stream, new TelnetServerOptions { OfferMccp3 = true }, CancellationToken.None);
             session.IsTls = true;
             await session.SendOpeningPresetAsync();
@@ -771,8 +771,8 @@ namespace telnet_cs.Tests
             // The peer accepts our WILL MCCP3 (DO), then sends its own start
             // marker and compressed bytes, which the server inflates. The
             // server itself sends no SB marker for MCCP3.
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(
+            using ScriptedStream stream = new();
+            using ServerSession session = new(
               stream, new TelnetServerOptions { OfferMccp3 = true }, CancellationToken.None);
             await session.SendOpeningPresetAsync();
             stream.Enqueue(Iac, Will, 24);
@@ -792,8 +792,8 @@ namespace telnet_cs.Tests
             // The peer accepted our offer (DO, not WILL), so corrupt bytes
             // after its marker are refused with WONT: a DONT would only end
             // our own outbound, which MCCP3 has none of server-side.
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(
+            using ScriptedStream stream = new();
+            using ServerSession session = new(
               stream, new TelnetServerOptions { OfferMccp3 = true }, CancellationToken.None);
             await session.SendOpeningPresetAsync();
             stream.Enqueue(Iac, Will, 24);
@@ -812,8 +812,8 @@ namespace telnet_cs.Tests
         {
             // A corrupt stream ends in DONT but records the refusal, so a
             // fresh WILL re-arms and a valid stream inflates afterwards.
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(
+            using ScriptedStream stream = new();
+            using ServerSession session = new(
               stream, new TelnetServerOptions { EnableMccp = true }, CancellationToken.None);
             stream.Enqueue([Iac, Will, Mccp3, Iac, Sb, Mccp3, Iac, Se,
                 .. Encoding.ASCII.GetBytes("junk!!").Select(b => (int)b)]);
@@ -831,8 +831,8 @@ namespace telnet_cs.Tests
             // Strict: a peer WONT only records state (the reference never
             // stops its outbound compressor), so writes before and after
             // land in the same compressed stream.
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(
+            using ScriptedStream stream = new();
+            using ServerSession session = new(
               stream, new TelnetServerOptions { OfferMccp2 = true }, CancellationToken.None);
             await session.SendOpeningPresetAsync();
             stream.Enqueue(Iac, Will, 24);
@@ -858,8 +858,8 @@ namespace telnet_cs.Tests
             // The re-DO re-affirms the exchange, but the compressor never
             // stopped: no second start marker goes out, and the write after
             // re-agreement inflates from the same stream.
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(
+            using ScriptedStream stream = new();
+            using ServerSession session = new(
               stream, new TelnetServerOptions { OfferMccp2 = true }, CancellationToken.None);
             await session.SendOpeningPresetAsync();
             stream.Enqueue(Iac, Will, 24);
@@ -890,7 +890,7 @@ namespace telnet_cs.Tests
             var full = Mccp2Stream(compressed);
             for (int split = 1; split < full.Length; split++)
             {
-                using var stream = new ScriptedStream(full[..split]);
+                using ScriptedStream stream = new(full[..split]);
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 var first = await client.ReadAsync(TimeSpan.FromMilliseconds(500));
                 stream.Enqueue(full[split..]);
@@ -932,7 +932,7 @@ namespace telnet_cs.Tests
             ];
             foreach (var payload in payloads)
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(Iac, Will, Mccp3);
                 (await client.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
@@ -947,7 +947,7 @@ namespace telnet_cs.Tests
 
         private static byte[] IacEscape(byte[] payload)
         {
-            using var ms = new MemoryStream(payload.Length + 1);
+            using MemoryStream ms = new(payload.Length + 1);
             foreach (var b in payload)
             {
                 ms.WriteByte(b);
@@ -962,9 +962,9 @@ namespace telnet_cs.Tests
 
         private static byte[] ZlibInflateBytes(byte[] payload)
         {
-            using var ms = new MemoryStream(payload);
-            using var inflater = new ZLibStream(ms, CompressionMode.Decompress);
-            using var result = new MemoryStream();
+            using MemoryStream ms = new(payload);
+            using ZLibStream inflater = new(ms, CompressionMode.Decompress);
+            using MemoryStream result = new();
             inflater.CopyTo(result);
             return result.ToArray();
         }

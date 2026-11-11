@@ -60,8 +60,8 @@ public partial class Client
     {
         var (term, lang, columns, lines) = SystemEnvironment();
         var colorTerm = System.Environment.GetEnvironmentVariable("COLORTERM") ?? string.Empty;
-        var parts = new List<string>
-  {
+        List<string> parts =
+  [
     Settings.EnvironmentUser ?? string.Empty,
     Settings.EnvironmentDisplay ?? string.Empty,
     term ?? string.Empty,
@@ -69,7 +69,7 @@ public partial class Client
     columns ?? string.Empty,
     lines ?? string.Empty,
     colorTerm,
-  };
+  ];
         foreach (var pair in Settings.EnvironmentUserVars.OrderBy(static p => p.Key, StringComparer.Ordinal))
         {
             parts.Add(pair.Key);
@@ -94,7 +94,7 @@ public partial class Client
         var lang = Settings.TextEncoding is null ? "C" : $"en_US.{Settings.TextEncoding.WebName.Replace("-", string.Empty, StringComparison.Ordinal)}";
         var (width, height) = NawsProtocol.GetEffectiveSize(Settings.WindowWidth, Settings.WindowHeight);
         return (
-          string.IsNullOrEmpty(term) ? null : term,
+          term is null or "" ? null : term,
           lang,
           width.ToString(System.Globalization.CultureInfo.InvariantCulture),
           height.ToString(System.Globalization.CultureInfo.InvariantCulture));

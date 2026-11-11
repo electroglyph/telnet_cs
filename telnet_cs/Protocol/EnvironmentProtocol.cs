@@ -15,7 +15,7 @@ internal static class EnvironmentProtocol
     internal const byte Esc = 2;
     internal const byte UserVar = 3;
 
-    private static readonly byte[] UserName = [(byte)'U', (byte)'S', (byte)'E', (byte)'R'];
+    private static readonly byte[] UserName = [.. "USER"u8];
 
     /// <summary>
     /// Well-known <c>DISPLAY</c> variable name: single source of truth for
@@ -70,7 +70,7 @@ internal static class EnvironmentProtocol
         }
 
         var requests = ParseSendRequests(requestedTypes);
-        var entries = new List<(byte Type, byte[] Name, byte[]? Value)>();
+        List<(byte Type, byte[] Name, byte[]? Value)> entries = [];
         if (requests.Count == 0)
         {
             AddWellKnown(entries, user, display, term, lang, columns, lines, colorTerm);
@@ -84,7 +84,7 @@ internal static class EnvironmentProtocol
         }
         else
         {
-            var seen = new HashSet<(byte Type, string Name)>();
+            HashSet<(byte Type, string Name)> seen = [];
             foreach (var (type, name) in requests)
             {
                 if (name.Length == 0)
@@ -123,7 +123,7 @@ internal static class EnvironmentProtocol
             }
         }
 
-        var payload = new List<byte>(entries.Count * 8 + 1) { verb };
+        List<byte> payload = [with(capacity: entries.Count * 8 + 1), verb];
         foreach (var (type, name, value) in entries)
         {
             payload.Add(type);
@@ -152,7 +152,7 @@ internal static class EnvironmentProtocol
     /// <param name="ttype2">Second TTYPE answer, or null when unknown.</param>
     internal static byte[] BuildDefaultSendRequest(string? ttype1, string? ttype2)
     {
-        var names = new List<string>();
+        List<string> names = [];
         if (ttype1 != "ANSI" || ttype2 != "VT100")
         {
             names.Add("USER");
@@ -160,7 +160,7 @@ internal static class EnvironmentProtocol
 
         names.AddRange(["LOGNAME", "DISPLAY", "LANG", "TERM", "TERM_PROGRAM", "COLUMNS", "LINES", "COLORTERM", "EDITOR", "IPADDRESS"]);
 
-        var request = new List<byte>();
+        List<byte> request = [];
         foreach (var name in names)
         {
             request.Add(Var);
@@ -203,12 +203,11 @@ internal static class EnvironmentProtocol
 
     private static byte[] Frame(int option, byte[] verbFirstPayload, byte escapeByte, bool trailingIac)
     {
-        var frame = new List<byte>(verbFirstPayload.Length + (trailingIac ? 5 : 4))
-  {
+        List<byte> frame = [with(capacity: verbFirstPayload.Length + (trailingIac ? 5 : 4)),
     (byte)Commands.InterpretAsCommand,
     (byte)Commands.Subnegotiation,
     (byte)option,
-  };
+  ];
         foreach (var b in verbFirstPayload)
         {
             frame.Add(b);
@@ -238,7 +237,7 @@ internal static class EnvironmentProtocol
     /// <param name="maxEntries">Maximum entries to parse (CPU bound; extra input is left unparsed).</param>
     internal static List<(bool IsUserVar, string Name, string? Value)> ParseEntries(ReadOnlySpan<byte> payload, int maxEntries = int.MaxValue)
     {
-        var entries = new List<(bool IsUserVar, string Name, string? Value)>();
+        List<(bool IsUserVar, string Name, string? Value)> entries = [];
         var index = 1; // Skip the verb.
         while (index < payload.Length)
         {
@@ -274,7 +273,7 @@ internal static class EnvironmentProtocol
 
     private static string ReadRun(ReadOnlySpan<byte> payload, ref int index)
     {
-        var raw = new List<byte>();
+        List<byte> raw = [];
         while (index < payload.Length)
         {
             var b = payload[index];
@@ -418,8 +417,8 @@ internal static class EnvironmentProtocol
 
     private static List<(byte Type, string Name)> ParseSendRequests(IEnumerable<byte> requested)
     {
-        var bytes = requested as byte[] ?? [.. requested];
-        var list = new List<(byte Type, string Name)>();
+        byte[] bytes = requested is byte[] arr ? arr : [.. requested];
+        List<(byte Type, string Name)> list = [];
         var index = 0;
         while (index < bytes.Length)
         {
@@ -431,7 +430,7 @@ internal static class EnvironmentProtocol
             }
 
             index++;
-            var raw = new List<byte>();
+            List<byte> raw = [];
             while (index < bytes.Length)
             {
                 var b = bytes[index];
@@ -502,7 +501,7 @@ internal static class EnvironmentProtocol
             return raw;
         }
 
-        var escaped = new List<byte>(raw.Length + 2);
+        List<byte> escaped = [with(capacity: raw.Length + 2)];
         foreach (var b in raw)
         {
             if (b is Var or Value or Esc or UserVar)

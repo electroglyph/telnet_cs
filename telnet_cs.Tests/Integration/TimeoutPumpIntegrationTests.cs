@@ -24,7 +24,7 @@ namespace telnet_cs.Tests
         {
             var guard = GlobalStateGuard.SkipProactive(true);
             var (clientStream, serverStream) = InMemoryPipe.Create();
-            var session = new ServerSession(
+            ServerSession session = new(
                 serverStream, serverOptions ?? new TelnetServerOptions(), CancellationToken.None);
             var client = await Client.CreateAsync(clientStream, TimeSpan.FromSeconds(30), CancellationToken.None);
             return (client, session, guard);

@@ -34,9 +34,9 @@ namespace telnet_cs.Tests
             // boundaries; RFC 1143 section 7 answers a received DO with WILL
             // when the option is agreeable (3 = SGA). telnetlib3 keeps the
             // equivalent partial-command state across feed_byte calls.
-            using var stream = new ScriptedStream(Iac);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(Iac);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await ReadOnceAsync(sut)).Should().BeEmpty();
             stream.Enqueue(Do, 3);
             (await ReadOnceAsync(sut)).Should().BeEmpty();
@@ -50,9 +50,9 @@ namespace telnet_cs.Tests
             // unit across segments like any other command. An unknown option
             // payload is ignored without reply: subnegotiation never
             // synthesizes WONT.
-            using var stream = new ScriptedStream(Iac, Sb);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(Iac, Sb);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await ReadOnceAsync(sut)).Should().BeEmpty();
             stream.Enqueue(99, 65, Iac, Se);
             (await ReadOnceAsync(sut)).Should().BeEmpty();
@@ -64,9 +64,9 @@ namespace telnet_cs.Tests
         {
             // Same framing rule as SplitIacDo: IAC DO split across reads is
             // one command (RFC 854 command structure, RFC 1143 section 7).
-            using var stream = new ScriptedStream(Iac, Do);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(Iac, Do);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await ReadOnceAsync(sut)).Should().BeEmpty();
             stream.Enqueue(3);
             (await ReadOnceAsync(sut)).Should().BeEmpty();
@@ -79,9 +79,9 @@ namespace telnet_cs.Tests
             // Raw reads preserve bytes across segment boundaries: CR arrives
             // first, NUL arrives next as data. Line-oriented callers trim
             // CR NUL to CR.
-            using var stream = new ScriptedStream(65, 13);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(65, 13);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await ReadOnceAsync(sut)).Should().Be("A\r");
             stream.Enqueue(0);
             (await ReadOnceAsync(sut)).Should().Be("\0");
@@ -92,9 +92,9 @@ namespace telnet_cs.Tests
         {
             // RFC 854: the frame ends at IAC SE wherever the boundary falls,
             // and bytes after it are ordinary stream data (here "A").
-            using var stream = new ScriptedStream(Iac, Sb, 31, 1, Iac);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(Iac, Sb, 31, 1, Iac);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await ReadOnceAsync(sut)).Should().BeEmpty();
             stream.Enqueue(Se, 65);
             (await ReadOnceAsync(sut)).Should().Be("A");
@@ -107,9 +107,9 @@ namespace telnet_cs.Tests
             // inner frame is complete (IAC SB 99 [65] IAC SE) and is scanned
             // fresh from the inner SB. The inner dispatch follows the normal
             // rule for unknown options: ignored without reply.
-            using var stream = new ScriptedStream(Iac, Sb, 24, 1, Iac, Sb, 99, 65, Iac, Se);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(Iac, Sb, 24, 1, Iac, Sb, 99, 65, Iac, Se);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await ReadOnceAsync(sut)).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
         }
@@ -121,9 +121,9 @@ namespace telnet_cs.Tests
             // COMPRESS2 agreement, via the server's empty IAC SB COMPRESS2
             // IAC SE. With no such agreement this SB is meaningless, so it
             // must be ignored and the following bytes stay plaintext.
-            using var stream = new ScriptedStream(Iac, Sb, 86, Iac, Se, 72, 69, 76, 76, 79);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(Iac, Sb, 86, Iac, Se, 72, 69, 76, 76, 79);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await ReadOnceAsync(sut)).Should().Be("HELLO");
         }
 
@@ -135,9 +135,9 @@ namespace telnet_cs.Tests
             // log — end-to-end the frame is a no-op there, so containing it
             // here matches the reference rather than diverging from it. The
             // malformed frame is logged and ignored with no reply.
-            using var stream = new ScriptedStream(Iac, Sb, 34, 3, 3, 2, 5, 9, Iac, Se);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(Iac, Sb, 34, 3, 3, 2, 5, 9, Iac, Se);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await ReadOnceAsync(sut)).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
         }
@@ -151,8 +151,8 @@ namespace telnet_cs.Tests
             // SocketException at their layer, so throwing here is the
             // intended boundary, not a missed partial return.
             using var stream = new SocketFailingStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             Func<Task<string>> read = () => ReadOnceAsync(sut);
             await read.Should().ThrowAsync<SocketException>();
         }

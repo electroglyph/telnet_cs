@@ -22,9 +22,9 @@ namespace telnet_cs.Tests
     {
         private static async Task<(string Output, byte[] Writes, byte[] Singles)> ReadScriptedAsync(params int[] reads)
         {
-            using var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             return (output, stream.ByteWrites.SelectMany(w => w).ToArray(), stream.SingleByteWrites.ToArray());
         }
@@ -157,9 +157,9 @@ namespace telnet_cs.Tests
             // reference answers SB TTYPE IS; asserting ContainsFrame(... [255,250,24,0])
             // fails only while the 512 cap is in place. This test is correct; the fix
             // is to raise the cap to the reference value while keeping resync.
-            using var stream = new ScriptedStream([255, 253, 24]);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new([255, 253, 24]);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             stream.Enqueue([255, 250, 24, 1, .. Enumerable.Repeat(65, 600), 255, 240]);
             await sut.ReadAsync(TimeSpan.FromSeconds(2));
@@ -191,7 +191,7 @@ namespace telnet_cs.Tests
             // This setup previously used the default proactive client and expected 2,
             // which conflated the ack-silence rule with the split bug; it now isolates
             // the split path. This test is correct as fixed.
-            using var stream = new ScriptedStream(255);
+            using ScriptedStream stream = new(255);
             using var client = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None, [], skipProactiveNegotiation: true);
             (await client.ReadAsync(TimeSpan.FromMilliseconds(200))).Should().BeEmpty();
             stream.Enqueue(251, 3);
@@ -218,9 +218,9 @@ namespace telnet_cs.Tests
             // read "HI", then plaintext [89, 79] ("YO") must read "YO"; returning
             // garbage/empty for the second read proves end-detection is missing. This
             // test is correct per the reference resume behavior.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1) { EnableMccp = true };
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1) { EnableMccp = true };
             stream.Enqueue(255, 251, 86);
             await sut.ReadAsync(TimeSpan.FromMilliseconds(200));
             stream.Enqueue(255, 250, 86, 255, 240);
@@ -233,7 +233,7 @@ namespace telnet_cs.Tests
 
         private static byte[] RawDeflate(string text)
         {
-            using var ms = new MemoryStream();
+            using MemoryStream ms = new();
             using (var deflate = new DeflateStream(ms, CompressionLevel.NoCompression, leaveOpen: true))
             {
                 deflate.Write(Encoding.ASCII.GetBytes(text));

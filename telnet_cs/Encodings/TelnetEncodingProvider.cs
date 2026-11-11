@@ -1,6 +1,7 @@
 namespace telnet_cs.Encodings;
 
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Text;
 
@@ -15,8 +16,8 @@ using System.Text;
 /// </summary>
 public sealed class TelnetEncodingProvider : EncodingProvider
 {
-    private static readonly Dictionary<string, Func<Encoding>> Factories =
-        new(StringComparer.Ordinal)
+    private static readonly FrozenDictionary<string, Func<Encoding>> Factories =
+        new Dictionary<string, Func<Encoding>>(StringComparer.Ordinal)
         {
             ["atascii"] = static () => new AtasciiEncoding(),
             ["atari8bit"] = static () => new AtasciiEncoding(),
@@ -33,7 +34,7 @@ public sealed class TelnetEncodingProvider : EncodingProvider
             ["big5_pcman"] = static () => new Big5BbsEncoding(),
             ["big5_pcmanx"] = static () => new Big5BbsEncoding(),
             ["big5_ptt"] = static () => new Big5BbsEncoding(),
-        };
+        }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>
     /// Gets the shared provider instance.

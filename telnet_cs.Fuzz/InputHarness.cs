@@ -40,7 +40,7 @@ internal static class InputHarness
 
     private static void RunBuffer(FuzzInput input, CancellationToken cancellationToken)
     {
-        var buffer = new LinemodeBuffer(trapSignal: input.Bytes.Length % 2 == 0);
+        LinemodeBuffer buffer = new(trapSignal: input.Bytes.Length % 2 == 0);
         var fed = 0;
         foreach (var b in input.Bytes)
         {

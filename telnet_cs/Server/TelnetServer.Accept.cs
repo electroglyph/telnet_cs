@@ -94,7 +94,7 @@ public partial class TelnetServer
 
             if (!decision.Allowed)
             {
-                string reason = string.IsNullOrEmpty(decision.Reason) ? "filter-reject" : decision.Reason;
+                string reason = decision.Reason is null or "" ? "filter-reject" : decision.Reason;
                 Interlocked.Increment(ref rejectedFilter);
                 LogOutsideLock($"over-capacity: filter-reject endpoint={endpoint} reason={reason}");
                 accepted.Dispose();
@@ -169,7 +169,7 @@ public partial class TelnetServer
         ServerSession? session = null;
         try
         {
-            TcpClient tcpSocket = new TcpClient(accepted);
+            TcpClient tcpSocket = new(accepted);
             ISocket socket = tcpSocket;
             bool isTls = false;
             // Either certificate source arms the TLS path; the handshake
@@ -271,7 +271,7 @@ public partial class TelnetServer
                 }
             }
 
-            session = new ServerSession(new TcpByteStream(socket, takeOwnership: true), options, CancellationToken.None, isTls);
+            session = new(new TcpByteStream(socket, takeOwnership: true), options, CancellationToken.None, isTls);
             session.RemoteEndPoint = endpoint;
             session.ResetHandshakeDeadline(handshakeDeadlineUtc, endpoint);
             // The preset goes out in NegotiateAsync, not here: the
@@ -346,7 +346,7 @@ public partial class TelnetServer
                     throw new TimeoutException($"handshake-timeout: endpoint {pending.Endpoint}.");
                 }
 
-                using var presetCts = new CancellationTokenSource(left);
+                using CancellationTokenSource presetCts = new(left);
                 presetDeadline = presetCts.Token;
                 using var presetLinked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, presetCts.Token);
                 await session.SendOpeningPresetAsync(presetLinked.Token).ConfigureAwait(false);
@@ -407,11 +407,11 @@ public partial class TelnetServer
     /// </summary>
     private static async Task<bool> PeekTlsClientHelloAsync(System.Net.Sockets.TcpClient accepted, TimeSpan wait, CancellationToken cancellationToken)
     {
-        using var timeout = new CancellationTokenSource(wait);
+        using CancellationTokenSource timeout = new(wait);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
         try
         {
-            var probe = new byte[1];
+            byte[] probe = [0];
             int received = await accepted.Client.ReceiveAsync(probe, System.Net.Sockets.SocketFlags.Peek, linked.Token).ConfigureAwait(false);
             return received > 0 && probe[0] == 0x16;
         }

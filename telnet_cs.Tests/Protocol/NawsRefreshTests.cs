@@ -26,7 +26,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.WindowWidth = 100;
                 client.Settings.WindowHeight = 30;
@@ -48,7 +48,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.WindowWidth = 100;
                 client.Settings.WindowHeight = 30;
@@ -65,7 +65,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.WindowWidth = 100;
                 client.Settings.WindowHeight = 30;
@@ -82,7 +82,7 @@
             // sends nothing because NAWS is no longer agreed.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.WindowWidth = 100;
                 client.Settings.WindowHeight = 30;
@@ -105,9 +105,9 @@
         {
             // Inbound NAWS has no reply path: subnegotiation frames never
             // synthesize WONT, so the frame is consumed and ignored silently.
-            using var stream = new ScriptedStream(255, 250, 31, 0, 0, 80, 0, 24, 255, 240);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(255, 250, 31, 0, 0, 80, 0, 24, 255, 240);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
         }
@@ -117,9 +117,9 @@
         {
             // Bare shape (no verb) is also consumed and ignored: no WONT is
             // synthesized for subnegotiation payloads.
-            using var stream = new ScriptedStream(255, 250, 31, 0, 80, 0, 30, 255, 240);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(255, 250, 31, 0, 80, 0, 30, 255, 240);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
         }
@@ -128,9 +128,9 @@
         public async Task InboundNawsSend_IsLoggedOnly()
         {
             // A server SEND has no client answer path: consumed, logged, silent.
-            using var stream = new ScriptedStream(255, 250, 31, 1, 255, 240);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(255, 250, 31, 1, 255, 240);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
         }

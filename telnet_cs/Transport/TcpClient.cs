@@ -164,11 +164,7 @@ public class TcpClient : ISocket
     /// <returns>
     /// Network stream socket connected to.
     /// </returns>
-    public INetworkStream GetStream()
-    {
-        cachedStream ??= new NetworkStream(client.GetStream());
-        return cachedStream;
-    }
+    public INetworkStream GetStream() => cachedStream ??= new NetworkStream(client.GetStream());
 
     /// <summary>
     /// Gets the raw <see cref="System.Net.Sockets.NetworkStream"/> without
@@ -202,7 +198,7 @@ public class TcpClient : ISocket
     /// instead of yielding a phantom <c>0x00</c>.</exception>
     public async Task<byte> ReceiveUrgentAsync(CancellationToken cancellationToken)
     {
-        var buffer = new byte[1];
+        byte[] buffer = [0];
         int got;
         try
         {
@@ -302,7 +298,7 @@ public class TcpClient : ISocket
             socket.Blocking = false;
             try
             {
-                var buffer = new byte[1];
+                byte[] buffer = [0];
                 int got = socket.Receive(buffer, 0, 1, System.Net.Sockets.SocketFlags.OutOfBand);
                 return got == 1 ? buffer[0] : null;
             }
@@ -346,7 +342,10 @@ public class TcpClient : ISocket
 
     private static System.Net.Sockets.TcpClient GetConnectedClient(string hostName, int port)
     {
-        var client = new System.Net.Sockets.TcpClient();
+        ArgumentException.ThrowIfNullOrWhiteSpace(hostName);
+        ArgumentOutOfRangeException.ThrowIfNegative(port);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(port, 65535);
+        System.Net.Sockets.TcpClient client = new();
         try
         {
             client.Connect(hostName, port);

@@ -6,29 +6,17 @@ public partial class ServerSession
     private DateTime singleValueCapLastLogUtc = DateTime.MinValue;
     private static readonly TimeSpan CapLogWindow = TimeSpan.FromSeconds(5);
 
-    private int EnvironMaxVars()
-    {
-        return CappedSetting(static s => s.MaxEnvironVars, 128);
-    }
+    private int EnvironMaxVars() => CappedSetting(static s => s.MaxEnvironVars, 128);
 
-    private int EnvironMaxValueChars()
-    {
-        return CappedSetting(static s => s.MaxEnvironValueChars, 4096);
-    }
+    private int EnvironMaxValueChars() => CappedSetting(static s => s.MaxEnvironValueChars, 4096);
 
-    private int EnvironMaxKeyChars()
-    {
-        return CappedSetting(static s => s.MaxEnvironKeyChars, 256);
-    }
+    private int EnvironMaxKeyChars() => CappedSetting(static s => s.MaxEnvironKeyChars, 256);
 
-    private int TtypeMaxChars()
-    {
-        return CappedSetting(static s => s.MaxTtypeChars, 256);
-    }
+    private int TtypeMaxChars() => CappedSetting(static s => s.MaxTtypeChars, 256);
 
     private static string SanitizeKeyForLog(string key)
     {
-        string truncated = key.Length > 64 ? key.Substring(0, 64) : key;
+        string truncated = key.Length > 64 ? key[..64] : key;
         return truncated.Replace("\r", "\\r", StringComparison.Ordinal).Replace("\n", "\\n", StringComparison.Ordinal);
     }
 
@@ -37,7 +25,7 @@ public partial class ServerSession
         try
         {
             var ep = RemoteEndPoint;
-            return string.IsNullOrEmpty(ep) ? "unknown" : ep;
+            return ep is null or "" ? "unknown" : ep;
         }
         catch
         {

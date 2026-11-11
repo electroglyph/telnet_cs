@@ -16,7 +16,7 @@ internal static class AuthHarness
     public static async Task<(long Outbound, long Hash)> RunAsync(FuzzInput input, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(input);
-        var options = new TelnetServerOptions
+        TelnetServerOptions options = new()
         {
             IdleTimeout = Timeout.InfiniteTimeSpan,
             StatusInterval = null,
@@ -26,9 +26,9 @@ internal static class AuthHarness
             // per-iteration hang guard on every one of them.
             LoginAttemptDelay = TimeSpan.Zero,
         };
-        using var stream = new FuzzStream();
+        using FuzzStream stream = new();
         stream.Enqueue(input.Bytes);
-        using var session = new ServerSession(stream, options, CancellationToken.None)
+        using ServerSession session = new(stream, options, CancellationToken.None)
         {
             MillisecondReadDelay = 1,
         };

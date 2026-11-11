@@ -60,7 +60,7 @@ namespace telnet_cs.Tests
                 HandshakeTimeout = TimeSpan.FromSeconds(30),
             };
             var (clientStream, serverStream) = DuplexPipe.Create();
-            using var session = new ServerSession(serverStream, options, CancellationToken.None);
+            using ServerSession session = new(serverStream, options, CancellationToken.None);
 
             // Peer WILLs TTYPE; the pump must answer SB TTYPE SEND with no
             // caller read driving the wire.

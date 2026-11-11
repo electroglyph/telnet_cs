@@ -20,9 +20,9 @@
 
         private static async Task<(string Output, ScriptedStream Stream)> ReadWithStreamAsync(params int[] reads)
         {
-            var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             return (output, stream);
         }
@@ -43,7 +43,7 @@
         [MemberData(nameof(SendableCommands))]
         public async Task SendCommand_WritesIacFramedPair(Commands command, byte code)
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var sut = await MakeClient(stream);
             await sut.SendCommand(command);
             stream.ByteWrites.Should().ContainSingle(w => w.SequenceEqual(new byte[] { 255, code }));
@@ -66,7 +66,7 @@
         [MemberData(nameof(RejectedCommands))]
         public async Task SendCommand_RejectsNegotiationVerbs(Commands command)
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var sut = await MakeClient(stream);
             var before = stream.ByteWrites.Count;
             Func<Task> act = () => sut.SendCommand(command);
@@ -131,9 +131,9 @@
 
         private static async Task<string> ReadWithEncodingAsync(Encoding encoding, params int[] reads)
         {
-            using var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1) { TextEncoding = encoding };
+            using ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1) { TextEncoding = encoding };
             return await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
         }
 
@@ -183,9 +183,9 @@
         {
             // RFC 858 §5: with SGA never negotiated, GA is the NVT turn-taking
             // signal — surfaced through the hook, never as data or wire replies.
-            using var stream = new ScriptedStream(255, 249);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(255, 249);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             var fired = 0;
             sut.GoAheadReceived = () => fired++;
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
@@ -199,7 +199,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream(255, 249);
+                using ScriptedStream stream = new(255, 249);
                 using var sut = await MakeClient(stream);
                 var fired = 0;
                 sut.GoAheadReceived += (_, _) => fired++;
@@ -212,9 +212,9 @@
         public async Task GaSuppressedWhenSgaAgreed_Silent()
         {
             // Peer WILL SGA (agreed): inbound GA is a NOP — silent, no event.
-            using var stream = new ScriptedStream(255, 251, 3, 255, 249);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(255, 251, 3, 255, 249);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             var fired = 0;
             sut.GoAheadReceived = () => fired++;
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
@@ -226,7 +226,7 @@
         [Fact]
         public async Task SendSynch_RequiresTcpStream()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var sut = await MakeClient(stream);
             Func<Task> act = () => sut.SendSynchAsync();
             await act.Should().ThrowAsync<NotSupportedException>();

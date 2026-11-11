@@ -24,9 +24,9 @@
         [Fact]
         public async Task SpontaneousWillEcho_RepliesDoAndTracksPeer()
         {
-            using var stream = new ScriptedStream(255, 251, 1);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(255, 251, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             CountWrites(stream, 253, 1).Should().Be(1);
             sut.Negotiation.IsEnabledByPeer(1).Should().BeTrue();
@@ -35,9 +35,9 @@
         [Fact]
         public async Task WillEcho_SuppressesLocalEchoFlag()
         {
-            using var stream = new ScriptedStream(255, 251, 1);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(255, 251, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.IsWriteConsole = true;
             sut.LocalEchoEnabled.Should().BeTrue();
             await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
@@ -48,11 +48,11 @@
         [Fact]
         public async Task ConsoleWrite_SuppressedAfterWillEcho()
         {
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.IsWriteConsole = true;
-            using var sink = new StringWriter();
+            using StringWriter sink = new();
             var prior = Console.Out;
             try
             {
@@ -72,9 +72,9 @@
         [Fact]
         public async Task DoEcho_WithOptIn_RepliesWillAndTracksUs()
         {
-            using var stream = new ScriptedStream(255, 253, 1);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(255, 253, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.AllowRemoteEcho = true;
             sut.IsServerRole = true;
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
@@ -88,9 +88,9 @@
             // Port of test_iac_do_twice_replies_once (agree half): repeated
             // DO ECHO with the echo opt-in agrees exactly once (RFC 1143:
             // no reply to an ACK).
-            using var stream = new ScriptedStream(255, 253, 1, 255, 253, 1);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(255, 253, 1, 255, 253, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.AllowRemoteEcho = true;
             sut.IsServerRole = true;
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
@@ -106,9 +106,9 @@
             // DONT/WONT never earn a reply (reference: no reply bytes for
             // negatives, avoiding refusal loops) — so no WONT goes out at all
             // and both repeated DONTs stay silent.
-            using var stream = new ScriptedStream(255, 253, 1, 255, 254, 1, 255, 254, 1);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(255, 253, 1, 255, 254, 1, 255, 254, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.AllowRemoteEcho = true;
             sut.IsServerRole = true;
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
@@ -120,9 +120,9 @@
         [Fact]
         public async Task DoEcho_AfterWillEcho_EvenWithOptIn_RepliesWont()
         {
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.AllowRemoteEcho = true;
             sut.IsServerRole = true;
             stream.Enqueue(255, 251, 1);
@@ -137,9 +137,9 @@
         [Fact]
         public async Task WillEcho_AfterAgreedDoEcho_StaysSilent()
         {
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.AllowRemoteEcho = true;
             sut.IsServerRole = true;
             stream.Enqueue(255, 253, 1);
@@ -157,9 +157,9 @@
             // Agreed ECHO is negotiation state only: the read path never
             // replays inbound bytes, so an app that wants echo writes them
             // back itself. "AB" is delivered with no echo write.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.AllowRemoteEcho = true;
             sut.IsServerRole = true;
             stream.Enqueue(255, 253, 1);
@@ -173,9 +173,9 @@
         [Fact]
         public async Task NoOptIn_DataAroundDoEcho_IsNotEchoedBack()
         {
-            using var stream = new ScriptedStream(65, 255, 253, 1, 66);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(65, 255, 253, 1, 66);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("AB");
             // Only the WONT reply; the snapshot predates the mid-read agreement.
             stream.ByteWrites.Should().HaveCount(1);
@@ -185,9 +185,9 @@
         [Fact]
         public async Task OptIn_CommandMarkers_DeliveredWithoutReplay()
         {
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.AllowRemoteEcho = true;
             sut.IsServerRole = true;
             stream.Enqueue(255, 253, 1);
@@ -201,9 +201,9 @@
         [Fact]
         public async Task OptIn_ControlByte_DeliveredWithoutReplay()
         {
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.AllowRemoteEcho = true;
             sut.IsServerRole = true;
             stream.Enqueue(255, 253, 1);
@@ -216,9 +216,9 @@
         [Fact]
         public async Task OptIn_EscapedIac_DeliveredWithoutReplay()
         {
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.AllowRemoteEcho = true;
             sut.IsServerRole = true;
             stream.Enqueue(255, 253, 1);
@@ -236,7 +236,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 251, 1);
                 (await client.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
@@ -252,7 +252,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.AllowRemoteEcho = true;
                 stream.Enqueue(255, 253, 1);
@@ -267,9 +267,9 @@
         [Fact]
         public async Task StatusSnapshot_ReportsAgreedEcho()
         {
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             stream.Enqueue(255, 251, 1);
             await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             // Become the agreed WILL-sender for STATUS (RFC 859 §5 role gate)

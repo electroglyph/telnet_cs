@@ -3,6 +3,7 @@ namespace telnet_cs.IO;
 using System;
 using System.IO;
 using System.IO.Compression;
+using System.Threading;
 
 /// <summary>
 /// Incremental zlib compressor for one outbound MCCP stream (MCCP2 on
@@ -20,6 +21,7 @@ using System.IO.Compression;
 internal sealed class MccpCompressor : IDisposable
 {
     private readonly MemoryStream spill = new();
+    private readonly Lock spillGate = new();
     private readonly ZLibStream zlib;
     private bool disposed;
 
@@ -28,7 +30,7 @@ internal sealed class MccpCompressor : IDisposable
     /// </summary>
     public MccpCompressor()
     {
-        zlib = new ZLibStream(spill, CompressionLevel.Optimal, leaveOpen: true);
+        zlib = new(spill, CompressionLevel.Optimal, leaveOpen: true);
     }
 
     /// <summary>
@@ -55,7 +57,7 @@ internal sealed class MccpCompressor : IDisposable
             return [];
         }
 
-        lock (spill)
+        lock (spillGate)
         {
             zlib.Write(buffer, offset, count);
             zlib.Flush();

@@ -18,9 +18,9 @@
         private readonly Lock mutex = new();
         private readonly Queue<int> reads;
 
-        private readonly List<byte[]> byteWrites = new List<byte[]>();
-        private readonly List<string> stringWrites = new List<string>();
-        private readonly List<byte> singleByteWrites = new List<byte>();
+        private readonly List<byte[]> byteWrites = [];
+        private readonly List<string> stringWrites = [];
+        private readonly List<byte> singleByteWrites = [];
 
         public ReadOnlyCollection<byte[]> ByteWrites
         {

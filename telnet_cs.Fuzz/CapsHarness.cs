@@ -20,7 +20,7 @@ internal static class CapsHarness
     {
         ArgumentNullException.ThrowIfNull(input);
         var knobs = input.Bytes;
-        var logs = new List<string>();
+        List<string> logs = [];
         var options = new TelnetServerOptions
         {
             IdleTimeout = Timeout.InfiniteTimeSpan,

@@ -20,7 +20,7 @@ namespace telnet_cs.Tests
             // method's own contract is the source of truth here).
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var sut = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), default);
                 stream.Close();
                 (await sut.SendGaAsync()).Should().BeFalse();
@@ -36,7 +36,7 @@ namespace telnet_cs.Tests
             // state while application data stays buffered in the reader.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream("HI");
+                using ScriptedStream stream = new("HI");
                 using var sut = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), default);
                 Func<Task> act = () => sut.WaitForNegotiationAsync(_ => false, TimeSpan.FromMilliseconds(200));
                 await act.Should().ThrowAsync<TimeoutException>();
@@ -53,7 +53,7 @@ namespace telnet_cs.Tests
             // send protocol bytes for a null argument.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 Func<Task> write = () => sut.WriteLineAsync(null!);
                 await write.Should().ThrowAsync<ArgumentNullException>();
@@ -69,7 +69,7 @@ namespace telnet_cs.Tests
             // readuntil likewise raises ValueError on an empty separator.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream("data");
+                using ScriptedStream stream = new("data");
                 using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 Func<Task<string>> read = () => sut.TerminatedReadAsync(string.Empty, TimeSpan.FromMilliseconds(100));
                 await read.Should().ThrowAsync<ArgumentException>();
@@ -84,7 +84,7 @@ namespace telnet_cs.Tests
             // every element must be validated, not just the collection.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream("OK");
+                using ScriptedStream stream = new("OK");
                 using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 Func<Task<string>> read = () => sut.TerminatedReadAsync(new[] { "OK", string.Empty }, TimeSpan.FromMilliseconds(100));
                 await read.Should().ThrowAsync<ArgumentException>();
@@ -99,7 +99,7 @@ namespace telnet_cs.Tests
             // name the bad argument with ArgumentException instead.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream("OK");
+                using ScriptedStream stream = new("OK");
                 using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 Func<Task<string>> read = () => sut.TerminatedReadAsync(new Regex[] { null! }, TimeSpan.FromMilliseconds(100));
                 await read.Should().ThrowAsync<ArgumentException>();
@@ -115,7 +115,7 @@ namespace telnet_cs.Tests
             // way so later caller mutation cannot change client behavior.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 var options = new TelnetClientOptions
                 {
@@ -139,8 +139,8 @@ namespace telnet_cs.Tests
             // should latch the client forever or only affect current calls.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
-                using var cts = new CancellationTokenSource();
+                using ScriptedStream stream = new();
+                using CancellationTokenSource cts = new();
                 using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), cts.Token);
                 cts.Cancel();
                 await sut.WriteAsync("hello");

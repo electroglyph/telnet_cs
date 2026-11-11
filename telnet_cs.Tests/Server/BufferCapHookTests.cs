@@ -80,11 +80,11 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task PumpFlood_FiresHookOnceWithLogValuesAndCloses()
         {
-            var log = new HookLog();
+            HookLog log = new();
             var logs = new List<string>();
             var options = CappedOptions(log, 16);
             options.Log = m => { lock (logs) { logs.Add(m); } };
-            using var session = new ServerSession(new ScriptedStream(new string('A', 1024)), options, CancellationToken.None);
+            using ServerSession session = new(new ScriptedStream(new string('A', 1024)), options, CancellationToken.None);
 
             var sw = Stopwatch.StartNew();
             while (log.Count == 0 && sw.Elapsed < TimeSpan.FromSeconds(5))
@@ -120,7 +120,7 @@ namespace telnet_cs.Tests
                     throw new InvalidOperationException("boom");
                 },
             };
-            using var session = new ServerSession(new ScriptedStream(new string('A', 1024)), options, CancellationToken.None);
+            using ServerSession session = new(new ScriptedStream(new string('A', 1024)), options, CancellationToken.None);
 
             var sw = Stopwatch.StartNew();
             while (Volatile.Read(ref calls) == 0 && sw.Elapsed < TimeSpan.FromSeconds(5))
@@ -135,8 +135,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task UnderCap_NeverFires()
         {
-            var log = new HookLog();
-            using var session = new ServerSession(new ScriptedStream("small"), CappedOptions(log, 65536), CancellationToken.None);
+            HookLog log = new();
+            using ServerSession session = new(new ScriptedStream("small"), CappedOptions(log, 65536), CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromSeconds(2))).Should().Be("small");
             await Task.Delay(300);
             log.Count.Should().Be(0);
@@ -148,9 +148,9 @@ namespace telnet_cs.Tests
             // The text arrives after the request starts polling, while the
             // pump stands down for active reads, so the request's stash-back
             // path (not the pump append) trips the cap.
-            var log = new HookLog();
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, CappedOptions(log, 16), CancellationToken.None);
+            HookLog log = new();
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, CappedOptions(log, 16), CancellationToken.None);
             var request = session.RequestTerminalSpeedAsync(TimeSpan.FromSeconds(5));
             await Task.Delay(200);
             stream.Enqueue(Enumerable.Repeat((int)'A', 100).ToArray());
@@ -170,9 +170,9 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Duplex_Flood_FiresHookAndCloses()
         {
-            var log = new HookLog();
+            HookLog log = new();
             var (clientStream, serverStream) = DuplexPipe.Create();
-            using var session = new ServerSession(serverStream, CappedOptions(log, 64), CancellationToken.None);
+            using ServerSession session = new(serverStream, CappedOptions(log, 64), CancellationToken.None);
             using var client = await telnet_cs.Client.Client.CreateAsync(clientStream, TimeSpan.FromSeconds(30), CancellationToken.None);
 
             for (int i = 0; i < 4; i++)
@@ -202,9 +202,9 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Loopback_Flood_FiresHookWithRealEndpoint()
         {
-            var log = new HookLog();
+            HookLog log = new();
             var options = CappedOptions(log, 32);
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             using var raw = new System.Net.Sockets.TcpClient();

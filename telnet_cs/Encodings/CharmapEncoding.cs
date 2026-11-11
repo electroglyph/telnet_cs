@@ -43,7 +43,7 @@ public abstract class CharmapEncoding : Encoding
 
         WebNameValue = name;
         decodeTable = decode;
-        encodeTable = new Dictionary<string, byte>(256, StringComparer.Ordinal);
+        encodeTable = [with(capacity: 256, comparer: StringComparer.Ordinal)];
         for (var i = 0; i < 256; i++)
         {
             encodeTable[decode[i]] = (byte)i;

@@ -25,9 +25,9 @@ namespace telnet_cs.Tests
 
         private static async Task<(string Output, ScriptedStream Stream)> ReadHandlerOnceAsync(Action<ByteStreamHandler> configure, params int[] reads)
         {
-            var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             configure(sut);
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             return (output, stream);
@@ -90,7 +90,7 @@ namespace telnet_cs.Tests
             // TimeoutException breaks that contract.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 (await client.WaitForOptionEnabledAsync(Options.EndOfRecord, false, TimeSpan.FromMilliseconds(100))).Should().BeFalse();
             }
@@ -109,7 +109,7 @@ namespace telnet_cs.Tests
             // FF FE C9 (DONT). Hence Client with EnableMudOptions below.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.EnableMudOptions = true;
                 stream.Enqueue(255, 251, 201);
@@ -130,7 +130,7 @@ namespace telnet_cs.Tests
             // "zmp.ident"...; bare writer -> DONT.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.EnableMudOptions = true;
                 stream.Enqueue(255, 251, 93);
@@ -166,7 +166,7 @@ namespace telnet_cs.Tests
             // utf-8 -> c3a9, not e9.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 Func<Task> act = () => client.WriteAsync("é");
                 await act.Should().ThrowAsync<EncoderFallbackException>();
@@ -188,7 +188,7 @@ namespace telnet_cs.Tests
             // path which omits DISPLAY.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.EnvironmentDisplay = "host:0";
                 stream.Enqueue(255, 253, 39, 255, 250, 39, 1, 255, 240);
@@ -207,7 +207,7 @@ namespace telnet_cs.Tests
             // Repro: TelnetClient()._extra['term']=='unknown'.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 251, 24, 255, 250, 24, 1, 255, 240);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -235,10 +235,10 @@ namespace telnet_cs.Tests
             // (wait_for raises CancelledError).
             // Repro: pending read(10) cancelled -> CancelledError: True
             // (C# analog: OperationCanceledException).
-            using var stream = new ScriptedStream("AB");
-            using var cts = new CancellationTokenSource();
+            using ScriptedStream stream = new("AB");
+            using CancellationTokenSource cts = new();
             cts.Cancel();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ByteStreamHandler sut = new(stream, cts, 1);
             Func<Task> act = () => sut.ReadAsync(TimeSpan.FromSeconds(5));
             await act.Should().ThrowAsync<OperationCanceledException>();
         }
@@ -254,7 +254,7 @@ namespace telnet_cs.Tests
             // timeout -> TimeoutError (not "").
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 Func<Task> act = () => client.TerminatedReadAsync(".", TimeSpan.FromMilliseconds(200));
                 await act.Should().ThrowAsync<TimeoutException>();
@@ -273,7 +273,7 @@ namespace telnet_cs.Tests
             // is a raise beats a silent partial.)
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream(new string('A', 70000));
+                using ScriptedStream stream = new(new string('A', 70000));
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 Func<Task> act = () => client.TerminatedReadAsync(".", TimeSpan.FromSeconds(2));
                 await act.Should().ThrowAsync<Exception>();

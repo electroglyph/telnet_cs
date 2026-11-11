@@ -51,7 +51,7 @@ internal static class StatusProtocol
     internal static byte[] BuildIsPayload(NegotiationState negotiation)
     {
         ArgumentNullException.ThrowIfNull(negotiation);
-        var items = new List<byte>();
+        List<byte> items = [];
         for (var option = 0; option <= LastReportableOption; option++)
         {
             if (option == (int)Options.Status)

@@ -74,8 +74,8 @@ namespace telnet_cs.Tests
         [InlineData(Commands.InterpretAsCommand)]
         public async Task SendCommand_ServerSideNegotiationVerb_ThrowsAndSendsNothing(Commands verb)
         {
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             Func<Task> act = () => session.SendCommand(verb);
             await act.Should().ThrowAsync<ArgumentOutOfRangeException>().WithParameterName("command");
             stream.ByteWrites.Should().BeEmpty();

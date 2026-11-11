@@ -9,7 +9,7 @@
         [Fact]
         public void ReceivedWill_Disagree_RepliesDontAndStaysDisabled()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedWill(1, agree: false).Should().Be(Commands.Dont);
             state.IsEnabledByPeer(1).Should().BeFalse();
         }
@@ -17,7 +17,7 @@
         [Fact]
         public void ReceivedWill_Agree_RepliesDoAndEnables()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedWill(3, agree: true).Should().Be(Commands.Do);
             state.IsEnabledByPeer(3).Should().BeTrue();
         }
@@ -25,7 +25,7 @@
         [Fact]
         public void ReceivedWill_WhenEnabled_Silent()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedWill(3, agree: true).Should().Be(Commands.Do);
             state.ReceivedWill(3, agree: true).Should().BeNull();
             state.IsEnabledByPeer(3).Should().BeTrue();
@@ -34,7 +34,7 @@
         [Fact]
         public void ReceivedWont_WhenNo_Silent()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedWont(3).Should().BeNull();
             state.IsEnabledByPeer(3).Should().BeFalse();
         }
@@ -44,7 +44,7 @@
         {
             // Negative replies are never answered on the wire (reference:
             // handle_wont is state-only): the WONT only moves him to No.
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedWill(3, agree: true).Should().Be(Commands.Do);
             state.ReceivedWont(3).Should().BeNull();
             state.IsEnabledByPeer(3).Should().BeFalse();
@@ -53,7 +53,7 @@
         [Fact]
         public void ReceivedDo_Agree_RepliesWillAndEnablesUs()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedDo(3, agree: true).Should().Be(Commands.Will);
             state.IsEnabledByUs(3).Should().BeTrue();
         }
@@ -61,7 +61,7 @@
         [Fact]
         public void ReceivedDo_Disagree_RepliesWont()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedDo(1, agree: false).Should().Be(Commands.Wont);
             state.IsEnabledByUs(1).Should().BeFalse();
         }
@@ -69,7 +69,7 @@
         [Fact]
         public void ReceivedDo_WhenUsEnabled_Silent()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedDo(3, agree: true).Should().Be(Commands.Will);
             state.ReceivedDo(3, agree: true).Should().BeNull();
         }
@@ -79,7 +79,7 @@
         {
             // Negative replies are never answered on the wire (reference:
             // handle_dont is state-only): the DONT only moves us to No.
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedDo(3, agree: true).Should().Be(Commands.Will);
             state.ReceivedDont(3).Should().BeNull();
             state.IsEnabledByUs(3).Should().BeFalse();
@@ -88,14 +88,14 @@
         [Fact]
         public void ReceivedDont_WhenUsNo_Silent()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedDont(3).Should().BeNull();
         }
 
         [Fact]
         public void RequestEnable_Fresh_SendsDoThenSuppressesWhileOutstanding()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.RequestEnable(3).Should().Be(Commands.Do);
             state.RequestEnable(3).Should().BeNull();
             state.ReceivedWill(3, agree: true).Should().BeNull();
@@ -105,7 +105,7 @@
         [Fact]
         public void Refusal_RememberedUntilExplicitStimulus()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.RequestEnable(1).Should().Be(Commands.Do);
             state.ReceivedWont(1).Should().BeNull();
             state.WasRefusedByPeer(1).Should().BeTrue();
@@ -118,7 +118,7 @@
         [Fact]
         public void Refusal_ClearedByPeerChangingMind()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.RequestEnable(1).Should().Be(Commands.Do);
             state.ReceivedWont(1).Should().BeNull();
             state.WasRefusedByPeer(1).Should().BeTrue();
@@ -133,7 +133,7 @@
             // Him-side disables go out immediately even with a DO outstanding
             // (reference iac() never gates DONT): no queue is left behind, so
             // the later WILL lands on WantNo and settles silently to No.
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.RequestEnable(3).Should().Be(Commands.Do);
             state.RequestDisable(3).Should().Be(Commands.Dont);
             state.ReceivedWill(3, agree: true).Should().BeNull();
@@ -147,7 +147,7 @@
             // The disable goes out at once (no queue to drop); the WONT then
             // completes the outstanding disable to No. A WONT answering our
             // own DONT is completion, not a refusal, so nothing is remembered.
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.RequestEnable(3).Should().Be(Commands.Do);
             state.RequestDisable(3).Should().Be(Commands.Dont);
             state.ReceivedWont(3).Should().BeNull();
@@ -158,7 +158,7 @@
         [Fact]
         public void QueuedEnable_DrainsWhenDisableCompletes()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedWill(3, agree: true).Should().Be(Commands.Do);
             state.RequestDisable(3).Should().Be(Commands.Dont);
             state.RequestEnable(3).Should().BeNull();
@@ -172,7 +172,7 @@
         [Fact]
         public void UsSide_QueueMirrorsHimSide()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.OfferEnable(3).Should().Be(Commands.Will);
             state.OfferDisable(3).Should().BeNull();
             state.ReceivedDo(3, agree: true).Should().Be(Commands.Wont);
@@ -182,7 +182,7 @@
         [Fact]
         public void UsSide_RefusalRemembered()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.OfferEnable(3).Should().Be(Commands.Will);
             state.ReceivedDont(3).Should().BeNull();
             state.WasRefusedByUs(3).Should().BeTrue();
@@ -193,7 +193,7 @@
         [Fact]
         public void ToggleTwice_EnableClearsQueuedDisable()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.RequestEnable(3).Should().Be(Commands.Do);
             // The disable goes out immediately (WantNo outstanding); the
             // re-enable then queues behind it, and the WILL drains that queue.
@@ -208,7 +208,7 @@
         [Fact]
         public void ToggleTwice_DisableClearsQueuedEnable()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedDo(3, agree: true).Should().Be(Commands.Will);
             state.OfferDisable(3).Should().Be(Commands.Wont);
             state.OfferEnable(3).Should().BeNull();
@@ -220,7 +220,7 @@
         [Fact]
         public void ReceivedWill_WhileUsOutstanding_TouchesHimOnly()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.OfferEnable(5).Should().Be(Commands.Will);
             state.ReceivedWill(5, agree: true).Should().Be(Commands.Do);
             state[5].Should().Be((NegotiationState.SideState.WantYes, NegotiationState.SideState.Yes));
@@ -231,7 +231,7 @@
         [Fact]
         public void ReceivedDo_WhileHimOutstanding_TouchesUsOnly()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.RequestEnable(5).Should().Be(Commands.Do);
             state.ReceivedDo(5, agree: true).Should().Be(Commands.Will);
             state[5].Should().Be((NegotiationState.SideState.Yes, NegotiationState.SideState.WantYes));
@@ -244,7 +244,7 @@
         {
             // Our outstanding WILL and the peer's DO ack each other: enabling
             // with no reply bytes, so nothing oscillates.
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.OfferEnable(3).Should().Be(Commands.Will);
             state.ReceivedDo(3, agree: true).Should().BeNull();
             state.IsEnabledByUs(3).Should().BeTrue();
@@ -253,7 +253,7 @@
         [Fact]
         public void ReceivedWill_InWantNoEmpty_ClearsToNo()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedWill(3, agree: true).Should().Be(Commands.Do);
             state.RequestDisable(3).Should().Be(Commands.Dont);
             // Answered DONT met by WILL: error case, back to No, no reply.
@@ -264,7 +264,7 @@
         [Fact]
         public void ReceivedWill_InWantNoOpposite_CompletesEnable()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedWill(3, agree: true).Should().Be(Commands.Do);
             state.RequestDisable(3).Should().Be(Commands.Dont);
             state.RequestEnable(3).Should().BeNull();
@@ -275,7 +275,7 @@
         [Fact]
         public void ReceivedWont_InWantNoEmpty_ClearsToNo()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedWill(3, agree: true).Should().Be(Commands.Do);
             state.RequestDisable(3).Should().Be(Commands.Dont);
             state.ReceivedWont(3).Should().BeNull();
@@ -285,7 +285,7 @@
         [Fact]
         public void RequestEnable_WhenEnabled_Silent()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedWill(3, agree: true).Should().Be(Commands.Do);
             state.RequestEnable(3).Should().BeNull();
             state.IsEnabledByPeer(3).Should().BeTrue();
@@ -294,7 +294,7 @@
         [Fact]
         public void RequestEnable_InWantNoOpposite_KeepsQueue()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedWill(3, agree: true).Should().Be(Commands.Do);
             state.RequestDisable(3).Should().Be(Commands.Dont);
             state.RequestEnable(3).Should().BeNull();
@@ -307,7 +307,7 @@
         [Fact]
         public void RequestDisable_WhenDisabled_Silent()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.RequestDisable(3).Should().BeNull();
             state.IsEnabledByPeer(3).Should().BeFalse();
         }
@@ -315,7 +315,7 @@
         [Fact]
         public void RequestDisable_InWantNoEmpty_Silent()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedWill(3, agree: true).Should().Be(Commands.Do);
             state.RequestDisable(3).Should().Be(Commands.Dont);
             state.RequestDisable(3).Should().BeNull();
@@ -326,7 +326,7 @@
         [Fact]
         public void RequestDisable_InWantYesOpposite_KeepsQueue()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.RequestEnable(3).Should().Be(Commands.Do);
             // Immediate DONT out of the outstanding enable; the disable is now
             // the outstanding request, so the redundant second call is silent.
@@ -340,7 +340,7 @@
         [Fact]
         public void ReceivedDo_InWantNoEmpty_ClearsToNo()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedDo(3, agree: true).Should().Be(Commands.Will);
             state.OfferDisable(3).Should().Be(Commands.Wont);
             // Answered WONT met by DO: error case, back to No, no reply.
@@ -351,7 +351,7 @@
         [Fact]
         public void ReceivedDo_InWantNoOpposite_CompletesEnable()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedDo(3, agree: true).Should().Be(Commands.Will);
             state.OfferDisable(3).Should().Be(Commands.Wont);
             state.OfferEnable(3).Should().BeNull();
@@ -362,7 +362,7 @@
         [Fact]
         public void ReceivedDo_InWantYesEmpty_CompletesSilently()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.OfferEnable(3).Should().Be(Commands.Will);
             state.ReceivedDo(3, agree: true).Should().BeNull();
             state.IsEnabledByUs(3).Should().BeTrue();
@@ -371,7 +371,7 @@
         [Fact]
         public void ReceivedDont_InWantNoEmpty_ClearsToNo()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedDo(3, agree: true).Should().Be(Commands.Will);
             state.OfferDisable(3).Should().Be(Commands.Wont);
             state.ReceivedDont(3).Should().BeNull();
@@ -381,7 +381,7 @@
         [Fact]
         public void ReceivedDont_InWantNoOpposite_DrainsQueuedEnable()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedDo(3, agree: true).Should().Be(Commands.Will);
             state.OfferDisable(3).Should().Be(Commands.Wont);
             state.OfferEnable(3).Should().BeNull();
@@ -392,7 +392,7 @@
         [Fact]
         public void ReceivedDont_InWantYesOpposite_DropsQueueAsRefused()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.OfferEnable(3).Should().Be(Commands.Will);
             state.OfferDisable(3).Should().BeNull();
             // Refused into where the queued disable wanted us: drop the queue.
@@ -405,7 +405,7 @@
         public void OfferEnable_UncoveredRows_MatchTable()
         {
             // Options are independent, so one state covers all four rows.
-            var state = new NegotiationState();
+            NegotiationState state = new();
             // Us-YES: redundant enable is silent.
             state.ReceivedDo(10, agree: true).Should().Be(Commands.Will);
             state.OfferEnable(10).Should().BeNull();
@@ -430,7 +430,7 @@
         [Fact]
         public void OfferDisable_UncoveredRows_MatchTable()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             // Us-NO: redundant disable is silent.
             state.OfferDisable(20).Should().BeNull();
             // Us-YES: disable sends WONT; repeat while outstanding is silent.
@@ -450,7 +450,7 @@
         [Fact]
         public void RequestTimingMark_Fresh_SendsDoThenSuppressesWhileOutstanding()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.RequestTimingMark().Should().Be(Commands.Do);
             state[6].Him.Should().Be(NegotiationState.SideState.WantYes);
             state.RequestTimingMark().Should().BeNull();
@@ -462,7 +462,7 @@
             // Unlike RequestEnable, an agreed timing mark still re-pings:
             // every DO TM is answered, so suppression would break the
             // round-trip measurement.
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.RequestTimingMark().Should().Be(Commands.Do);
             state.ReceivedWill(6, agree: true).Should().BeNull();
             state.IsEnabledByPeer(6).Should().BeTrue();
@@ -473,7 +473,7 @@
         [Fact]
         public void RequestTimingMark_AfterRefusal_ClearsRefusalAndSendsDo()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.RequestTimingMark().Should().Be(Commands.Do);
             state.ReceivedWont(6).Should().BeNull();
             state.WasRefusedByPeer(6).Should().BeTrue();
@@ -484,7 +484,7 @@
         [Fact]
         public void InvalidOption_ThrowsOutOfRange()
         {
-            var state = new NegotiationState();
+            NegotiationState state = new();
             foreach (var bad in new[] { -1, 256 })
             {
                 Assert.Throws<ArgumentOutOfRangeException>(() => state.ReceivedWill(bad, true));

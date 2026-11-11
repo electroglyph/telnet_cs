@@ -2,6 +2,7 @@ namespace telnet_cs.Protocol;
 
 using System;
 using System.Collections;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
@@ -56,7 +57,7 @@ public static class MudProtocol
         [106] = "spell",
         [107] = "stat",
         [108] = "message",
-    };
+    }.ToFrozenDictionary();
 
     /// <summary>
     /// Decodes with <paramref name="encoding"/> (UTF-8 by default),
@@ -182,7 +183,7 @@ public static class MudProtocol
     public static byte[] MsdpEncode(IReadOnlyDictionary<string, object?> values)
     {
         ArgumentNullException.ThrowIfNull(values);
-        var outBytes = new List<byte>();
+        List<byte> outBytes = [];
         foreach (var (key, value) in values)
         {
             outBytes.Add(MsdpVar);
@@ -269,7 +270,7 @@ public static class MudProtocol
     /// <param name="encoding">The primary text encoding, or null for UTF-8 with Latin-1 fallback.</param>
     public static IReadOnlyDictionary<string, object?> MsdpDecode(ReadOnlySpan<byte> payload, Encoding? encoding = null)
     {
-        var parser = new MsdpParser(payload, encoding);
+        MsdpParser parser = new(payload, encoding);
         return parser.Parse();
     }
 
@@ -287,7 +288,7 @@ public static class MudProtocol
 
         public Dictionary<string, object?> Parse()
         {
-            var result = new Dictionary<string, object?>(StringComparer.Ordinal);
+            Dictionary<string, object?> result = [with(StringComparer.Ordinal)];
             while (idx < buf.Length)
             {
                 if (buf[idx] == MsdpVar)
@@ -333,7 +334,7 @@ public static class MudProtocol
 
         private Dictionary<string, object?> ParseTable()
         {
-            var table = new Dictionary<string, object?>(StringComparer.Ordinal);
+            Dictionary<string, object?> table = [with(StringComparer.Ordinal)];
             while (idx < buf.Length && buf[idx] != MsdpTableClose)
             {
                 if (buf[idx] == MsdpVar)
@@ -365,7 +366,7 @@ public static class MudProtocol
 
         private List<object?> ParseArray()
         {
-            var array = new List<object?>();
+            List<object?> array = [];
             while (idx < buf.Length && buf[idx] != MsdpArrayClose)
             {
                 if (buf[idx] == MsdpVal)
@@ -438,7 +439,7 @@ public static class MudProtocol
     public static byte[] MsspEncode(IReadOnlyDictionary<string, object> values)
     {
         ArgumentNullException.ThrowIfNull(values);
-        var outBytes = new List<byte>();
+        List<byte> outBytes = [];
         foreach (var (key, value) in values)
         {
             outBytes.Add(MsspVar);
@@ -476,7 +477,7 @@ public static class MudProtocol
     public static IReadOnlyDictionary<string, object> MsspDecode(ReadOnlySpan<byte> payload, Encoding? encoding = null)
     {
         ReadOnlySpan<byte> buf = payload;
-        var result = new Dictionary<string, object>(StringComparer.Ordinal);
+        Dictionary<string, object> result = [with(StringComparer.Ordinal)];
         string? current = null;
         var idx = 0;
         while (idx < buf.Length)
@@ -537,7 +538,7 @@ public static class MudProtocol
     public static byte[] ZmpEncode(params string[] parts)
     {
         ArgumentNullException.ThrowIfNull(parts);
-        var outBytes = new List<byte>();
+        List<byte> outBytes = [];
         foreach (var part in parts)
         {
             outBytes.AddRange(Encoding.UTF8.GetBytes(part));
@@ -560,7 +561,7 @@ public static class MudProtocol
             return [];
         }
 
-        var parts = new List<string>();
+        List<string> parts = [];
         var start = 0;
         for (var i = 0; i < payload.Length; i++)
         {

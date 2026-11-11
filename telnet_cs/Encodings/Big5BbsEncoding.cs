@@ -3,6 +3,7 @@ namespace telnet_cs.Encodings;
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 
 /// <summary>
 /// Big5-BBS hybrid codec for Taiwanese BBS systems (PttBBS, DreamBBS):
@@ -15,7 +16,7 @@ using System.Text;
 /// </summary>
 public sealed class Big5BbsEncoding : Encoding
 {
-    private static readonly object Sync = new();
+    private static readonly Lock Sync = new();
     private static bool providerRegistered;
     private static Encoding? big5;
     private static Encoding? cp437;
@@ -122,7 +123,7 @@ public sealed class Big5BbsEncoding : Encoding
             }
 
             cp437Chars = chars;
-            var table = new Dictionary<string, byte>(256, StringComparer.Ordinal);
+            Dictionary<string, byte> table = [with(capacity: 256, comparer: StringComparer.Ordinal)];
             for (var i = 0; i < 256; i++)
             {
                 table[chars[i].ToString()] = (byte)i;
@@ -358,7 +359,7 @@ public sealed class Big5BbsEncoding : Encoding
             buffer.Fallback(high, fallbackIndex);
         }
 
-        var substitute = new StringBuilder();
+        StringBuilder substitute = new();
         char next;
         while ((next = buffer.GetNextChar()) != '\0')
         {

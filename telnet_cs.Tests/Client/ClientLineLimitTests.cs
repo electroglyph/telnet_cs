@@ -64,7 +64,7 @@ namespace telnet_cs.Tests
         public async Task Duplex_ClientSideOverlong_ThrowsAndNextLineReadsClean()
         {
             var (clientStream, serverStream) = DuplexPipe.Create();
-            using var session = new ServerSession(serverStream, new TelnetServerOptions(), CancellationToken.None);
+            using ServerSession session = new(serverStream, new TelnetServerOptions(), CancellationToken.None);
             using var client = await Client.CreateAsync(clientStream, TimeSpan.FromSeconds(30), CancellationToken.None);
             client.MaxTerminatedReadChars = 10;
 

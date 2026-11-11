@@ -100,14 +100,7 @@ internal static class ByteStringConverter
     internal static byte[] EscapeIacBytes(byte[] data)
     {
         ArgumentNullException.ThrowIfNull(data);
-        int extra = 0;
-        foreach (byte b in data)
-        {
-            if (b == (byte)Commands.InterpretAsCommand)
-            {
-                extra++;
-            }
-        }
+        int extra = data.Count(static b => b == (byte)Commands.InterpretAsCommand);
 
         if (extra == 0)
         {

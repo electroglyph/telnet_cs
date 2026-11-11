@@ -19,23 +19,15 @@ public partial class TelnetServer
     /// server must not keep caller-owned sessions alive) plus the accept
     /// snapshot and the last-logged counters.
     /// </summary>
-    private sealed class SessionRecord
+    private sealed class SessionRecord(ServerSession session, string endpoint, bool isTls, string ipKey)
     {
-        public SessionRecord(ServerSession session, string endpoint, bool isTls, string ipKey)
-        {
-            Session = new WeakReference<ServerSession>(session);
-            Endpoint = endpoint;
-            IsTls = isTls;
-            IpKey = ipKey;
-        }
+        public WeakReference<ServerSession> Session { get; } = new(session);
 
-        public WeakReference<ServerSession> Session { get; }
+        public string Endpoint { get; } = endpoint;
 
-        public string Endpoint { get; }
+        public bool IsTls { get; } = isTls;
 
-        public bool IsTls { get; }
-
-        public string IpKey { get; }
+        public string IpKey { get; } = ipKey;
 
         public long LastReceived { get; set; }
 
@@ -126,7 +118,7 @@ public partial class TelnetServer
             lock (statusLock)
             {
                 PruneLocked();
-                snapshot = new List<(string, long, long, double, bool)>(sessions.Count);
+                snapshot = [with(capacity: sessions.Count)];
                 foreach (var record in sessions)
                 {
                     if (!record.Session.TryGetTarget(out var session))

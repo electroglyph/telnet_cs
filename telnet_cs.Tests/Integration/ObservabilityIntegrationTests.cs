@@ -22,7 +22,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task AuthExhausted_BadCredentials_LogsWithoutSecret()
         {
-            var logs = new List<string>();
+            List<string> logs = [];
             var options = new TelnetServerOptions
             {
                 MaxLoginAttempts = 1,
@@ -31,7 +31,7 @@ namespace telnet_cs.Tests
             };
             var guard = GlobalStateGuard.SkipProactive(true);
             var (clientStream, serverStream) = InMemoryPipe.Create();
-            using var session = new ServerSession(serverStream, options, CancellationToken.None);
+            using ServerSession session = new(serverStream, options, CancellationToken.None);
             using var client = await Client.CreateAsync(clientStream, TimeSpan.FromSeconds(30), CancellationToken.None);
             using (guard)
             {
@@ -62,13 +62,13 @@ namespace telnet_cs.Tests
             // Loopback (status is server-owned cadence): with live traffic
             // between ticks, per-session detail lines flow; the aggregate
             // ticks regardless.
-            var logs = new List<string>();
+            List<string> logs = [];
             var options = new TelnetServerOptions
             {
                 StatusInterval = TimeSpan.FromMilliseconds(200),
                 Log = m => { lock (logs) { logs.Add(m); } },
             };
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);

@@ -19,7 +19,7 @@
         [Fact]
         public async Task ConnectAsync_ReadmeLogin_ParsesWan2Statistics()
         {
-            using (var server = new DummyTelnetServer())
+            using (DummyTelnetServer server = new())
             {
                 using (var client = await Client.ConnectAsync(
                   server.IPAddress.ToString(),

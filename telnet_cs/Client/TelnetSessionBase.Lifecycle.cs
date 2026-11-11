@@ -44,9 +44,9 @@ public abstract partial class TelnetSessionBase
         // would leak them (the caller never gets an instance to Dispose).
         ArgumentNullException.ThrowIfNull(byteStream);
         this.byteStream = byteStream;
-        sendRateLimit = new SemaphoreSlim(1);
-        readRateLimit = new SemaphoreSlim(1);
-        internalCancellation = new CancellationTokenSource();
+        sendRateLimit = new(1);
+        readRateLimit = new(1);
+        internalCancellation = new();
         cancellationRegistration = token.Register(() =>
         {
             CancelPendingReads();
@@ -58,10 +58,7 @@ public abstract partial class TelnetSessionBase
     /// </summary>
     protected SemaphoreSlim ReadRateLimit
     {
-        get
-        {
-            return readRateLimit;
-        }
+        get => readRateLimit;
     }
 
     /// <summary>
@@ -69,10 +66,7 @@ public abstract partial class TelnetSessionBase
     /// </summary>
     protected SemaphoreSlim SendRateLimit
     {
-        get
-        {
-            return sendRateLimit;
-        }
+        get => sendRateLimit;
     }
 
     /// <summary>
@@ -80,10 +74,7 @@ public abstract partial class TelnetSessionBase
     /// </summary>
     protected CancellationTokenSource InternalCancellation
     {
-        get
-        {
-            return internalCancellation;
-        }
+        get => internalCancellation;
     }
 
     /// <summary>

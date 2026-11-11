@@ -33,7 +33,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Repl_HelpAndQuit_PromptsTwiceWithGa()
         {
-            using var stream = new ScriptedStream([.. Ascii("help\n"), .. Ascii("quit\n")]);
+            using ScriptedStream stream = new([.. Ascii("help\n"), .. Ascii("quit\n")]);
             using var session = NewSession(stream);
             await ServerShells.RunReplAsync(session, CancellationToken.None);
             string all = OutboundText(stream);
@@ -49,7 +49,7 @@ namespace telnet_cs.Tests
         {
             // The reference greets TLS peers with "Ready (secure: <ver>).":
             // a TLS session names the secure banner, a plain one does not.
-            using var stream = new ScriptedStream(Ascii("quit\n"));
+            using ScriptedStream stream = new(Ascii("quit\n"));
             using var session = NewSession(stream);
             session.IsTls = true;
             await ServerShells.RunReplAsync(session, CancellationToken.None);
@@ -59,7 +59,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Repl_NeverSendGa_SendsNoGa()
         {
-            using var stream = new ScriptedStream(Ascii("quit\n"));
+            using ScriptedStream stream = new(Ascii("quit\n"));
             var options = new TelnetServerOptions { NeverSendGa = true };
             using var session = NewSession(stream, options);
             await ServerShells.RunReplAsync(session, CancellationToken.None);
@@ -70,7 +70,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Repl_IntrospectionCommands_ReportState()
         {
-            using var stream = new ScriptedStream(Ascii("bogus\nnegotiation\nstats\nenviron\nversion\nquit\n"));
+            using ScriptedStream stream = new(Ascii("bogus\nnegotiation\nstats\nenviron\nversion\nquit\n"));
             using var session = NewSession(stream);
             await ServerShells.RunReplAsync(session, CancellationToken.None);
             string all = OutboundText(stream);
@@ -84,7 +84,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Repl_Cancelled_StopsPromptly()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var session = NewSession(stream);
             using var cts = new CancellationTokenSource(200);
             await ServerShells.RunReplAsync(session, cts.Token);
@@ -94,7 +94,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Repl_DisconnectedPeer_Stops()
         {
-            using var stream = new ScriptedStream(Ascii("stats\n"));
+            using ScriptedStream stream = new(Ascii("stats\n"));
             using var session = NewSession(stream);
             stream.Close();
             await ServerShells.RunReplAsync(session, CancellationToken.None);

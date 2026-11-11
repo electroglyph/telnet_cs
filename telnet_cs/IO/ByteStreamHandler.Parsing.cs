@@ -522,7 +522,7 @@ public partial class ByteStreamHandler
         // A stall mid-scan stashes the frame; the next read resumes it.
         bool scanDone = false;
 
-        if (!scanDone && iacPending)
+        if (iacPending)
         {
             // RFC 854 IAC SE split: the IAC was consumed, its following byte arrives now.
             var followingSplit = TryReadByte();
@@ -683,100 +683,83 @@ public partial class ByteStreamHandler
             return;
         }
 
-        if (inputOption == (int)Options.LineMode)
+        switch (inputOption)
         {
-            // LINEMODE payloads start with their own subcommand (MODE /
-            // FORWARDMASK / SLC), not SEND, so they bypass the SEND gate below.
-            // In particular a server DO FORWARDMASK ([253, 2, …]) must be
-            // refused in-band, never mistaken for a stray SEND.
-            await ReplyLinemodeAsync(payload).ConfigureAwait(false);
-            return;
-        }
-
-        if (inputOption == (int)Options.SendLocation)
-        {
-            // RFC 779: the SB carries the raw ASCII location with no
-            // SEND/IS discrimination.
-            ReplySendLocation(payload);
-            return;
-        }
-
-        if (inputOption == (int)Options.RemoteFlowControl)
-        {
-            // RFC 1372: the SB carries a single mode byte (0-3), no verbs.
-            await ReplyLineflowAsync(payload).ConfigureAwait(false);
-            return;
-        }
-
-        if (inputOption == (int)Options.COMPortControl)
-        {
-            // RFC 2217 framing level: surface the raw payload; modem-line
-            // semantics stay the caller's.
-            ComPortReceived?.Invoke([.. payload]);
-            return;
-        }
-
-        if (IsMudOption(inputOption))
-        {
-            byte[] body = [.. payload];
-            DispatchMud(inputOption, body);
-            if (inputOption == (int)Options.Zmp)
-            {
-                await AnswerZmpAsync(body).ConfigureAwait(false);
-            }
-
-            return;
-        }
-
-        if (inputOption == (int)Options.Mccp2 || inputOption == (int)Options.Mccp3)
-        {
-            // Padding-carrying SBs start compression under the same gates
-            // as the empty form (agreement first, never over TLS).
-            if (!MccpStartAllowed(inputOption))
-            {
+            case (int)Options.LineMode:
+                // LINEMODE payloads start with their own subcommand (MODE /
+                // FORWARDMASK / SLC), not SEND, so they bypass the SEND gate below.
+                // In particular a server DO FORWARDMASK ([253, 2, …]) must be
+                // refused in-band, never mistaken for a stray SEND.
+                await ReplyLinemodeAsync(payload).ConfigureAwait(false);
                 return;
-            }
+            case (int)Options.SendLocation:
+                // RFC 779: the SB carries the raw ASCII location with no
+                // SEND/IS discrimination.
+                ReplySendLocation(payload);
+                return;
+            case (int)Options.RemoteFlowControl:
+                // RFC 1372: the SB carries a single mode byte (0-3), no verbs.
+                await ReplyLineflowAsync(payload).ConfigureAwait(false);
+                return;
+            case (int)Options.COMPortControl:
+                // RFC 2217 framing level: surface the raw payload; modem-line
+                // semantics stay the caller's.
+                ComPortReceived?.Invoke([.. payload]);
+                return;
+            case int mud when IsMudOption(mud):
+                byte[] body = [.. payload];
+                DispatchMud(inputOption, body);
+                if (inputOption == (int)Options.Zmp)
+                {
+                    await AnswerZmpAsync(body).ConfigureAwait(false);
+                }
 
-            // Compression has a direction: MCCP2 flows server-to-client
-            // (only a client inflates), MCCP3 client-to-server (only a
-            // server inflates). A marker for the wrong direction never
-            // arms inflation; a client seeing the peer's MCCP3 marker
-            // only makes sure its own outbound view is up.
-            if (inputOption == (int)Options.Mccp2)
-            {
-                if (IsServerRole)
+                return;
+            case (int)Options.Mccp2 or (int)Options.Mccp3:
+                // Padding-carrying SBs start compression under the same gates
+                // as the empty form (agreement first, never over TLS).
+                if (!MccpStartAllowed(inputOption))
                 {
                     return;
                 }
 
+                // Compression has a direction: MCCP2 flows server-to-client
+                // (only a client inflates), MCCP3 client-to-server (only a
+                // server inflates). A marker for the wrong direction never
+                // arms inflation; a client seeing the peer's MCCP3 marker
+                // only makes sure its own outbound view is up.
+                if (inputOption == (int)Options.Mccp2)
+                {
+                    if (IsServerRole)
+                    {
+                        return;
+                    }
+
+                    WriteLog("Starting MCCP compression; ignoring padding bytes.");
+                    Mccp2Active = true;
+                    ArmMccpStream(inputOption);
+                    Mccp2StartReceived?.Invoke();
+                    return;
+                }
+
+                if (!IsServerRole)
+                {
+                    // Wrong direction to inflate, and outbound already
+                    // started when we agreed to the peer's WILL: nothing
+                    // more to do.
+                    return;
+                }
+
                 WriteLog("Starting MCCP compression; ignoring padding bytes.");
-                Mccp2Active = true;
+                Mccp3Active = true;
                 ArmMccpStream(inputOption);
-                Mccp2StartReceived?.Invoke();
+                Mccp3StartReceived?.Invoke();
                 return;
-            }
-
-            if (!IsServerRole)
-            {
-                // Wrong direction to inflate, and outbound already
-                // started when we agreed to the peer's WILL: nothing
-                // more to do.
+            case (int)Options.CharacterSet when payload[0] != CharsetProtocol.Request:
+                // ACCEPTED/REJECTED answers (and unimplemented table verbs)
+                // never look like SEND, so they bypass the gate below.
+                await ReplyCharsetAnswerAsync(payload).ConfigureAwait(false);
                 return;
-            }
-
-            WriteLog("Starting MCCP compression; ignoring padding bytes.");
-            Mccp3Active = true;
-            ArmMccpStream(inputOption);
-            Mccp3StartReceived?.Invoke();
-            return;
-        }
-
-        if (inputOption == (int)Options.CharacterSet && payload[0] != CharsetProtocol.Request)
-        {
-            // ACCEPTED/REJECTED answers (and unimplemented table verbs)
-            // never look like SEND, so they bypass the gate below.
-            await ReplyCharsetAnswerAsync(payload).ConfigureAwait(false);
-            return;
         }
 
         if (payload[0] != 1) // Sub-negotiation SEND command.

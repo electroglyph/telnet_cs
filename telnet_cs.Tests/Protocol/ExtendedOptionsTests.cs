@@ -25,9 +25,9 @@ namespace telnet_cs.Tests
         private static async Task<(string Output, List<byte[]> Writes, ByteStreamHandler Handler)> ReadOnceAsync(
           Action<ByteStreamHandler> configure, params int[] reads)
         {
-            using var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             configure(sut);
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             return (output, [.. stream.ByteWrites], sut);
@@ -118,9 +118,9 @@ namespace telnet_cs.Tests
         {
             // An explicit send of a blank location is caller misuse, not an
             // empty frame: it throws instead of emitting a bare SB SNDLOC.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             var act = async () => await sut.SendLocationPayloadAsync("  ");
             await act.Should().ThrowAsync<ArgumentException>();
         }
@@ -154,9 +154,9 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SendEor_WithoutDoEor_ReturnsFalseSendingNothing()
         {
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.SendEorAsync()).Should().BeFalse();
             stream.ByteWrites.Should().BeEmpty();
         }
@@ -164,9 +164,9 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SendEor_AfterDoEor_SendsIacEor()
         {
-            using var stream = new ScriptedStream(Iac, Do, 25);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(Iac, Do, 25);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             (await sut.SendEorAsync()).Should().BeTrue();
             stream.ByteWrites.Should().HaveCount(2);
@@ -180,9 +180,9 @@ namespace telnet_cs.Tests
             // Port of test_send_eor ("<" + IAC CMD_EOR + ">"): the EOR marker
             // is a bare 2-byte write with no SB framing, so it lands inline
             // in the data stream.
-            using var stream = new ScriptedStream(Iac, Do, 25);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(Iac, Do, 25);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             await stream.WriteAsync([(byte)'<'], 0, 1, cts.Token);
             (await sut.SendEorAsync()).Should().BeTrue();
@@ -604,9 +604,9 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestCharsetAsync_SecondCallWhilePending_ReturnsFalse()
         {
-            using var stream = new ScriptedStream(Iac, Will, 42);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(Iac, Will, 42);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             Concat([.. stream.ByteWrites]).Should().Equal(Iac, Do, 42);
             (await sut.RequestCharsetAsync()).Should().BeTrue();

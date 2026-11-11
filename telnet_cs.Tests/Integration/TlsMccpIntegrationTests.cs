@@ -38,7 +38,7 @@ namespace telnet_cs.Tests
                 OfferMccp2 = true,
                 OfferMccp3 = true,
             };
-            using var server = new TelnetServer(0, serverOptions);
+            using TelnetServer server = new(0, serverOptions);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var client = await Client.ConnectAsync(

@@ -14,7 +14,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void Atascii_Decode_GraphicsAndEol()
         {
-            var encoding = new AtasciiEncoding();
+            AtasciiEncoding encoding = new();
             encoding.GetString([0x00]).Should().Be("♥");
             encoding.GetString([0x0D]).Should().Be("\U0001FB82");
             encoding.GetString([0x9B]).Should().Be("\n");
@@ -29,7 +29,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void Atascii_Encode_PrefersNormalRange_AndLfToEol()
         {
-            var encoding = new AtasciiEncoding();
+            AtasciiEncoding encoding = new();
             encoding.GetBytes("\n").Should().Equal(0x9B);
             encoding.GetBytes("a").Should().Equal(0x61);
             encoding.GetBytes("A").Should().Equal(0x41);
@@ -40,14 +40,14 @@ namespace telnet_cs.Tests
         [Fact]
         public void Atascii_Encode_FoldsCrAndCrlfToLf()
         {
-            var encoding = new AtasciiEncoding();
+            AtasciiEncoding encoding = new();
             encoding.GetBytes("a\r\nb\rc").Should().Equal(0x61, 0x9B, 0x62, 0x9B, 0x63);
         }
 
         [Fact]
         public void Atascii_Encode_Unmappable_Throws()
         {
-            var encoding = new AtasciiEncoding();
+            AtasciiEncoding encoding = new();
             Action encode = () => encoding.GetBytes("€");
             encode.Should().Throw<EncoderFallbackException>();
         }
@@ -55,7 +55,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void Atascii_IncrementalEncoder_HoldsSplitCrAcrossChunks()
         {
-            var encoding = new AtasciiEncoding();
+            AtasciiEncoding encoding = new();
             var encoder = encoding.GetEncoder();
             var first = new byte[16];
             var second = new byte[16];
@@ -71,7 +71,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void Petscii_Decode_ShiftedLettersAndControls()
         {
-            var encoding = new PetsciiEncoding();
+            PetsciiEncoding encoding = new();
             encoding.GetString([0x41]).Should().Be("a");
             encoding.GetString([0xC1]).Should().Be("A");
             encoding.GetString([0xFF]).Should().Be("π");
@@ -85,7 +85,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void Petscii_Encode_LastTableEntryWins()
         {
-            var encoding = new PetsciiEncoding();
+            PetsciiEncoding encoding = new();
             encoding.GetBytes("a").Should().Equal(0x41);
             encoding.GetBytes("A").Should().Equal(0xC1);
             encoding.GetBytes("\r").Should().Equal(0x8D);
@@ -185,7 +185,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void Petscii_IncrementalEncoder_HoldsSplitSurrogateAcrossChunks()
         {
-            var encoding = new PetsciiEncoding();
+            PetsciiEncoding encoding = new();
             var encoder = encoding.GetEncoder();
             var first = new byte[16];
             var usedFirst = encoder.GetBytes(['\uD83D'], 0, 1, first, 0, false);
@@ -301,7 +301,7 @@ namespace telnet_cs.Tests
         {
             // Under a strict fallback GetBytes throws on a dangling lead, so
             // GetByteCount must throw too instead of silently undercounting.
-            var encoding = new PetsciiEncoding();
+            PetsciiEncoding encoding = new();
             var encoder = encoding.GetEncoder();
             var first = new byte[16];
             encoder.GetBytes(['\uD83D'], 0, 1, first, 0, false).Should().Be(0);

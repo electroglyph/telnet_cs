@@ -24,7 +24,7 @@ namespace telnet_cs.Tests
         private static ServerSession NewSession(ScriptedStream stream)
         {
             // Peer agreement for the collectors under test (state-only).
-            var s = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            ServerSession s = new(stream, new TelnetServerOptions(), CancellationToken.None);
             s.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
             s.Negotiation.ReceivedWill((int)Options.NewEnvironment, agree: true);
             s.Negotiation.ReceivedWill((int)Options.CharacterSet, agree: true);
@@ -47,8 +47,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestSendLocationAsync_ReturnsVolunteeredLocation()
         {
-            using var stream = new ScriptedStream(Iac, Will, 23, Iac, Sb, 23, 72, 73, Iac, Se);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new(Iac, Will, 23, Iac, Sb, 23, 72, 73, Iac, Se);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             (await session.RequestSendLocationAsync(TimeSpan.FromSeconds(5))).Should().Be("HI");
             session.ClientLocation.Should().Be("HI");
             // The volunteered WILL advances negotiation, so the DO SNDLOC is
@@ -65,7 +65,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestCharsetAsync_SendsRequest_AndReturnsAccepted()
         {
-            using var stream = new ScriptedStream(Iac, Sb, 42, 2, 85, 84, 70, 45, 56, Iac, Se);
+            using ScriptedStream stream = new(Iac, Sb, 42, 2, 85, 84, 70, 45, 56, Iac, Se);
             using var session = NewSession(stream);
             (await session.RequestCharsetAsync(TimeSpan.FromSeconds(5))).Should().Be("UTF-8");
             session.ClientCharset.Should().Be("UTF-8");
@@ -77,8 +77,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SpontaneousCharsetAccepted_IsLatchedWithoutRequest()
         {
-            using var stream = new ScriptedStream(Iac, Sb, 42, 2, 85, 84, 70, 45, 56, Iac, Se);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new(Iac, Sb, 42, 2, 85, 84, 70, 45, 56, Iac, Se);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             session.ClientCharset.Should().Be("UTF-8");
             stream.ByteWrites.Should().BeEmpty();
@@ -87,7 +87,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task AcceptedCharset_SwitchesReadDecodingWithoutBinary()
         {
-            using var stream = new ScriptedStream(
+            using ScriptedStream stream = new(
               Iac, Sb, 42, 2, 85, 84, 70, 45, 56, Iac, Se);
             using var session = NewSession(stream);
             (await session.RequestCharsetAsync(TimeSpan.FromSeconds(5))).Should().Be("UTF-8");
@@ -103,7 +103,7 @@ namespace telnet_cs.Tests
             // lets the constructor-started background pump answer first
             // with ACCEPTED (or beat our REQUEST to the wire), which is
             // correct for an idle session but not what this test pins.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var session = NewSession(stream);
             var task = session.RequestCharsetAsync(TimeSpan.FromMilliseconds(200));
             var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
@@ -124,7 +124,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestNewEnvironmentAsync_ReturnsIsEntries()
         {
-            using var stream = new ScriptedStream(Iac, Sb, 39, 0, 0, 65, 1, 66, Iac, Se);
+            using ScriptedStream stream = new(Iac, Sb, 39, 0, 0, 65, 1, 66, Iac, Se);
             using var session = NewSession(stream);
             var result = await session.RequestNewEnvironmentAsync(TimeSpan.FromSeconds(5));
             result.Should().ContainSingle(kv => kv.Key == "A" && kv.Value == "B");
@@ -137,7 +137,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestTerminalTypesAsync_MttsThirdEntry_EffectiveTypeIsSecond()
         {
-            using var stream = new ScriptedStream(
+            using ScriptedStream stream = new(
               [.. SbIs(24, "XTERM256"), .. SbIs(24, "XTERM"), .. SbIs(24, "MTTS 137"), .. SbIs(24, "MTTS 137")]);
             using var session = NewSession(stream);
             var chain = await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5));
@@ -148,7 +148,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestTerminalTypesAsync_WithoutMtts_EffectiveTypeIsFirst()
         {
-            using var stream = new ScriptedStream([.. SbIs(24, "XTERM"), .. SbIs(24, "XTERM")]);
+            using ScriptedStream stream = new([.. SbIs(24, "XTERM"), .. SbIs(24, "XTERM")]);
             using var session = NewSession(stream);
             var chain = await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5));
             chain.Should().Equal("XTERM");
@@ -158,8 +158,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task WillLineflow_AsServer_AgreesAndVolunteersRestartXon()
         {
-            using var stream = new ScriptedStream(Iac, Will, 33);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new(Iac, Will, 33);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             // The volunteered RESTART-XON SB (no DO reply — the reference
             // probes instead of acknowledging), then the advanced batch the
@@ -175,8 +175,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SendLineflowModeAsync_AfterWillLineflow_SendsMode()
         {
-            using var stream = new ScriptedStream(Iac, Will, 33);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new(Iac, Will, 33);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             (await session.SendLineflowModeAsync(true)).Should().BeTrue();
             // Volunteered SB + advanced batch, then the explicit mode SB
@@ -192,7 +192,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SendLineflowModeAsync_WithoutWillLineflow_SendsNothing()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var session = NewSession(stream);
             (await session.SendLineflowModeAsync(true)).Should().BeFalse();
             stream.ByteWrites.Should().BeEmpty();

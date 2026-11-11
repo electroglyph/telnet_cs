@@ -155,7 +155,7 @@ public partial class ServerSession
     {
         try
         {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            using CancellationTokenSource cts = new(TimeSpan.FromSeconds(1));
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken, InternalCancellation.Token);
             await WriteAsync("\r\nLogin failed.\r\n", linked.Token).ConfigureAwait(false);
         }

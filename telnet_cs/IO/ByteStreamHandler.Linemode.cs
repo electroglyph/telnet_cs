@@ -101,22 +101,17 @@ public partial class ByteStreamHandler
             return Task.CompletedTask;
         }
 
-        if (IsServerRole && (payload[0] == (byte)Commands.Do || payload[0] == (byte)Commands.Dont))
+        switch (IsServerRole, payload[0])
         {
-            WriteLog("Ignoring LINEMODE FORWARDMASK proposal on server role.");
-            return Task.CompletedTask;
-        }
-
-        if (!IsServerRole && (payload[0] == (byte)Commands.Will || payload[0] == (byte)Commands.Wont))
-        {
-            WriteLog("Ignoring LINEMODE FORWARDMASK answer on client role.");
-            return Task.CompletedTask;
-        }
-
-        if (payload[0] == (byte)Commands.Will || payload[0] == (byte)Commands.Wont)
-        {
-            Linemode.ApplyForwardMaskAnswer(payload[0] == (byte)Commands.Will);
-            return Task.CompletedTask;
+            case (true, (byte)Commands.Do or (byte)Commands.Dont):
+                WriteLog("Ignoring LINEMODE FORWARDMASK proposal on server role.");
+                return Task.CompletedTask;
+            case (false, (byte)Commands.Will or (byte)Commands.Wont):
+                WriteLog("Ignoring LINEMODE FORWARDMASK answer on client role.");
+                return Task.CompletedTask;
+            case (_, (byte)Commands.Will or (byte)Commands.Wont):
+                Linemode.ApplyForwardMaskAnswer(payload[0] == (byte)Commands.Will);
+                return Task.CompletedTask;
         }
 
         if (payload[0] == (byte)Commands.Dont)

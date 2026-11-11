@@ -37,8 +37,8 @@
             var reads = new Queue<int>(new[] { 255, 250 });
             A.CallTo(() => fake.ReadByte()).ReturnsLazily(() =>
               reads.Count > 0 ? reads.Dequeue() : throw new IOException("boom"));
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(fake, cts, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(fake, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored)).MustNotHaveHappened();
         }
@@ -46,9 +46,9 @@
         [Fact]
         public async Task IacAsSubnegotiationOptionIsIgnored()
         {
-            using var stream = new ScriptedStream(255, 250, 255);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(255, 250, 255);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
         }
@@ -57,9 +57,9 @@
         public async Task TruncatedSubnegotiationEndingInIacIsIgnored()
         {
             // IAC with no following byte: the scanner cannot frame, so it aborts.
-            using var stream = new ScriptedStream(255, 250, 24, 1, 255);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(255, 250, 24, 1, 255);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
         }
@@ -68,9 +68,9 @@
         public async Task IacFollowedByDataByteAbortsSubnegotiation()
         {
             // IAC followed by anything but IAC/SE: framing is lost, give up.
-            using var stream = new ScriptedStream(255, 250, 24, 1, 255, 65);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(255, 250, 24, 1, 255, 65);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
         }
@@ -87,9 +87,9 @@
             }
 
             reads.AddRange(new[] { 255, 255, 255, 240 });
-            using var stream = new ScriptedStream(reads.ToArray());
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(reads.ToArray());
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
         }
@@ -98,9 +98,9 @@
         public async Task NawsEscapesIacBytesInDimensions()
         {
             // A 0xFF dimension byte must be doubled on the wire (RFC 854).
-            using var stream = new ScriptedStream(255, 253, 31);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(255, 253, 31);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.WindowWidth = 65535;
             sut.WindowHeight = 24;
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
@@ -114,9 +114,9 @@
         [Fact]
         public async Task HandlerIsWriteConsoleWritesRead()
         {
-            using var stream = new ScriptedStream("Hi");
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new("Hi");
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.IsWriteConsole = true;
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("Hi");
         }
@@ -138,7 +138,7 @@
         public void HandlerCancelPendingReadsAfterDisposeIsSwallowed()
         {
             // Cancel() on a disposed source throws; the handler must swallow it.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             var cts = new CancellationTokenSource();
             var sut = new ProbeHandler(stream, cts);
             cts.Dispose();
@@ -150,7 +150,7 @@
         [Fact]
         public async Task SingleStringCollectionOverloadReads()
         {
-            using var stream = new ScriptedStream("Account:");
+            using ScriptedStream stream = new("Account:");
             using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             var result = await client.TerminatedReadAsync(new[] { "zzz", "Account:" });
             result.Should().Be("Account:");
@@ -159,13 +159,13 @@
         [Fact]
         public async Task RegexCollectionShortOverloadsRead()
         {
-            using var stream = new ScriptedStream("Password:");
+            using ScriptedStream stream = new("Password:");
             using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             var oneArg = await client.TerminatedReadAsync(new[] { new Regex("zzz"), new Regex("word") });
             // "word" matches mid-buffer: the cut keeps "Password", ":" stashes.
             oneArg.Should().Be("Password");
             (await client.ReadAsync(TimeSpan.FromSeconds(2))).Should().Be(":");
-            using var stream2 = new ScriptedStream("Password:");
+            using ScriptedStream stream2 = new("Password:");
             using var client2 = await Client.CreateAsync(stream2, TimeSpan.FromSeconds(30), new CancellationToken());
             var twoArg = await client2.TerminatedReadAsync(
               new[] { new Regex("zzz"), new Regex("word") }, TimeSpan.FromSeconds(2));
@@ -183,7 +183,7 @@
             var traced = new List<string>();
             using (GlobalStateGuard.Trace(traced.Add))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.Log = logged.Add;
                 Func<Task> act = () => client.TerminatedReadAsync(
@@ -197,7 +197,7 @@
         [Fact]
         public async Task PreCancelledReadReturnsEmpty()
         {
-            using var stream = new ScriptedStream("AB");
+            using ScriptedStream stream = new("AB");
             using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             var result = await client.ReadAsync(TimeSpan.FromSeconds(1), new CancellationToken(true));
             result.Should().BeEmpty();
@@ -207,7 +207,7 @@
         public void ClientCancelPendingReadsAfterDisposeIsSwallowed()
         {
             // Cancel() on the disposed internal source throws; CancelPendingReads swallows.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             var probe = new ClientTerminatorConnectTests.ProbeClient(stream);
             probe.Dispose();
             Action act = () => probe.ExposeCancelPendingReads();
@@ -231,7 +231,7 @@
             var stream = A.Fake<INetworkStream>();
             A.CallTo(() => socket.GetStream()).Returns(stream);
             A.CallTo(() => stream.ReadByte()).Throws(new ObjectDisposedException("s"));
-            using var sut = new TcpByteStream(socket);
+            using TcpByteStream sut = new(socket);
             sut.ReadByte().Should().Be(-1);
         }
 
@@ -243,14 +243,14 @@
             var stream = A.Fake<INetworkStream>();
             A.CallTo(() => socket.GetStream()).Returns(stream);
             A.CallTo(() => stream.ReadByte()).Throws(new InvalidOperationException("x"));
-            using var sut = new TcpByteStream(socket);
+            using TcpByteStream sut = new(socket);
             sut.ReadByte().Should().Be(-1);
         }
 
         [Fact]
         public void TcpClientSocketOptionsRoundTrip()
         {
-            using var server = new DummyTelnetServer();
+            using DummyTelnetServer server = new();
             using var sut = new telnet_cs.Transport.TcpClient(server.IPAddress.ToString(), server.Port);
             sut.SendTimeout = 1234;
             sut.SendTimeout.Should().Be(1234);

@@ -25,9 +25,9 @@
 
         private static async Task<string> ReadHandlerOnceAsync(params int[] reads)
         {
-            using var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             return await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
         }
 
@@ -36,7 +36,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 3);
                 (await ReadOnceAsync(client)).Should().BeEmpty();
@@ -51,7 +51,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 251, 3);
                 (await ReadOnceAsync(client)).Should().BeEmpty();
@@ -69,7 +69,7 @@
             // answered, not remembered-silent.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 251, 24);
                 (await ReadOnceAsync(client)).Should().BeEmpty();
@@ -92,7 +92,7 @@
             // opt-in via TelnetClientOptions.EnableMudOptions).
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 201);
                 (await ReadOnceAsync(client)).Should().BeEmpty();
@@ -106,7 +106,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 251, 201);
                 (await ReadOnceAsync(client)).Should().BeEmpty();
@@ -120,7 +120,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.ApplyOptions(new TelnetClientOptions { EnableMudOptions = true });
                 stream.Enqueue(255, 253, 201);
@@ -146,7 +146,7 @@
             // re-request goes out again; automatic repeats stay silent.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(10), default,
                   new[] { (Commands.Do, Options.Echo) }, skipProactiveNegotiation: false);
                 CountWrites(stream, 253, 1).Should().Be(1);
@@ -165,7 +165,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 await client.RequestEnableAsync(Options.SuppressGoAhead);
                 CountWrites(stream, 253, 3).Should().Be(1);
@@ -188,7 +188,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 await client.RequestEnableAsync(Options.TerminalType);
                 await client.RequestEnableAsync(Options.TerminalType);

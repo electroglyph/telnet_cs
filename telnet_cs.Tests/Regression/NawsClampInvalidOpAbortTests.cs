@@ -17,9 +17,9 @@
         {
             // Dimensions outside 0..65535 clamp to the unsigned-short wire
             // range (telnetlib3's NAWS send path: max(min(65535, v), 0)).
-            using var stream = new ScriptedStream(255, 253, 31);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(255, 253, 31);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.WindowWidth = 100000;
             sut.WindowHeight = -3;
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
@@ -51,8 +51,8 @@
             var reads = new Queue<int>(new[] { 255, 250 });
             A.CallTo(() => fake.ReadByte()).ReturnsLazily(() =>
               reads.Count > 0 ? reads.Dequeue() : throw new InvalidOperationException("boom"));
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(fake, cts, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(fake, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored)).MustNotHaveHappened();
         }

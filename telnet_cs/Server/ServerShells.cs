@@ -49,7 +49,7 @@ public static class ServerShells
         // version string is kept), falling back to the bare "Ready.".
         string banner = session.IsTls ? "Ready (secure: TLS)." : "Ready.";
         await session.WriteAsync($"{banner}{LineFeed.Rfc854}", cancellationToken).ConfigureAwait(false);
-        var pending = new System.Text.StringBuilder();
+        System.Text.StringBuilder pending = new();
         while (!cancellationToken.IsCancellationRequested && session.IsConnected)
         {
             await session.WriteAsync("tel:sh> ", cancellationToken).ConfigureAwait(false);
@@ -135,7 +135,7 @@ public static class ServerShells
             return null;
         }
 
-        var line = new System.Text.StringBuilder();
+        System.Text.StringBuilder line = new();
         int echoBudget = cap > 0 ? cap * 3 : int.MaxValue;
         while (!cancellationToken.IsCancellationRequested && session.IsConnected)
         {
@@ -181,7 +181,7 @@ public static class ServerShells
                 if (c == '\n')
                 {
                     // Stash anything past the newline for the next line.
-                    pending.Append(accumulated.Substring(i + 1));
+                    pending.Append(accumulated[(i + 1)..]);
                     sawNewline = true;
                     break;
                 }
@@ -309,7 +309,7 @@ public static class ServerShells
           Options.Mccp3,
           Options.Gmcp,
         ];
-        var report = new List<string>(options.Length);
+        List<string> report = [with(capacity: options.Length)];
         foreach (var option in options)
         {
             var (us, him) = session.Negotiation[(int)option];
@@ -334,7 +334,7 @@ public static class ServerShells
         var entries = session.ClientEnvironment;
         string body = entries.Count == 0
           ? "(empty)"
-          : string.Join(LineFeed.Rfc854, entries.Select(kv => $"{kv.Key}={kv.Value}"));
+          : string.Join(LineFeed.Rfc854, entries.Select(static kv => $"{kv.Key}={kv.Value}"));
         await session.WriteAsync(body + LineFeed.Rfc854, cancellationToken).ConfigureAwait(false);
         return true;
     }
@@ -344,7 +344,7 @@ public static class ServerShells
         // The reference "slc" command writes the special-line-characters
         // table (get_slcdata): one row per function with its level,
         // value and modifier flags.
-        var rows = new List<string>(LinemodeProtocol.MaxFunction);
+        List<string> rows = [with(capacity: LinemodeProtocol.MaxFunction)];
         for (byte function = 1; function <= LinemodeProtocol.MaxFunction; function++)
         {
             var entry = session.GetLinemodeEntry(function);

@@ -21,7 +21,6 @@ internal sealed class DuplexEnd : IByteStream
     private readonly Queue<byte> inbound = new();
     private readonly List<byte> written = new();
     private readonly ManualResetEventSlim dataAvailable = new(false);
-    private int receiveTimeout;
     private bool closed;
     private bool disposed;
 
@@ -89,7 +88,7 @@ internal sealed class DuplexEnd : IByteStream
         {
             lock (mutex)
             {
-                return receiveTimeout;
+                return field;
             }
         }
 
@@ -97,7 +96,7 @@ internal sealed class DuplexEnd : IByteStream
         {
             lock (mutex)
             {
-                receiveTimeout = value;
+                field = value;
             }
         }
     }
@@ -105,11 +104,7 @@ internal sealed class DuplexEnd : IByteStream
     /// <inheritdoc/>
     public int ReadByte()
     {
-        int timeout;
-        lock (mutex)
-        {
-            timeout = receiveTimeout;
-        }
+        int timeout = ReceiveTimeout;
 
         long deadline = timeout <= 0 ? long.MaxValue : Environment.TickCount64 + timeout;
         while (true)
@@ -117,10 +112,10 @@ internal sealed class DuplexEnd : IByteStream
             DuplexEnd? peer;
             lock (mutex)
             {
-                if (inbound.Count > 0)
+                if (inbound.Count is > 0)
                 {
                     byte next = inbound.Dequeue();
-                    if (inbound.Count == 0)
+                    if (inbound.Count is 0)
                     {
                         dataAvailable.Reset();
                     }
@@ -192,8 +187,7 @@ internal sealed class DuplexEnd : IByteStream
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        var slice = new byte[count];
-        Array.Copy(buffer, offset, slice, 0, count);
+        byte[] slice = [.. buffer.AsSpan(offset, count)];
         Deliver(slice);
         return Task.CompletedTask;
     }

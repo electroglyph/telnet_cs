@@ -1,18 +1,18 @@
 # telnet_cs
 
-Telnet client **and** server library for .NET 10 (C# 14).
+Telnet client **and** server library for .NET 11 (C# 15).
 
 ## Commands
 
-- Build: `dotnet build telnet_cs.sln -c Release` (or Debug). Requires the .NET 10 SDK **and** .NET 10 runtime.
+- Build: `dotnet build telnet_cs.sln -c Release` (or Debug). Requires the .NET 11 SDK **and** .NET 11 runtime.
 - Run tests: `dotnet test telnet_cs.sln -c Release` — use `--filter` for focused tests.
 - Format check: `dotnet format --verify-no-changes` (build treats warnings as errors; unformatted pushes fail).
 
 ## Conventions
 
 - Layout: `telnet_cs/` (library: `Client/`, `Server/`, `Transport/`, `Protocol/`, `IO/`, `Encodings/` for the retro codecs), `telnet_cs.Tests/` (xUnit suites, `Helpers/` shared fixtures + `Fakes/` socket doubles). Shared process-wide infra with no better home (`FlowLocal<T>`) lives at the library root; client-side input translation (`InputFilter`, `LinemodeBuffer`, `LinemodeEdit`) lives in `Client/`; `Protocol/` hosts stateless wire codecs plus the two role-adjacent helpers (`MudClientDetector`, `TerminalTypeCycler`), which stay there so both roles share one namespace.
-- Language reference: [csharp.md](./csharp.md) — local copy (C# 9 → C# 14). The [Best practices (C# 14)](#best-practices-c-14) section below states which practices to apply; per-feature details live in `csharp.md`.
-- All new and rewritten code must follow [Best practices (C# 14)](#best-practices-c-14). Modernize surrounding lines you touch; do not reformat untouched code.
+- Language reference: [csharp.md](./csharp.md) — local copy (C# 9 → C# 15). The [Best practices (C# 15)](#best-practices-c-15) section below states which practices to apply; per-feature details live in `csharp.md`.
+- All new and rewritten code must follow [Best practices (C# 15)](#best-practices-c-15). Modernize surrounding lines you touch; do not reformat untouched code.
 - Wire discipline: keep established wire bytes / negotiation behavior byte-for-byte unless a technical reason and a test pin justify the change. Do not paraphrase protocol behavior or "improve" message framing without a wire-exact regression test.
 - Tests live next to the code they cover conceptually (`telnet_cs.Tests/`); give tests standalone names that describe the feature under test (`MethodUnderTest_Scenario_ExpectedResult`).
 
@@ -28,11 +28,11 @@ Telnet client **and** server library for .NET 10 (C# 14).
 - `docs/divergences.md` is only for behavior telnetlib3 actually has: every entry needs a reference counterpart. Never add entries for local-only features with no telnetlib3 behavior — document those in xmldoc + the usage guides instead.
 - `CHANGELOG.md`: add a very succinct entry for every new feature or fix (one or two lines each).
 
-## Best practices (C# 14)
+## Best practices (C# 15)
 
-Target the latest stable language: `<LangVersion>latest</LangVersion>` (C# 14 on .NET 10 SDK).
+Target the latest stable language: `<LangVersion>latest</LangVersion>` (C# 15 on .NET 11 SDK).
 For what each feature is and how to use it, see **[csharp.md](./csharp.md)** — the version-by-version
-reference (C# 9 → C# 14) with examples. This file states which practices to apply when writing code.
+reference (C# 9 → C# 15) with examples. This file states which practices to apply when writing code.
 
 ## Nullability and validation
 
@@ -48,6 +48,15 @@ reference (C# 9 → C# 14) with examples. This file states which practices to ap
 
 - Model immutable data as `record` / `readonly record struct` (value equality, `with` support).
   Use a `class` when identity matters or the type has significant behavior/lifetime.
+- Model a value that is exactly one of several existing, possibly unrelated types as a `union`
+  (C# 15) — e.g. a result that is either the item or a not-found report — instead of an `object`
+  return or an artificial common base class. Model a hierarchy you own with a `closed` base
+  (C# 15) so the compiler fixes the set of descendants. Write the `switch` over union cases or
+  `closed` descendants with no `default` arm, so a new case is flagged at build time (an error
+  under this repo's warnings-as-errors gate) instead of slipping through at runtime. Never add
+  a `_` or `var` catch-all to such a switch — it accepts any future case silently and forfeits
+  the checking. Prefer an explicit `null` arm over `_`/`var` when null contents are possible;
+  it preserves the missing-case warnings. Both give compiler-checked dispatch without reflection.
 - Prefer `init` accessors for construction-time-only state; `required` for mandatory members.
 - Use primary constructors for simple dependency capture (services, DTOs). If the constructor needs
   validation or logic, write an explicit constructor body instead of clever parameter tricks.
@@ -68,9 +77,13 @@ reference (C# 9 → C# 14) with examples. This file states which practices to ap
 ## Control flow and expressions
 
 - Prefer `switch` expressions and pattern matching (`and`/`or`/`not`, relational, list patterns)
-  over `if`/`else` chains and manual type tests + casts.
-- Use target-typed `new()`, collection expressions (`[..]` with spread), and null-coalescing /
-  null-conditional assignment (`?.`, `customer?.Order = ...`) to cut ceremony.
+  over `if`/`else` chains and manual type tests + casts. Keep union/`closed` switches exhaustive
+  with no `default` arm (see above).
+- Prefer labeled `break` / `continue` (C# 15) over Boolean-flag variables or `goto` to steer
+  nested loops (e.g. grid scans, pathfinding).
+- Use target-typed `new()`, collection expressions (`[..]` with spread, `[with(...), ...]` for
+  capacity/comparer args), and null-coalescing / null-conditional assignment (`?.`,
+  `customer?.Order = ...`) to cut ceremony.
 - Use raw string literals (`"""`) for embedded JSON/SQL/regex/XML; UTF-8 literals (`"..."u8`) for
   byte-oriented protocols.
 - Prefer `foreach` + LINQ over hand-rolled index loops for in-memory collections; prefer
@@ -82,6 +95,8 @@ reference (C# 9 → C# 14) with examples. This file states which practices to ap
   for loops; `const` interpolation for compile-time constants.
 - Accept the most general usable collection parameter type; offer `params ReadOnlySpan<T>` /
   `params IEnumerable<T>` overloads for allocation-free variadic APIs.
+- Pass capacity/comparer arguments inline with collection expression `with(...)` (C# 15) instead
+  of separate constructor calls where the target type supports it.
 - Use `Span<T>` / `ReadOnlySpan<T>` for parsing and buffer manipulation (first-class conversions in
   C# 14 make them cheap to pass around). Use `stackalloc` for small short-lived buffers.
 - `ref struct` only when pinning stack-only semantics; remember it can't box to interfaces —
@@ -98,8 +113,8 @@ reference (C# 9 → C# 14) with examples. This file states which practices to ap
 
 ## Extension and generated code
 
-- New `extension(...)` blocks (C# 14) for extension properties and static extensions; classic
-  `this`-parameter syntax remains fine for plain extension methods. Don't use extensions to fake
+- New `extension(...)` blocks (C# 14) for extension properties, extension indexers (C# 15), and
+  static extensions; classic `this`-parameter syntax remains fine for plain extension methods. Don't use extensions to fake
   missing encapsulation — if it needs privates, it belongs in the type.
 - Source-generated code (regex, JSON, logging, interceptors): prefer `[GeneratedRegex]`,
   `JsonSerializerContext`, `LoggerMessage.Define` over runtime reflection/emitted code.

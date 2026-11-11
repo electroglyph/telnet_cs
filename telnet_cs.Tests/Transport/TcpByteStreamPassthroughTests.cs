@@ -70,6 +70,32 @@
         }
 
         [Fact]
+        public void WriteBuffer_NullBuffer_ThrowsArgumentNullException()
+        {
+            var (sut, _, _) = Make();
+            using (sut)
+            {
+                Action act = () => sut.WriteAsync(null!, 0, 0, CancellationToken.None);
+                act.Should().Throw<ArgumentNullException>().WithParameterName("buffer");
+            }
+        }
+
+        [Theory]
+        [InlineData(-1, 1)]
+        [InlineData(0, -1)]
+        [InlineData(2, 2)]
+        public void WriteBuffer_OutOfRangeSlice_ThrowsArgumentException(int offset, int count)
+        {
+            var (sut, _, _) = Make();
+            using (sut)
+            {
+                var buf = new byte[] { 1, 2, 3 };
+                Action act = () => sut.WriteAsync(buf, offset, count, CancellationToken.None);
+                act.Should().Throw<ArgumentException>();
+            }
+        }
+
+        [Fact]
         public async Task WriteByteRelaysToStream()
         {
             var (sut, _, stream) = Make();
@@ -96,7 +122,7 @@
         public void DisposeOwned_DisposesSocket()
         {
             var (_, socket, _) = Make();
-            using var sut = new TcpByteStream(socket, takeOwnership: true);
+            using TcpByteStream sut = new(socket, takeOwnership: true);
             sut.Dispose();
             A.CallTo(() => socket.Close()).MustHaveHappened();
             A.CallTo(() => socket.Dispose()).MustHaveHappened();
@@ -116,7 +142,7 @@
         [Fact]
         public void Construct_AgainstLiveServer_DoesNotThrowAndDisposes()
         {
-            using var server = new DummyTelnetServer();
+            using DummyTelnetServer server = new();
             TcpByteStream? sut = null;
             Action act = () => sut = new TcpByteStream(server.IPAddress.ToString(), server.Port);
             act.Should().NotThrow();
@@ -127,8 +153,8 @@
         [Fact]
         public void ReceiveTimeout_DefaultsToZero()
         {
-            using var server = new DummyTelnetServer();
-            using var sut = new TcpByteStream(server.IPAddress.ToString(), server.Port);
+            using DummyTelnetServer server = new();
+            using TcpByteStream sut = new(server.IPAddress.ToString(), server.Port);
             sut.ReceiveTimeout.Should().Be(0);
         }
     }

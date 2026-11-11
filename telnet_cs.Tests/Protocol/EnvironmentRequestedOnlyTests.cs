@@ -49,9 +49,9 @@ namespace telnet_cs.Tests
         private static async Task<(string Output, ScriptedStream Stream)> ReadHandlerOnceAsync(
           Action<ByteStreamHandler> configure, params int[] reads)
         {
-            var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             configure(sut);
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             return (output, stream);

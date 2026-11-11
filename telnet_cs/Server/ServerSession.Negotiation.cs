@@ -117,19 +117,9 @@ public partial class ServerSession
     /// not an advance — a raw client that WONTs everything gets
     /// nothing further.
     /// </summary>
-    private bool ShouldBeginAdvancedNegotiation()
-    {
-        for (int option = 0; option <= 255; option++)
-        {
-            var (us, him) = Negotiation[option];
-            if (us == NegotiationState.SideState.Yes || him == NegotiationState.SideState.Yes)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    private bool ShouldBeginAdvancedNegotiation() =>
+        Enumerable.Range(0, 256).Any(option =>
+            Negotiation[option] is (NegotiationState.SideState.Yes, _) or (_, NegotiationState.SideState.Yes));
 
     /// <summary>
     /// Asks the peer to enable <paramref name="telnetOption"/> (sends

@@ -30,18 +30,18 @@ internal static class WriteHarness
         var command = (Commands)(bytes.Length > 1 ? bytes[1] : 0);
         var mode = bytes.Length > 2 ? bytes[2] : (byte)0;
 
-        using var clientStream = new FuzzStream();
+        using FuzzStream clientStream = new();
         using var client = await Client.CreateAsync(clientStream, TimeSpan.FromSeconds(5), CancellationToken.None, [], skipProactiveNegotiation: true);
         client.MillisecondReadDelay = 1;
         await DriveClientAsync(client, text, bytes, lineFeed, option, command, mode, cancellationToken).ConfigureAwait(false);
 
-        var options = new TelnetServerOptions
+        TelnetServerOptions options = new()
         {
             IdleTimeout = Timeout.InfiniteTimeSpan,
             StatusInterval = null,
             IsWriteConsole = false,
         };
-        using var serverStream = new FuzzStream();
+        using FuzzStream serverStream = new();
         using var session = new ServerSession(serverStream, options, CancellationToken.None)
         {
             MillisecondReadDelay = 1,

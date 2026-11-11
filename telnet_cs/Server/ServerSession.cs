@@ -240,7 +240,7 @@ public partial class ServerSession : TelnetSessionBase
         // Safe to dispose: the handler no longer disposes (or cancels)
         // anything it does not own.
         using (var linked = CancellationTokenSource.CreateLinkedTokenSource(InternalCancellation.Token, callerToken))
-        using (var handler = new ByteStreamHandler(WriteStream, linked, MillisecondReadDelay))
+        using (ByteStreamHandler handler = new(WriteStream, linked, MillisecondReadDelay))
         {
             FeedSession(handler);
             // Single-flight (ReadRateLimit): this is the only pass

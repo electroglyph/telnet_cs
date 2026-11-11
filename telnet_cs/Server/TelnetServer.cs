@@ -18,8 +18,8 @@ public sealed partial class TelnetServer : IDisposable
 {
     private readonly System.Net.Sockets.TcpListener listener;
     private readonly TelnetServerOptions options;
-    private readonly object statusLock = new();
-    private readonly List<SessionRecord> sessions = new();
+    private readonly Lock statusLock = new();
+    private readonly List<SessionRecord> sessions = [];
     private readonly System.Threading.Channels.Channel<ServerSession> newClients =
         System.Threading.Channels.Channel.CreateBounded<ServerSession>(
             new System.Threading.Channels.BoundedChannelOptions(1000)
@@ -30,7 +30,7 @@ public sealed partial class TelnetServer : IDisposable
     private int boundPort;
     private bool disposed;
     private int reservations;
-    private readonly Dictionary<string, int> reservationsPerIp = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> reservationsPerIp = [with(StringComparer.Ordinal)];
     private long rejectedCapacity;
     private long rejectedPerIp;
     private long rejectedFilter;
@@ -43,7 +43,7 @@ public sealed partial class TelnetServer : IDisposable
     /// <param name="port">The port to listen on. Use 0 for an OS-assigned
     /// (ephemeral) port, then read <see cref="Port"/> after <see cref="Start"/>.</param>
     public TelnetServer(int port)
-      : this(port, new TelnetServerOptions())
+      : this(port, new())
     {
     }
 
@@ -130,7 +130,7 @@ public sealed partial class TelnetServer : IDisposable
         boundPort = ((IPEndPoint)listener.LocalEndpoint).Port;
         if (options.StatusInterval is { } interval && interval > TimeSpan.Zero && statusTimer is null)
         {
-            statusTimer = new System.Threading.Timer(static state => (state as TelnetServer ?? throw new InvalidOperationException("Status timer state must be the owning TelnetServer.")).ReportStatus(), this, interval, interval);
+            statusTimer = new(static state => (state as TelnetServer ?? throw new InvalidOperationException("Status timer state must be the owning TelnetServer.")).ReportStatus(), this, interval, interval);
         }
     }
 
@@ -160,7 +160,7 @@ public sealed partial class TelnetServer : IDisposable
         List<ServerSession> live;
         lock (statusLock)
         {
-            live = new List<ServerSession>(sessions.Count);
+            live = [with(capacity: sessions.Count)];
             for (int i = sessions.Count - 1; i >= 0; i--)
             {
                 if (sessions[i].Session.TryGetTarget(out var session))

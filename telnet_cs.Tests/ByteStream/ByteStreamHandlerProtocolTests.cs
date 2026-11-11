@@ -37,8 +37,8 @@
         private static async Task<string> ReadOnceAsync(int[] reads)
         {
             var fake = FakeStreamOnce(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(fake, cts, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(fake, cts, 1);
             return await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
         }
 
@@ -49,9 +49,9 @@
 
         private static async Task<(string Output, IReadOnlyList<byte[]> Writes)> ReadScriptedWithWritesAsync(params int[] reads)
         {
-            using var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             return (output, stream.ByteWrites);
         }
@@ -146,9 +146,9 @@
         {
             // Decided: BS is data, never destructive — the delivery buffer is
             // the application's byte record.
-            using var stream = new ScriptedStream(65, 255, 243, 8);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1) { TextEncoding = Encoding.Latin1 };
+            using ScriptedStream stream = new(65, 255, 243, 8);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1) { TextEncoding = Encoding.Latin1 };
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("A\x08");
         }
 
@@ -193,8 +193,8 @@
             // Exercises the rawBytes path: the buggy code recorded ASCII("255")
             // (3 bytes -> "255"); the fix records a single 0xFF (-> "ÿ").
             var fake = FakeStreamOnce(new[] { 255, 255 });
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(fake, cts, 1) { TextEncoding = Encoding.Latin1 };
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(fake, cts, 1) { TextEncoding = Encoding.Latin1 };
             var result = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             result.Should().Be("\u00ff");
         }
@@ -218,8 +218,8 @@
         {
             // Decided: ENQ is data and must not emit an unsolicited ACK.
             var fake = FakeStreamOnce(new[] { 5 });
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(fake, cts, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(fake, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("\x05");
             A.CallTo(() => fake.WriteByteAsync(A<byte>.Ignored, A<CancellationToken>.Ignored)).MustNotHaveHappened();
         }
@@ -240,8 +240,8 @@
         public async Task ReplyToCommandTable(int verb, int option, int expectedReply)
         {
             var fake = FakeStreamOnce(new[] { 255, verb, option });
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(fake, cts, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(fake, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, 0, 3, A<CancellationToken>.Ignored))
               .WhenArgumentsMatch(o => o[0] is byte[] b && b[0] == 255 && b[1] == (byte)expectedReply && b[2] == (byte)option)
@@ -252,8 +252,8 @@
         public async Task DoWindowSizeRepliesWillPlusBareNawsFollowUp()
         {
             var fake = FakeStreamOnce(new[] { 255, 253, 31 });
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(fake, cts, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(fake, cts, 1);
             sut.WindowWidth = 80;
             sut.WindowHeight = 24;
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
@@ -276,8 +276,8 @@
         public async Task DontWontAreIgnoredWithoutReply(int verb, int option)
         {
             var fake = FakeStreamOnce(new[] { 255, verb, option });
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(fake, cts, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(fake, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored)).MustNotHaveHappened();
             A.CallTo(() => fake.WriteByteAsync(A<byte>.Ignored, A<CancellationToken>.Ignored)).MustNotHaveHappened();
@@ -287,8 +287,8 @@
         public async Task UnknownVerbIsIgnoredWithoutReply()
         {
             var fake = FakeStreamOnce(new[] { 255, 241 }); // IAC NOP
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(fake, cts, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(fake, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored)).MustNotHaveHappened();
         }
@@ -297,8 +297,8 @@
         public async Task TruncatedOptionAfterDoIsIgnoredWithoutReply()
         {
             var fake = FakeStreamOnce(new[] { 255, 253, -1 });
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(fake, cts, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(fake, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored)).MustNotHaveHappened();
         }
@@ -309,8 +309,8 @@
             // IAC IP is log-only (reference handle_ip): the in-flight read
             // survives past it and waits out its full timeout.
             var fake = FakeStreamOnce(new[] { 255, 244 }); // IAC IP -> logged, read continues
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(fake, cts, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(fake, cts, 1);
             var sw = Stopwatch.StartNew();
             var result = await sut.ReadAsync(TimeSpan.FromMilliseconds(2000));
             sw.Stop();
@@ -324,8 +324,8 @@
             using (GlobalStateGuard.TerminalType("vt100"))
             {
                 var fake = FakeStreamOnce(new[] { 255, 250, 24, 1, 255, 240 });
-                using var cts = new CancellationTokenSource();
-                using var sut = new ByteStreamHandler(fake, cts, 1);
+                using CancellationTokenSource cts = new();
+                using ByteStreamHandler sut = new(fake, cts, 1);
                 (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
                 var expected = new byte[] { 255, 250, 24, 0 }
                   .Concat(Encoding.ASCII.GetBytes("vt100"))
@@ -342,8 +342,8 @@
             using (GlobalStateGuard.TerminalSpeed("19200,19200"))
             {
                 var fake = FakeStreamOnce(new[] { 255, 250, 32, 1, 255, 240 });
-                using var cts = new CancellationTokenSource();
-                using var sut = new ByteStreamHandler(fake, cts, 1);
+                using CancellationTokenSource cts = new();
+                using ByteStreamHandler sut = new(fake, cts, 1);
                 (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
                 var expected = new byte[] { 255, 250, 32, 0 }
                   .Concat(Encoding.ASCII.GetBytes("19200,19200"))
@@ -358,8 +358,8 @@
         public async Task SubnegotiationUnknownOptionSendsNoReply()
         {
             var fake = FakeStreamOnce(new[] { 255, 250, 99, 1, 255, 240 });
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(fake, cts, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(fake, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored)).MustNotHaveHappened();
         }
@@ -370,8 +370,8 @@
             // Malformed subnegotiation (IS where SEND is expected) is ignored:
             // subnegotiation never synthesizes WONT, so nothing is written.
             var fake = FakeStreamOnce(new[] { 255, 250, 24, 0, 255, 240 });
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(fake, cts, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(fake, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             A.CallTo(() => fake.WriteAsync(A<byte[]>.Ignored, A<int>.Ignored, A<int>.Ignored, A<CancellationToken>.Ignored)).MustNotHaveHappened();
             A.CallTo(() => fake.WriteByteAsync(A<byte>.Ignored, A<CancellationToken>.Ignored)).MustNotHaveHappened();
@@ -385,8 +385,8 @@
             // Client to leak the handler (CA2000) as a workaround.
             var fake = A.Fake<IByteStream>();
             A.CallTo(() => fake.Connected).Returns(true);
-            using var cts = new CancellationTokenSource();
-            var sut = new ByteStreamHandler(fake, cts, 1);
+            using CancellationTokenSource cts = new();
+            ByteStreamHandler sut = new(fake, cts, 1);
             sut.Dispose();
             A.CallTo(() => fake.Dispose()).MustNotHaveHappened();
             await Task.CompletedTask;
@@ -396,8 +396,8 @@
         public async Task ReadSetsReceiveTimeout()
         {
             var fake = FakeStreamOnce(new[] { 65 });
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(fake, cts, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(fake, cts, 1);
             await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             A.CallToSet(() => fake.ReceiveTimeout).To(50).MustHaveHappened();
         }

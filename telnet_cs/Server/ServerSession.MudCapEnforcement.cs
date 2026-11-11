@@ -4,25 +4,13 @@ public partial class ServerSession
 {
     private DateTime mudCapLastLogUtc = DateTime.MinValue;
 
-    private int MudMaxItems()
-    {
-        return CappedSetting(static s => s.MaxMudListItems, 128);
-    }
+    private int MudMaxItems() => CappedSetting(static s => s.MaxMudListItems, 128);
 
-    private int MudMaxBytes()
-    {
-        return CappedSetting(static s => s.MaxMudListBytes, 256 * 1024);
-    }
+    private int MudMaxBytes() => CappedSetting(static s => s.MaxMudListBytes, 256 * 1024);
 
-    private int MudMaxKeys()
-    {
-        return CappedSetting(static s => s.MaxMudKeys, 128);
-    }
+    private int MudMaxKeys() => CappedSetting(static s => s.MaxMudKeys, 128);
 
-    private int MudMaxValueChars()
-    {
-        return CappedSetting(static s => s.MaxEnvironValueChars, 4096);
-    }
+    private int MudMaxValueChars() => CappedSetting(static s => s.MaxEnvironValueChars, 4096);
 
     private bool IsMudValueOverCap(int size)
     {
@@ -56,13 +44,26 @@ public partial class ServerSession
             return new Dictionary<string, object>(seq);
         }
 
-        var filtered = new Dictionary<string, object>();
+        Dictionary<string, object> filtered = [];
         bool dropped = false;
         foreach (var kv in seq)
         {
             if (kv.Value is string s && s.Length > maxValue)
             {
                 dropped = true;
+                continue;
+            }
+
+            if (kv.Value is List<string> items && items.Any(item => item.Length > maxValue))
+            {
+                dropped = true;
+                List<string> kept = [.. items.Where(item => item.Length <= maxValue)];
+                if (kept.Count is 0)
+                {
+                    continue;
+                }
+
+                filtered[kv.Key] = kept.Count is 1 ? kept[0] : kept;
                 continue;
             }
 
@@ -116,11 +117,7 @@ public partial class ServerSession
         int maxBytes = MudMaxBytes();
         if (maxBytes > 0)
         {
-            long total = 0;
-            foreach (var item in list)
-            {
-                total += sizeOf(item);
-            }
+            long total = list.Sum(item => (long)sizeOf(item));
 
             int dropped = 0;
             while (list.Count > 0 && total > maxBytes)

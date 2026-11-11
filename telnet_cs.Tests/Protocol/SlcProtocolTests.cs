@@ -18,9 +18,9 @@ namespace telnet_cs.Tests
     {
         private static async Task<(string Output, ScriptedStream Stream)> ReadConfiguredAsync(Action<ByteStreamHandler> configure, params int[] reads)
         {
-            var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             configure(sut);
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             return (output, stream);
@@ -36,7 +36,7 @@ namespace telnet_cs.Tests
             // Repro (server writer): _slc_process(0x03, SLC(0x81, 0x03))
             // (his=CANTCHANGE+ACK vs my=VARIABLE) -> _slc_buffer=[],
             // slctab[3] unchanged (mask 62, val 03).
-            var state = new LinemodeState();
+            LinemodeState state = new();
             state.ApplySlcAsServer(3, (byte)(1 | 128), 3).Should().BeNull();
             state.GetEntry(3).Should().Be(new SlcEntry(2, 3, 96));
         }
@@ -49,7 +49,7 @@ namespace telnet_cs.Tests
             // return); no client/server split in 3003-3055.
             // Repro (client writer): _slc_process(0x03, SLC(0x82, 0x04))
             // -> _slc_buffer=[], slctab[3].val stays 03.
-            var state = new LinemodeState();
+            LinemodeState state = new();
             state.ApplySlc(3, (byte)(2 | 128), 4).Should().BeNull();
             state.GetEntry(3).Value.Should().Be(3);
         }
@@ -62,7 +62,7 @@ namespace telnet_cs.Tests
             // theNULL -> set_value+set_mask, set ACK, _slc_add).
             // Repro: slctab[3]=(01,05), _slc_process(03,(02,07)) ->
             // buffer 03 82 07 (value 07 + ACK), stored val 07 mask 02.
-            var state = new LinemodeState();
+            LinemodeState state = new();
             state.SetEntry(3, 1, 5);
             var reply = state.ApplySlcAsServer(3, 2, 7);
             reply.Should().NotBeNull();
@@ -78,7 +78,7 @@ namespace telnet_cs.Tests
             // slc.py:185-190,200 (SLC_nosupport=(NOSUPPORT, 0xFF)).
             // Repro: _slc_process(0x1F,(00,00)) -> buffer 1F 00 FF
             // (modifier 00, value 255 = _POSIX_VDISABLE).
-            var state = new LinemodeState();
+            LinemodeState state = new();
             var reply = state.ApplySlcAsServer(31, 0, 0);
             reply.Should().NotBeNull();
             reply.GetValueOrDefault().Modifier.Should().Be(0);
@@ -92,7 +92,7 @@ namespace telnet_cs.Tests
             // -> SLC_nosupport()+ACK, _slc_add).
             // Repro: slctab[9]=(00,00), _slc_process(09,(00,7F)) ->
             // buffer 09 80 FF — 0xFF, peer 0x7F not echoed.
-            var state = new LinemodeState();
+            LinemodeState state = new();
             state.SetEntry(9, 0, 0);
             var reply = state.ApplySlcAsServer(9, 0, 0x7F);
             reply.Should().NotBeNull();
@@ -133,7 +133,7 @@ namespace telnet_cs.Tests
             // Repro: _slc_process(03, mask 02|20=0x22, val 03) ->
             // _slc_buffer=[], entry still (62,03) — ignored, not
             // stored/ACKed.
-            var state = new LinemodeState();
+            LinemodeState state = new();
             state.ApplySlcAsServer(3, (byte)(2 | 32), 3).Should().BeNull();
             state.GetEntry(3).Should().Be(new SlcEntry(2, 3, 96));
         }
@@ -147,7 +147,7 @@ namespace telnet_cs.Tests
             // (00,FF), and _slc_change:3094 adopts since FF != theNULL.
             // Repro: _slc_process(0x12=18,(02,0x41='A')) -> buffer
             // 12 82 41 (ACK, value 0x41).
-            var state = new LinemodeState();
+            LinemodeState state = new();
             var reply = state.ApplySlcAsServer(18, 2, 65);
             reply.Should().NotBeNull();
             (reply.GetValueOrDefault().Modifier & 128).Should().NotBe(0);
@@ -162,7 +162,7 @@ namespace telnet_cs.Tests
             // set_flag(ACK), _slc_add); slc.py:157-163 (full mask kept).
             // Repro: _slc_process(03,(02|10=0x12,05)) -> buffer 03 92 05
             // (0x92=02|10|80, 0x10 preserved).
-            var state = new LinemodeState();
+            LinemodeState state = new();
             var reply = state.ApplySlcAsServer(3, (byte)(2 | 0x10), 5);
             reply.Should().NotBeNull();
             (reply.GetValueOrDefault().Modifier & 0x10).Should().NotBe(0);
@@ -195,8 +195,8 @@ namespace telnet_cs.Tests
             // FF FA 22 01 01 FF F0 -> sent=FF FA 22 01 05 FF F0 (MODE+ACK),
             // no FF FA 22 03 (LMODE_SLC=3), _slc_sent=False. (Needs a
             // session: the publish path requires ApplyLinemodeAsServer.)
-            using var stream = new ScriptedStream(255, 251, 34, 255, 250, 34, 1, 1, 255, 240);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new(255, 251, 34, 255, 250, 34, 1, 1, 255, 240);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(300))).Should().BeEmpty();
             var outbound = stream.ByteWrites.SelectMany(w => w).ToArray();
             ContainsSubsequence(outbound, new byte[] { 255, 250, 34, 1 }).Should().BeTrue("the MODE+ACK reply proves the MODE was processed");

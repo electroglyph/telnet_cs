@@ -44,8 +44,8 @@ namespace telnet_cs.Tests
 
         private static byte[] ZlibCompress(string text)
         {
-            using var ms = new MemoryStream();
-            using (var zlib = new ZLibStream(ms, CompressionLevel.NoCompression, leaveOpen: true))
+            using MemoryStream ms = new();
+            using (ZLibStream zlib = new(ms, CompressionLevel.NoCompression, leaveOpen: true))
             {
                 zlib.Write(Encoding.ASCII.GetBytes(text));
             }
@@ -99,9 +99,9 @@ namespace telnet_cs.Tests
             // never FF FE 57. Observing DONT proves the verb is latched instead of
             // sided (MCCP3 -> WONT, MCCP2 -> DONT). This test is correct as fixed.
             var options = new TelnetServerOptions { EnableMccp = true };
-            using var stream = new ScriptedStream(
+            using ScriptedStream stream = new(
                 [255, 253, 87, 255, 250, 87, 255, 240, 0x78, 0x9C, 0xFF, 0xFF, 0xFF, 0xFF]);
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             await WaitForFrameAsync(session, stream, [255, 252, 87]);
             (_, byte[] writes) = await WaitForQuietAsync(session, stream);
             ContainsFrame(writes, new byte[] { 255, 252, 87 }).Should().BeTrue();
@@ -118,10 +118,10 @@ namespace telnet_cs.Tests
             // Proof: WILL 87 plus padded SB 87 00 plus zlib("HI") reads "HI";
             // plaintext would prove the arm was skipped.
             var options = new TelnetServerOptions { EnableMccp = true };
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             stream.Enqueue([255, 251, 87, 255, 250, 87, 0, 255, 240]);
             stream.Enqueue(ZlibCompress("HI").Select(b => (int)b).ToArray());
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             // The inflated text surfaces in whichever pass arms; pumping
             // to quiescence collects it without a fixed sleep. The budget
             // only bounds genuine hangs.
@@ -137,10 +137,10 @@ namespace telnet_cs.Tests
             // compression not opted in, WILL 86 is declined and the SB arms
             // nothing, so the following bytes stay plain data. The default
             // now accepts MCCP, so opt out explicitly for this shape.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             stream.Enqueue([255, 251, 86, 255, 250, 86, 0, 255, 240]);
             stream.Enqueue(ZlibCompress("HI").Select(b => (int)b).ToArray());
-            using var session = new ServerSession(stream, new TelnetServerOptions { EnableMccp = false }, CancellationToken.None);
+            using ServerSession session = new(stream, new TelnetServerOptions { EnableMccp = false }, CancellationToken.None);
             await WaitForFrameAsync(session, stream, [255, 254, 86]);
             (string text, byte[] writes) = await WaitForQuietAsync(session, stream);
             text.Should().NotBe("HI");
@@ -157,8 +157,8 @@ namespace telnet_cs.Tests
             // window where the pump's first pass answers WILL MCCP2 as
             // plaintext (DO) instead of refusing it (DONT).
             var options = new TelnetServerOptions { EnableMccp = true };
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, options, CancellationToken.None, isTls: true);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, options, CancellationToken.None, isTls: true);
             stream.Enqueue([255, 251, 86, 255, 250, 86, 0, 255, 240]);
             stream.Enqueue(ZlibCompress("HI").Select(b => (int)b).ToArray());
             await WaitForFrameAsync(session, stream, [255, 254, 86]);
@@ -173,10 +173,10 @@ namespace telnet_cs.Tests
             // No prior WILL/DO: the padded SB arms nothing even with
             // compression opted in, so the following bytes stay plain data.
             var options = new TelnetServerOptions { EnableMccp = true };
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             stream.Enqueue([255, 250, 86, 0, 255, 240]);
             stream.Enqueue(ZlibCompress("HI").Select(b => (int)b).ToArray());
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             (string text, _) = await WaitForQuietAsync(session, stream);
             text.Should().NotBe("HI");
         }

@@ -23,7 +23,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void TelnetServerOptions_HasDocumentedDefaults()
         {
-            var options = new TelnetServerOptions();
+            TelnetServerOptions options = new();
             options.Backlog.Should().Be(32);
             options.OfferEcho.Should().BeTrue();
             options.OfferSuppressGoAhead.Should().BeTrue();
@@ -51,14 +51,14 @@ namespace telnet_cs.Tests
         [Fact]
         public void Port_IsZeroBeforeStart()
         {
-            using var server = new TelnetServer(0);
+            using TelnetServer server = new(0);
             server.Port.Should().Be(0);
         }
 
         [Fact]
         public async Task AcceptSessionAsync_ReturnsConnectedSession()
         {
-            using var server = new TelnetServer(0);
+            using TelnetServer server = new(0);
             server.Start();
             server.Port.Should().BeInRange(1, 65535);
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
@@ -72,7 +72,7 @@ namespace telnet_cs.Tests
         {
             // Port of test_create_server: bind with an empty body and exit
             // cleanly — no accept required, port stays usable, dispose safe.
-            using var server = new TelnetServer(0);
+            using TelnetServer server = new(0);
             server.Start();
             server.Port.Should().BeInRange(1, 65535);
             server.Stop();
@@ -85,7 +85,7 @@ namespace telnet_cs.Tests
         {
             // Port of test_create_server_on_connect: the accept task (our
             // connection_made analogue) completes once the TCP connect lands.
-            using var server = new TelnetServer(0);
+            using TelnetServer server = new(0);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
@@ -102,7 +102,7 @@ namespace telnet_cs.Tests
             // Port of test_telnet_server_disconnect_by_client: the peer going
             // away reads as empty and drops IsConnected (no _closing split —
             // a single Close path).
-            using var server = new TelnetServer(0);
+            using TelnetServer server = new(0);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var raw = new System.Net.Sockets.TcpClient();
@@ -116,7 +116,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task AcceptSessionAsync_LoopbackListenAddress_Accepts()
         {
-            using var server = new TelnetServer(0, new TelnetServerOptions { ListenAddress = IPAddress.Loopback });
+            using TelnetServer server = new(0, new TelnetServerOptions { ListenAddress = IPAddress.Loopback });
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
@@ -133,7 +133,7 @@ namespace telnet_cs.Tests
                 return;
             }
 
-            using var server = new TelnetServer(0, new TelnetServerOptions { ListenAddress = IPAddress.IPv6Loopback });
+            using TelnetServer server = new(0, new TelnetServerOptions { ListenAddress = IPAddress.IPv6Loopback });
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var client = await Client.ConnectAsync("::1", server.Port);
@@ -151,7 +151,7 @@ namespace telnet_cs.Tests
             // confirms our offer, flipping our us-side to YES.
             // RequestTerminalTypesAsync is gated on WILL TTYPE, so pump both
             // ends until the client's WILL arrives before requesting.
-            using var server = new TelnetServer(0);
+            using TelnetServer server = new(0);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
@@ -194,7 +194,7 @@ namespace telnet_cs.Tests
             // Stop closes accepted sessions (reference Server.close closes
             // each transport): the session read ends empty and reports
             // disconnected instead of delivering further peer bytes.
-            using var server = new TelnetServer(0);
+            using TelnetServer server = new(0);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
@@ -208,7 +208,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task AcceptSessionAsync_AcceptsSequentialClients()
         {
-            using var server = new TelnetServer(0);
+            using TelnetServer server = new(0);
             server.Start();
             for (int i = 0; i < 2; i++)
             {
@@ -222,7 +222,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task AcceptSessionAsync_AfterDispose_Throws()
         {
-            var server = new TelnetServer(0);
+            TelnetServer server = new(0);
             server.Start();
             server.Dispose();
             Func<Task> act = () => server.AcceptSessionAsync(CancellationToken.None);
@@ -232,7 +232,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task LoginInterop_ManualScriptAgainstSessionAuth()
         {
-            using var server = new TelnetServer(0);
+            using TelnetServer server = new(0);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
@@ -256,7 +256,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task LoginInterop_WrongPassword_FailsBothSides()
         {
-            using var server = new TelnetServer(0);
+            using TelnetServer server = new(0);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
@@ -321,7 +321,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task AuthenticateAsync_AcceptsValidCredentials()
         {
-            using var server = new TelnetServer(0);
+            using TelnetServer server = new(0);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var raw = new System.Net.Sockets.TcpClient();
@@ -352,7 +352,7 @@ namespace telnet_cs.Tests
                 // values per attempt, not the guessing throttle.
                 LoginAttemptDelay = TimeSpan.Zero,
             };
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var raw = new System.Net.Sockets.TcpClient();
@@ -380,7 +380,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SynchInterop_ClientSendSynchArrivesOutOfBand()
         {
-            using var server = new TelnetServer(0);
+            using TelnetServer server = new(0);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
@@ -394,8 +394,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task ReceiveUrgentAsync_NonTcpStream_ThrowsNotSupported()
         {
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             Func<Task> receive = () => session.ReceiveUrgentAsync();
             await receive.Should().ThrowAsync<NotSupportedException>();
         }

@@ -17,9 +17,9 @@ namespace telnet_cs.Tests
     {
         private static async Task<(string Output, byte[] Writes)> ReadScriptedAsync(params int[] reads)
         {
-            using var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             return (output, stream.ByteWrites.SelectMany(w => w).ToArray());
         }
@@ -36,9 +36,9 @@ namespace telnet_cs.Tests
             // FF FA FF -> inband=b'' sent=b'' iac=True cmd=SB sb=b'';
             // then feed F0 41 -> inband=b'A' sent=b''. Total inband=b'A',
             // sent=b'' — the lone SE never becomes data.
-            using var stream = new ScriptedStream(255, 250, 255);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(255, 250, 255);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.Enqueue(240, 65);
             var second = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));

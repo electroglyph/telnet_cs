@@ -84,7 +84,7 @@ public sealed class InputFilter
 
     private readonly List<KeyValuePair<byte[], byte[]>> sequences;
     private readonly Dictionary<byte, byte> singleBytes;
-    private readonly List<byte> pending = new();
+    private readonly List<byte> pending = [];
 
     /// <summary>
     /// Initialises a new instance of the <see cref="InputFilter"/> class.
@@ -97,7 +97,7 @@ public sealed class InputFilter
       IReadOnlyDictionary<byte, byte>? singleBytes = null,
       TimeSpan? escapeDelay = null)
     {
-        this.sequences = sequences is null ? new List<KeyValuePair<byte[], byte[]>>() : new List<KeyValuePair<byte[], byte[]>>(sequences);
+        this.sequences = sequences is null ? [] : [.. sequences];
         foreach (var entry in this.sequences)
         {
             ArgumentNullException.ThrowIfNull(entry.Key);
@@ -112,8 +112,8 @@ public sealed class InputFilter
         // always prefers the full sequence.
         this.sequences.Sort(static (left, right) => right.Key.Length.CompareTo(left.Key.Length));
         this.singleBytes = singleBytes is null
-          ? new Dictionary<byte, byte>()
-          : new Dictionary<byte, byte>(singleBytes);
+          ? new()
+          : new(singleBytes);
         EscapeDelay = escapeDelay ?? DefaultEscapeDelay;
     }
 
@@ -167,12 +167,12 @@ public sealed class InputFilter
     /// <returns>The translated bytes.</returns>
     public byte[] Flush() => Drain(holdPartial: false);
 
-    private static IReadOnlyList<KeyValuePair<byte[], byte[]>> BuildSequences(params (byte[] From, byte[] To)[] entries)
+    private static IReadOnlyList<KeyValuePair<byte[], byte[]>> BuildSequences(params ReadOnlySpan<(byte[] From, byte[] To)> entries)
     {
-        var list = new List<KeyValuePair<byte[], byte[]>>(entries.Length);
+        List<KeyValuePair<byte[], byte[]>> list = [with(capacity: entries.Length)];
         foreach (var (from, to) in entries)
         {
-            list.Add(new KeyValuePair<byte[], byte[]>(from, to));
+            list.Add(new(from, to));
         }
 
         // Freeze the shared table so process-wide state cannot be
@@ -182,7 +182,7 @@ public sealed class InputFilter
 
     private byte[] Drain(bool holdPartial)
     {
-        var output = new List<byte>(pending.Count);
+        List<byte> output = [with(capacity: pending.Count)];
         int i = 0;
         while (i < pending.Count)
         {
@@ -221,12 +221,8 @@ public sealed class InputFilter
 
     private bool StartsWith(int offset, byte[] key)
     {
-        if (pending.Count - offset < key.Length)
-        {
-            return false;
-        }
-
-        return CollectionsMarshal.AsSpan(pending).Slice(offset, key.Length).SequenceEqual(key);
+        return pending.Count - offset >= key.Length
+            && CollectionsMarshal.AsSpan(pending).Slice(offset, key.Length).SequenceEqual(key);
     }
 
     private bool IsProperPrefix(int offset)

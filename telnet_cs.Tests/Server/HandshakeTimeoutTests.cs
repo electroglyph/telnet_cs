@@ -73,7 +73,7 @@ namespace telnet_cs.Tests
                 ServerCertificate = cert,
                 Log = log.Enqueue,
             };
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             static async Task StallOneAsync(int port)
@@ -105,9 +105,9 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task AcceptTcpAsync_CallerCancel_StaysCancelled()
         {
-            using var server = new TelnetServer(0);
+            using TelnetServer server = new(0);
             server.Start();
-            using var cts = new CancellationTokenSource();
+            using CancellationTokenSource cts = new();
             var accept = server.AcceptTcpAsync(cts.Token);
             cts.Cancel();
             Func<Task> act = () => accept;
@@ -125,7 +125,7 @@ namespace telnet_cs.Tests
                 LoginAttemptDelay = TimeSpan.Zero,
                 HandshakeTimeout = TimeSpan.FromMilliseconds(200),
             };
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
             using var peer = new TcpClient();
             await peer.ConnectAsync("127.0.0.1", server.Port);

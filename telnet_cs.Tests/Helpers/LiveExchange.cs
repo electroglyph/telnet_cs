@@ -31,7 +31,7 @@ namespace telnet_cs.Tests
         {
             var guard = GlobalStateGuard.SkipProactive(true);
             var (clientStream, serverStream) = InMemoryPipe.Create();
-            var session = new ServerSession(
+            ServerSession session = new(
                 serverStream, serverOptions ?? new TelnetServerOptions(), CancellationToken.None);
             var client = await Client.CreateAsync(clientStream, TimeSpan.FromSeconds(30), CancellationToken.None).ConfigureAwait(false);
             configureClient?.Invoke(client.Settings);
@@ -99,7 +99,7 @@ namespace telnet_cs.Tests
             TimeSpan budget,
             int stillSlices = 3)
         {
-            var text = new StringBuilder();
+            StringBuilder text = new();
             byte[] writes = [];
             int prevText = 0;
             int prevWrites = 0;

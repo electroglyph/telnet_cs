@@ -26,8 +26,8 @@ namespace telnet_cs.Tests
         [Fact]
         public void DummyServersGetDistinctLoopbackEphemeralPorts()
         {
-            using var first = new DummyTelnetServer();
-            using var second = new DummyTelnetServer();
+            using DummyTelnetServer first = new();
+            using DummyTelnetServer second = new();
             first.IPAddress.Should().Be(IPAddress.Loopback);
             second.IPAddress.Should().Be(IPAddress.Loopback);
             first.Port.Should().BeInRange(1, 65535);
@@ -36,9 +36,25 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public void TcpClient_NullHostname_ThrowsArgumentNullException()
+        {
+            Action act = () => new telnet_cs.Transport.TcpClient(null!, 23);
+            act.Should().Throw<ArgumentNullException>().WithParameterName("hostName");
+        }
+
+        [Theory]
+        [InlineData(-1)]
+        [InlineData(65536)]
+        public void TcpClient_OutOfRangePort_ThrowsArgumentOutOfRange(int port)
+        {
+            Action act = () => new telnet_cs.Transport.TcpClient("127.0.0.1", port);
+            act.Should().Throw<ArgumentOutOfRangeException>().WithParameterName("port");
+        }
+
+        [Fact]
         public void RealTcpClientExposesConnectionPropertiesAndPrompt()
         {
-            using var server = new DummyTelnetServer();
+            using DummyTelnetServer server = new();
             using var tcp = new telnet_cs.Transport.TcpClient(server.IPAddress.ToString(), server.Port);
             tcp.Connected.Should().BeTrue();
             tcp.ReceiveTimeout.Should().Be(0);
@@ -54,7 +70,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RealNetworkStreamWriteElicitsPasswordPrompt()
         {
-            using var server = new DummyTelnetServer();
+            using DummyTelnetServer server = new();
             using var tcp = new telnet_cs.Transport.TcpClient(server.IPAddress.ToString(), server.Port);
             tcp.ReceiveTimeout = 2000;
             using var stream = tcp.GetStream();
@@ -92,8 +108,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RealTcpByteStreamReadsPromptWritesLoginAndSetsTimeout()
         {
-            using var server = new DummyTelnetServer();
-            using var sut = new TcpByteStream(server.IPAddress.ToString(), server.Port);
+            using DummyTelnetServer server = new();
+            using TcpByteStream sut = new(server.IPAddress.ToString(), server.Port);
             sut.Connected.Should().BeTrue();
             sut.ReceiveTimeout = 500;
             sut.ReceiveTimeout.Should().Be(500);
@@ -110,7 +126,7 @@ namespace telnet_cs.Tests
             using var listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
             var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-            using var byteStream = new TcpByteStream("127.0.0.1", port);
+            using TcpByteStream byteStream = new("127.0.0.1", port);
             using Socket server = await listener.AcceptSocketAsync();
             using var sut = await Client.CreateAsync(byteStream, TimeSpan.FromSeconds(5), CancellationToken.None);
             await sut.SendSynchAsync();
@@ -138,9 +154,9 @@ namespace telnet_cs.Tests
             // second dial, which would sit unaccepted in the backlog).
             using var sysClient = new System.Net.Sockets.TcpClient { Client = accepted };
             using var tcp = new telnet_cs.Transport.TcpClient(sysClient);
-            using var byteStream = new TcpByteStream(tcp);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(byteStream, cts, 1);
+            using TcpByteStream byteStream = new(tcp);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(byteStream, cts, 1);
             _ = sender.Send(new byte[] { 242 }, SocketFlags.OutOfBand);
             await Task.Delay(300);
             _ = sender.Send(Encoding.ASCII.GetBytes("JUNK"));
@@ -160,7 +176,7 @@ namespace telnet_cs.Tests
                 using var listener = new TcpListener(IPAddress.Loopback, 0);
                 listener.Start();
                 var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-                using var byteStream = new TcpByteStream("127.0.0.1", port);
+                using TcpByteStream byteStream = new("127.0.0.1", port);
                 using Socket server = await listener.AcceptSocketAsync();
                 using var sut = await Client.CreateAsync(byteStream, TimeSpan.FromSeconds(5), CancellationToken.None);
                 _ = server.Send(new byte[] { 255, 253, 34 });

@@ -135,7 +135,7 @@ namespace telnet_cs.Tests
 
         private static TelnetServer StartTlsServer(X509Certificate2 cert)
         {
-            var server = new TelnetServer(0, new TelnetServerOptions { ServerCertificate = cert });
+            TelnetServer server = new(0, new TelnetServerOptions { ServerCertificate = cert });
             server.Start();
             return server;
         }
@@ -205,10 +205,10 @@ namespace telnet_cs.Tests
             {
                 ServerCertificate = cert,
             };
-            using var server = new TelnetServer(0, serverOptions);
+            using TelnetServer server = new(0, serverOptions);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
-            var recorder = new RecordingCallback();
+            RecordingCallback recorder = new();
             var clientOptions = TlsOptions(recorder);
             using var client = await Client.ConnectAsync(
                 "127.0.0.1", server.Port, clientOptions,
@@ -243,7 +243,7 @@ namespace telnet_cs.Tests
             using var cert = CreateSelfSignedCert();
             using var server = StartTlsServer(cert);
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
-            var recorder = new RecordingCallback();
+            RecordingCallback recorder = new();
             using var client = await Client.ConnectAsync(
                 "127.0.0.1", server.Port, TlsOptions(recorder),
                 CancellationToken.None, TimeSpan.FromSeconds(10));
@@ -287,7 +287,7 @@ namespace telnet_cs.Tests
             // Only the first byte matters to the peek: a ClientHello split
             // across segments (0x16 alone, then the rest) still upgrades.
             using var cert = CreateSelfSignedCert();
-            using var server = new TelnetServer(0, new TelnetServerOptions
+            using TelnetServer server = new(0, new TelnetServerOptions
             {
                 ServerCertificate = cert,
                 TlsAutoDetect = TimeSpan.FromSeconds(10),
@@ -332,7 +332,7 @@ namespace telnet_cs.Tests
             // The reference tls_auto both-clients shape: one server takes a
             // TLS client and then a plaintext client back to back.
             using var cert = CreateSelfSignedCert();
-            using var server = new TelnetServer(0, new TelnetServerOptions
+            using TelnetServer server = new(0, new TelnetServerOptions
             {
                 ServerCertificate = cert,
                 TlsAutoDetect = TimeSpan.FromSeconds(10),
@@ -342,7 +342,7 @@ namespace telnet_cs.Tests
             });
             server.Start();
             var firstAccept = server.AcceptSessionAsync(CancellationToken.None);
-            var recorder = new RecordingCallback();
+            RecordingCallback recorder = new();
             using var tlsClient = await Client.ConnectAsync(
                 "127.0.0.1", server.Port, TlsOptions(recorder),
                 CancellationToken.None, TimeSpan.FromSeconds(10));
@@ -391,7 +391,7 @@ namespace telnet_cs.Tests
             // through.) Bounded waits on both sides; failure surfacing follows
             // the existing loud paths (server AuthenticationException).
             using var cert = CreateSelfSignedCert();
-            using var server = new TelnetServer(0, new TelnetServerOptions
+            using TelnetServer server = new(0, new TelnetServerOptions
             {
                 ServerCertificate = cert,
                 TlsProtocols = SslProtocols.Tls13,
@@ -453,7 +453,7 @@ namespace telnet_cs.Tests
             using var cert = CreateSelfSignedCert();
             using var server = StartTlsServer(cert);
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
-            var recorder = new RecordingCallback();
+            RecordingCallback recorder = new();
             using var client = await Client.ConnectAsync(
                 "127.0.0.1", server.Port, TlsOptions(recorder),
                 CancellationToken.None, TimeSpan.FromSeconds(10));

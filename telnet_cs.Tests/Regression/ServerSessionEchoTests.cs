@@ -20,7 +20,7 @@ namespace telnet_cs.Tests
         private static ServerSession NewSession(ScriptedStream stream, TelnetServerOptions? options = null)
         {
             // Peer agreement for the collectors (state-only, no wire bytes).
-            var session = new ServerSession(stream, options ?? new TelnetServerOptions(), CancellationToken.None);
+            ServerSession session = new(stream, options ?? new TelnetServerOptions(), CancellationToken.None);
             session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
             session.Negotiation.ReceivedWill((int)Options.TerminalSpeed, agree: true);
             session.Negotiation.ReceivedWill((int)Options.XDisplay, agree: true);
@@ -67,8 +67,8 @@ namespace telnet_cs.Tests
         {
             // Bare session (no seeded peer WILLs): the confirmation read's
             // flush has no advanced preset to release, so the wire is echo-only.
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.SetEchoAsync(true, CancellationToken.None);
             OutboundBytes(stream).Should().Equal(255, 251, 1);
             session.Negotiation[(int)Options.Echo].Us.Should().Be(NegotiationState.SideState.WantYes);
@@ -86,8 +86,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SetEchoAsync_Unsuppress_AfterAgreedWill_SendsWontEcho()
         {
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.SetEchoAsync(true, CancellationToken.None);
             stream.Enqueue(255, 253, 1);
             (await session.ReadAsync(TimeSpan.FromSeconds(5), CancellationToken.None)).Should().BeEmpty();
@@ -102,8 +102,8 @@ namespace telnet_cs.Tests
         public async Task SetEchoAsync_WontFromNo_SendsNothing()
         {
             // A bare WONT from No is a Q-method no-op: no bytes, no state move.
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.SetEchoAsync(false, CancellationToken.None);
             OutboundBytes(stream).Should().BeEmpty();
             session.Negotiation[(int)Options.Echo].Us.Should().Be(NegotiationState.SideState.No);
@@ -112,8 +112,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SetEchoAsync_WontWhileWillOutstanding_QueuesAndDrainsOnDo()
         {
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.SetEchoAsync(true, CancellationToken.None);
             await session.SetEchoAsync(false, CancellationToken.None);
             // Queued behind the outstanding WILL: nothing further goes out yet.
@@ -129,8 +129,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SetEchoAsync_DoubleWill_SendsOnce()
         {
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.SetEchoAsync(true, CancellationToken.None);
             await session.SetEchoAsync(true, CancellationToken.None);
             OutboundBytes(stream).Should().Equal(255, 251, 1);
@@ -143,8 +143,8 @@ namespace telnet_cs.Tests
             // agree flag, so a manual WILL works with OfferEcho off and needs
             // no AllowRemoteEcho feed change (which would wrongly answer WONT).
             var options = new TelnetServerOptions { OfferEcho = false };
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, options, CancellationToken.None);
             await session.SetEchoAsync(true, CancellationToken.None);
             stream.Enqueue(255, 253, 1);
             (await session.ReadAsync(TimeSpan.FromSeconds(5), CancellationToken.None)).Should().BeEmpty();
@@ -156,14 +156,14 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task WriteWithEchoAsync_MaskedPrompt_FusesWillBeforePrompt()
         {
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             byte[] promptBytes = Encoding.UTF8.GetBytes("Password: ");
             byte[] expected = [255, 251, 1, .. promptBytes];
 
             // Bombard the session with concurrent broadcast writes while the
             // fused write goes out: the toggle + prompt must land as one unit.
-            using var cts = new CancellationTokenSource();
+            using CancellationTokenSource cts = new();
             Task[] writers = Enumerable.Range(0, 8).Select(_ => Task.Run(async () =>
             {
                 while (!cts.Token.IsCancellationRequested)
@@ -193,7 +193,7 @@ namespace telnet_cs.Tests
             // A game-driven WONT stands down the deferred auto-offer: later
             // TTYPE answers arm it, but no WILL ECHO goes out — for MUD and
             // non-MUD fingerprints alike.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             stream.Enqueue([.. TtypeIsFrame(term), .. TtypeIsFrame(term)]);
             using var session = NewSession(stream);
             await session.SetEchoAsync(false, CancellationToken.None);
@@ -206,7 +206,7 @@ namespace telnet_cs.Tests
         {
             // The deferred offer stays withheld for a MUD client, but an
             // explicit manual WILL still goes out (caller intent wins).
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             stream.Enqueue([.. TtypeIsFrame("Mudlet"), .. TtypeIsFrame("Mudlet")]);
             using var session = NewSession(stream);
             (await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5))).Should().Equal("Mudlet");
@@ -220,8 +220,8 @@ namespace telnet_cs.Tests
         public async Task SetEchoAsync_UnderDisableAllNegotiation_SendsNothing()
         {
             var options = new TelnetServerOptions { DisableAllNegotiation = true };
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, options, CancellationToken.None);
             await session.SetEchoAsync(true, CancellationToken.None);
             stream.ByteWrites.Should().BeEmpty();
             stream.SingleByteWrites.Should().BeEmpty();
@@ -233,8 +233,8 @@ namespace telnet_cs.Tests
         public async Task WriteWithEchoAsync_UnderDisableAllNegotiation_WritesPromptOnly()
         {
             var options = new TelnetServerOptions { DisableAllNegotiation = true };
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, options, CancellationToken.None);
             await session.WriteWithEchoAsync("hi", suppress: true, CancellationToken.None);
             OutboundBytes(stream).Should().Equal((byte)'h', (byte)'i');
             ContainsSubsequence(OutboundBytes(stream), [255, 251, 1]).Should().BeFalse();
@@ -248,8 +248,8 @@ namespace telnet_cs.Tests
             // Centralization pin: the public Request* entry points honor the
             // switch before the Q-machine is touched (no bytes, no state).
             var options = new TelnetServerOptions { DisableAllNegotiation = true };
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, options, CancellationToken.None);
             await session.RequestEnableAsync(Options.SuppressGoAhead, CancellationToken.None);
             await session.RequestDisableAsync(Options.SuppressGoAhead, CancellationToken.None);
             stream.ByteWrites.Should().BeEmpty();

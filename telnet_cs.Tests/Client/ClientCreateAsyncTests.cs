@@ -40,7 +40,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task CreateAsync_PreCancelledToken_ThrowsOperationCanceled()
         {
-            using var cts = new CancellationTokenSource();
+            using CancellationTokenSource cts = new();
             cts.Cancel();
             var fake = A.Fake<IByteStream>();
             A.CallTo(() => fake.Connected).Returns(false);

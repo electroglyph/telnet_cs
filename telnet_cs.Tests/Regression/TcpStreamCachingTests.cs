@@ -10,7 +10,7 @@
         [Fact]
         public void GetStreamReturnsCachedInstance()
         {
-            using var server = new DummyTelnetServer();
+            using DummyTelnetServer server = new();
             using var socket = new telnet_cs.Transport.TcpClient(server.IPAddress.ToString(), server.Port);
             socket.GetStream().Should().BeSameAs(socket.GetStream());
         }
@@ -20,7 +20,7 @@
         {
             var socket = A.Fake<ISocket>();
             A.CallTo(() => socket.GetStream()).Returns(A.Fake<INetworkStream>());
-            using var sut = new TcpByteStream(socket);
+            using TcpByteStream sut = new(socket);
             A.CallTo(() => socket.NoDelay).Returns(true);
             A.CallTo(() => socket.KeepAlive).Returns(true);
             A.CallTo(() => socket.SendTimeout).Returns(321);
@@ -42,7 +42,7 @@
             A.CallTo(() => socket.Connected).Returns(false);
             var stream = A.Fake<INetworkStream>();
             A.CallTo(() => socket.GetStream()).Returns(stream);
-            using var sut = new TcpByteStream(socket);
+            using TcpByteStream sut = new(socket);
             sut.ReadByte().Should().Be(-1);
             A.CallTo(() => stream.ReadByte()).MustNotHaveHappened();
         }

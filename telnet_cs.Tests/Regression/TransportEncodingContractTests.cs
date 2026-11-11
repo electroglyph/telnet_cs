@@ -39,7 +39,7 @@ namespace telnet_cs.Tests
             // char[] path must too (a CRLF pair is fully visible in one
             // call; only cross-chunk Encoder streaming needs extra state,
             // which AtasciiEncoder already carries).
-            var encoding = new AtasciiEncoding();
+            AtasciiEncoding encoding = new();
             var fromString = encoding.GetBytes("a\r\nb");
             var chars = new[] { 'a', '\r', '\n', 'b' };
             encoding.GetBytes(chars, 0, chars.Length).Should().Equal(fromString);
@@ -52,7 +52,7 @@ namespace telnet_cs.Tests
             // ArgumentException when the destination lacks capacity; the
             // direct-mapped store currently escapes as
             // IndexOutOfRangeException instead.
-            var encoding = new AtasciiEncoding();
+            AtasciiEncoding encoding = new();
             var chars = new[] { 'a', 'b' };
             Action write = () => encoding.GetBytes(chars, 0, chars.Length, new byte[1], 0);
             write.Should().Throw<ArgumentException>();

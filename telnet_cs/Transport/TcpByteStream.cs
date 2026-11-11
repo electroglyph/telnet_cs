@@ -208,6 +208,14 @@ public class TcpByteStream : IByteStream
     /// </returns>
     public Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(buffer);
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        ArgumentOutOfRangeException.ThrowIfNegative(count);
+        if (offset + count > buffer.Length)
+        {
+            throw new ArgumentException("Offset plus count exceeds the buffer length.", nameof(count));
+        }
+
         var result = Stream.WriteAsync(buffer, offset, count, cancellationToken);
         Debug.WriteLine($"SENT: {Encoding.UTF8.GetString(buffer, offset, count)}");
         return result;
@@ -233,10 +241,8 @@ public class TcpByteStream : IByteStream
     /// <param name="value">The urgent byte to send.</param>
     /// <param name="cancellationToken">The token to monitor for cancellation requests.</param>
     /// <returns>A task that represents the asynchronous send operation.</returns>
-    public Task SendUrgentAsync(byte value, CancellationToken cancellationToken)
-    {
-        return socket.SendUrgentAsync(value, cancellationToken);
-    }
+    public Task SendUrgentAsync(byte value, CancellationToken cancellationToken) =>
+        socket.SendUrgentAsync(value, cancellationToken);
 
     /// <summary>
     /// Receives a single byte with TCP urgent (out-of-band) semantics from
@@ -245,10 +251,8 @@ public class TcpByteStream : IByteStream
     /// </summary>
     /// <param name="cancellationToken">The token to monitor for cancellation requests.</param>
     /// <returns>The urgent byte received.</returns>
-    public Task<byte> ReceiveUrgentAsync(CancellationToken cancellationToken)
-    {
-        return socket.ReceiveUrgentAsync(cancellationToken);
-    }
+    public Task<byte> ReceiveUrgentAsync(CancellationToken cancellationToken) =>
+        socket.ReceiveUrgentAsync(cancellationToken);
 
     /// <summary>
     /// Non-blocking Synch trigger for the read loop: consumes one pending
@@ -259,11 +263,13 @@ public class TcpByteStream : IByteStream
     /// and never throws.
     /// </summary>
     /// <returns>The urgent byte, or null when none is pending.</returns>
-    public byte? TryConsumeUrgentSignal()
-    {
-        return (socket as TcpClient)?.TryConsumeUrgent()
-            ?? (socket as TlsSocket)?.TryConsumeUrgent();
-    }
+    public byte? TryConsumeUrgentSignal() =>
+        socket switch
+        {
+            TcpClient tcp => tcp.TryConsumeUrgent(),
+            TlsSocket tls => tls.TryConsumeUrgent(),
+            _ => null,
+        };
 
     /// <summary>
     /// Disposes the instance and requests that the underlying connection be closed.

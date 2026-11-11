@@ -43,8 +43,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SendOpeningPresetAsync_AllFlagsPlusSwitch_EmitsZeroBytes()
         {
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, AllFlagsPlusSwitch(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, AllFlagsPlusSwitch(), CancellationToken.None);
             await session.SendOpeningPresetAsync(CancellationToken.None);
             stream.ByteWrites.Should().BeEmpty();
             stream.SingleByteWrites.Should().BeEmpty();
@@ -54,8 +54,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task InboundWillTtype_WithSwitch_SendsNothingAndRecordsNothing()
         {
-            using var stream = new ScriptedStream(255, 251, 24);
-            using var session = new ServerSession(stream, AllFlagsPlusSwitch(), CancellationToken.None);
+            using ScriptedStream stream = new(255, 251, 24);
+            using ServerSession session = new(stream, AllFlagsPlusSwitch(), CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(200))).Should().BeEmpty();
             session.Negotiation.IsEnabledByPeer((int)Options.TerminalType).Should().BeFalse();
             session.ClientTerminalTypes.Should().BeEmpty();
@@ -69,7 +69,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 var (clientStream, serverStream) = DuplexPipe.Create();
-                using var session = new ServerSession(serverStream, AllFlagsPlusSwitch(), CancellationToken.None);
+                using ServerSession session = new(serverStream, AllFlagsPlusSwitch(), CancellationToken.None);
                 using var client = await Client.CreateAsync(clientStream, TimeSpan.FromSeconds(30), CancellationToken.None);
                 await session.SendOpeningPresetAsync(CancellationToken.None);
 

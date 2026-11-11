@@ -17,9 +17,9 @@
         public async Task Utf8TextEncodingDecodesMultibyteRead()
         {
             // "héllo" as UTF-8 bytes; the legacy path would return Latin-1 mojibake.
-            using var stream = new ScriptedStream(104, 195, 169, 108, 108, 111);
-            using var cts = new CancellationTokenSource();
-            using var handler = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(104, 195, 169, 108, 108, 111);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler handler = new(stream, cts, 1);
             handler.TextEncoding = Encoding.UTF8;
             var result = await handler.ReadAsync(TimeSpan.FromMilliseconds(100));
             result.Should().Be("h\u00E9llo");
@@ -29,9 +29,9 @@
         public async Task EtxArrivesAsData()
         {
             // Decided: control bytes are data, never caret notation.
-            using var stream = new ScriptedStream(3);
-            using var cts = new CancellationTokenSource();
-            using var handler = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(3);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler handler = new(stream, cts, 1);
             var result = await handler.ReadAsync(TimeSpan.FromMilliseconds(100));
             result.Should().Be("\x03");
         }
@@ -41,7 +41,7 @@
         {
             using (GlobalStateGuard.SkipProactive(false))
             {
-                using var stream = new DummyByteStream();
+                using DummyByteStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false);
                 var result = await client.TerminatedReadAsync(
                   new[] { new Regex("Nope>"), new Regex("Account") }, TimeSpan.FromSeconds(5), 1);
@@ -57,7 +57,7 @@
         {
             // Nothing can ever match: the wait runs out and throws
             // TimeoutException instead of returning the buffered text.
-            using var stream = new ScriptedStream("AB");
+            using ScriptedStream stream = new("AB");
             using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             Func<Task<string>> act = () => client.TerminatedReadAsync(
               new string[0], TimeSpan.FromMilliseconds(50), 1);
@@ -69,7 +69,7 @@
         {
             // Nothing can ever match: the wait runs out and throws
             // TimeoutException instead of returning the buffered text.
-            using var stream = new ScriptedStream("AB");
+            using ScriptedStream stream = new("AB");
             using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             Func<Task<string>> act = () => client.TerminatedReadAsync(
               new Regex[0], TimeSpan.FromMilliseconds(50), 1);
@@ -79,9 +79,9 @@
         [Fact]
         public async Task NawsAutoSizeHasRfc1073Shape()
         {
-            using var stream = new ScriptedStream(255, 253, 31);
-            using var cts = new CancellationTokenSource();
-            using var handler = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(255, 253, 31);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler handler = new(stream, cts, 1);
             (await handler.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
             stream.ByteWrites.Should().HaveCount(2);
             var naws = stream.ByteWrites[1];

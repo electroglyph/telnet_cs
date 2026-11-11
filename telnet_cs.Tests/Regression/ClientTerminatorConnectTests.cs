@@ -43,7 +43,7 @@
         [Fact]
         public void TerminatorMatchingIsOrdinal()
         {
-            using var script = new ScriptedStream();
+            using ScriptedStream script = new();
             using var probe = new ProbeClient(script);
             probe.Should().NotBeNull();
             ProbeClient.Locate("AB", "xxAByy").Should().BeTrue();
@@ -56,7 +56,7 @@
         [Fact]
         public async Task WriteAsyncNullStringThrows()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             Func<Task> act = () => client.WriteAsync((string)null!);
             (await act.Should().ThrowAsync<ArgumentNullException>())
@@ -66,7 +66,7 @@
         [Fact]
         public async Task NullTerminatorThrows()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             Func<Task> act = () => client.TerminatedReadAsync((string)null!, TimeSpan.FromMilliseconds(10));
             (await act.Should().ThrowAsync<ArgumentNullException>())
@@ -76,7 +76,7 @@
         [Fact]
         public async Task NullRegexThrows()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             Func<Task> act = () => client.TerminatedReadAsync((Regex)null!, TimeSpan.FromMilliseconds(10));
             (await act.Should().ThrowAsync<ArgumentNullException>())
@@ -86,7 +86,7 @@
         [Fact]
         public async Task NullTerminatorCollectionThrows()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             Func<Task> act = () => client.TerminatedReadAsync((IEnumerable<string>)null!, TimeSpan.FromMilliseconds(10));
             (await act.Should().ThrowAsync<ArgumentNullException>())
@@ -98,7 +98,7 @@
         {
             using (GlobalStateGuard.SkipProactive(false))
             {
-                using var stream = new DummyByteStream();
+                using DummyByteStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false);
                 var result = await client.TerminatedReadAsync(
                   new[] { "Nope>", "Account:" }, TimeSpan.FromSeconds(5), 1);
@@ -111,7 +111,7 @@
         {
             using (GlobalStateGuard.TerminalType("vt100"))
             {
-                using var stream = new ScriptedStream(255, 250, 24, 1, 255, 240);
+                using ScriptedStream stream = new(255, 250, 24, 1, 255, 240);
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.Settings.TerminalType = "xterm";
                 await client.ReadAsync(TimeSpan.FromMilliseconds(200));
@@ -128,7 +128,7 @@
             // Non-ASCII without agreed BINARY throws EncoderFallbackException
             // (reference: UnicodeEncodeError on strict ASCII); agreeing BINARY
             // first lets the configured encoding through pre-encoded.
-            using var stream = new ScriptedStream(255, 253, 0);
+            using ScriptedStream stream = new(255, 253, 0);
             using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             (await client.ReadAsync(TimeSpan.FromMilliseconds(200))).Should().BeEmpty();
             client.Settings.TextEncoding = Encoding.UTF8;
@@ -141,8 +141,8 @@
         [Fact]
         public async Task CancelledClientReadReturnsEmpty()
         {
-            using var stream = new ScriptedStream("AB");
-            using var cts = new CancellationTokenSource();
+            using ScriptedStream stream = new("AB");
+            using CancellationTokenSource cts = new();
             using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), cts.Token);
             cts.Cancel();
             (await client.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
@@ -151,7 +151,7 @@
         [Fact]
         public async Task ConcurrentReadsAreSerialised()
         {
-            using var stream = new ScriptedStream("AB");
+            using ScriptedStream stream = new("AB");
             using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             var first = client.ReadAsync(TimeSpan.FromMilliseconds(100));
             var second = client.ReadAsync(TimeSpan.FromMilliseconds(100));
@@ -187,7 +187,7 @@
         [Fact]
         public async Task ConnectAsyncConnectsToDummyServer()
         {
-            using var server = new DummyTelnetServer();
+            using DummyTelnetServer server = new();
             using var client = await Client.ConnectAsync(
               server.IPAddress.ToString(), server.Port, default, TimeSpan.FromSeconds(5));
             client.IsConnected.Should().BeTrue();

@@ -26,15 +26,15 @@ namespace telnet_cs.Tests
             TelnetServerOptions? serverOptions = null,
             Action<TelnetClientOptions>? configureClient = null)
         {
-            var logs = new List<string>();
+            List<string> logs = [];
             var guard = GlobalStateGuard.SkipProactive(true);
             var (clientStream, serverStream) = InMemoryPipe.Create();
-            var clientTap = new WireTap(clientStream);
-            var sessionTap = new WireTap(serverStream);
+            WireTap clientTap = new(clientStream);
+            WireTap sessionTap = new(serverStream);
             var options = serverOptions ?? new TelnetServerOptions();
             var prior = options.Log;
             options.Log = m => { lock (logs) { logs.Add(m); } prior?.Invoke(m); };
-            var session = new ServerSession(sessionTap, options, CancellationToken.None);
+            ServerSession session = new(sessionTap, options, CancellationToken.None);
             var client = await Client.CreateAsync(clientTap, TimeSpan.FromSeconds(30), CancellationToken.None);
             configureClient?.Invoke(client.Settings);
             return (client, session, clientTap, sessionTap, guard, logs);

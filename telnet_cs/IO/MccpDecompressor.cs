@@ -53,19 +53,46 @@ internal sealed partial class MccpDecompressor : IDisposable
 
     /// <summary>
     /// Gets or sets the outstanding decompressed byte cap (0 = unlimited).
+    /// Negative values throw <see cref="ArgumentOutOfRangeException"/>.
     /// </summary>
-    public int MaxDecompressedBytes { get; set; }
+    public int MaxDecompressedBytes
+    {
+        get;
+        set
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(value);
+            field = value;
+        }
+    }
 
     /// <summary>
     /// Gets or sets the max decompression ratio (0 = unlimited), enforced
     /// only past 64KiB decompressed / 1KiB compressed floors.
+    /// Negative values throw <see cref="ArgumentOutOfRangeException"/>.
     /// </summary>
-    public int MaxDecompressionRatio { get; set; }
+    public int MaxDecompressionRatio
+    {
+        get;
+        set
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(value);
+            field = value;
+        }
+    }
 
     /// <summary>
     /// Gets or sets the max compressed input cap (0 = unlimited).
+    /// Negative values throw <see cref="ArgumentOutOfRangeException"/>.
     /// </summary>
-    public int MaxCompressedBytes { get; set; }
+    public int MaxCompressedBytes
+    {
+        get;
+        set
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(value);
+            field = value;
+        }
+    }
 
     /// <summary>
     /// Gets or sets the cap log hook.
@@ -169,7 +196,7 @@ internal sealed partial class MccpDecompressor : IDisposable
     /// <returns>True when a byte was queued.</returns>
     public bool TryTakeReady(out byte value)
     {
-        if (ready.Count > 0)
+        if (ready.Count is > 0)
         {
             value = ready.Dequeue();
             return true;
@@ -186,7 +213,7 @@ internal sealed partial class MccpDecompressor : IDisposable
     /// <returns>True when a byte was queued.</returns>
     public bool TryTakeTrailing(out byte value)
     {
-        if (trailing.Count > 0)
+        if (trailing.Count is > 0)
         {
             value = trailing.Dequeue();
             if (MaxCompressedBytes <= 0 || trailing.Count < MaxCompressedBytes)
@@ -548,7 +575,7 @@ internal sealed partial class MccpDecompressor : IDisposable
         // past the footer, so only output identity proves the end.)
         try
         {
-            using var slice = new MemoryStream(input.GetBuffer(), 0, (int)consumed, writable: false);
+            using MemoryStream slice = new(input.GetBuffer(), 0, (int)consumed, writable: false);
             using var check = factory(slice);
             var expected = isGzip ? 0xFFFF_FFFFu : 1u;
             long total = 0;

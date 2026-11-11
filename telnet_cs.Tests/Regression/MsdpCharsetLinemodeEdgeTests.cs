@@ -103,6 +103,18 @@ namespace telnet_cs.Tests
         }
 
         [Fact]
+        public void BuildAccepted_NullOrEmpty_ThrowsArgumentException()
+        {
+            // A verb-only ACCEPTED frame names no charset (RFC 2066
+            // requires a name after the verb); fail fast instead of
+            // emitting the malformed frame.
+            Action nullAct = () => CharsetProtocol.BuildAccepted(null!);
+            nullAct.Should().Throw<ArgumentNullException>();
+            Action emptyAct = () => CharsetProtocol.BuildAccepted(string.Empty);
+            emptyAct.Should().Throw<ArgumentException>();
+        }
+
+        [Fact]
         public void ParseAccepted_NonAsciiName_ReturnsEmpty()
         {
             // Charset names are ASCII (RFC 2066 §2 accepts only a name
@@ -120,9 +132,9 @@ namespace telnet_cs.Tests
         {
             // Handler half: a non-ASCII ACCEPTED records no charset,
             // latches no binary decoding, and fires the rejection callback.
-            using var stream = new ScriptedStream([255, 250, 42, 2, 0x80, 255, 240]);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new([255, 250, 42, 2, 0x80, 255, 240]);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             bool rejected = false;
             sut.CharsetRejected += () => rejected = true;
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(200))).Should().BeEmpty();
@@ -136,8 +148,8 @@ namespace telnet_cs.Tests
         {
             // The reference suppresses DO FORWARDMASK without receipt
             // of WILL LINEMODE but still answers the SLC block itself.
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             stream.Enqueue(255, 250, 34, 3, 3, 2, 5, 255, 240);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             byte[] outbound = OutboundBytes(stream);
@@ -151,8 +163,8 @@ namespace telnet_cs.Tests
             // The reference stays in NVT line mode when
             // line_mode is set: no WILL SGA, but DO LINEMODE still goes out.
             var options = new TelnetServerOptions { RequestLinemode = true };
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, options, CancellationToken.None);
             await session.SendOpeningPresetAsync();
             stream.Enqueue(255, 251, 24);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
@@ -167,9 +179,9 @@ namespace telnet_cs.Tests
             // The reference _negotiate_echo returns early
             // when line_mode is set; deferred DO NEW_ENVIRON is unaffected.
             var options = new TelnetServerOptions { RequestLinemode = true };
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             stream.Enqueue([.. TtypeIsFrame("ANSI"), .. TtypeIsFrame("VT100"), .. TtypeIsFrame("VT100")]);
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             _ = session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
             (await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5))).Should().Equal("ANSI", "VT100");
             byte[] outbound = OutboundBytes(stream);
@@ -182,8 +194,8 @@ namespace telnet_cs.Tests
         {
             // The reference shell always closes its writer when the
             // loop ends; quit must not leave the session idling open.
-            using var stream = new ScriptedStream(Ascii("quit\n"));
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new(Ascii("quit\n"));
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             await ServerShells.RunReplAsync(session, CancellationToken.None);
             session.IsConnected.Should().BeFalse();
         }
@@ -204,7 +216,7 @@ namespace telnet_cs.Tests
             // The reference raises AttributeError for
             // DEFAULT on a function missing from its table; this stack
             // answers NOSUPPORT with the disable value.
-            var state = new LinemodeState();
+            LinemodeState state = new();
             var reply = state.ApplySlcAsServer(19, 3, 0);
             reply.Should().NotBeNull();
             (reply.GetValueOrDefault().Modifier & 3).Should().Be(0);
@@ -216,9 +228,9 @@ namespace telnet_cs.Tests
         {
             // The reference raises IndexError on a
             // verb-only REQUEST; this stack answers REJECTED.
-            using var stream = new ScriptedStream([255, 250, 42, 1, 255, 240]);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new([255, 250, 42, 1, 255, 240]);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(200))).Should().BeEmpty();
             ContainsSubsequence(OutboundBytes(stream), [255, 250, 42, 3, 255, 240]).Should().BeTrue();
         }
@@ -229,8 +241,8 @@ namespace telnet_cs.Tests
             // The reference shares mutable SLC value
             // objects process-wide, so one VARIABLE change corrupts every
             // session; per-instance struct tables stay isolated.
-            var first = new LinemodeState();
-            var second = new LinemodeState();
+            LinemodeState first = new();
+            LinemodeState second = new();
             var before = first.GetEntry(3);
             first.ApplySlcAsServer(3, 2, 7).Should().NotBeNull();
             second.GetEntry(3).Should().Be(before);
@@ -244,9 +256,9 @@ namespace telnet_cs.Tests
             // DONT for an already-refused WILL; this stack resends the
             // idempotent refusal every time (documented in
             // NegotiationState).
-            using var stream = new ScriptedStream([255, 251, 99, 255, 251, 99]);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new([255, 251, 99, 255, 251, 99]);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(200))).Should().BeEmpty();
             CountSubsequence(OutboundBytes(stream), [255, 254, 99]).Should().Be(2);
         }

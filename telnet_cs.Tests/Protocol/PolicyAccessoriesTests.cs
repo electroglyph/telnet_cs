@@ -148,9 +148,9 @@ namespace telnet_cs.Tests
         public async Task ReadPath_SyncTermSequence_SwitchesEncodingAndFiresHook()
         {
             string? detected = null;
-            using var stream = new ScriptedStream(27, 91, 48, 59, 51, 54, 32, 68);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(27, 91, 48, 59, 51, 54, 32, 68);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.SyncTermFontDetected += name => detected = name;
             await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             detected.Should().Be("atascii");
@@ -161,9 +161,9 @@ namespace telnet_cs.Tests
         public async Task ReadPath_SyncTermSequence_RespectsExplicitEncoding()
         {
             var fired = 0;
-            using var stream = new ScriptedStream(27, 91, 48, 59, 51, 54, 32, 68);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(27, 91, 48, 59, 51, 54, 32, 68);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.TextEncoding = Encoding.Latin1;
             sut.SyncTermFontDetected += _ => fired++;
             await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
@@ -178,9 +178,9 @@ namespace telnet_cs.Tests
             // configuration alone: peer font bytes stay inert data, fire no
             // hook, and latch nothing.
             var fired = 0;
-            using var stream = new ScriptedStream(27, 91, 48, 59, 51, 54, 32, 68);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1) { IsServerRole = true };
+            using ScriptedStream stream = new(27, 91, 48, 59, 51, 54, 32, 68);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1) { IsServerRole = true };
             sut.SyncTermFontDetected += _ => fired++;
             await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             fired.Should().Be(0);

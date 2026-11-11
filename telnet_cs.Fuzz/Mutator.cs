@@ -51,7 +51,7 @@ internal static class Mutator
 
         var files = Directory.GetFiles(dir, "*.bin");
         Array.Sort(files, StringComparer.Ordinal);
-        var loaded = new List<byte[]>();
+        List<byte[]> loaded = [];
         foreach (var file in files.Take(500))
         {
             byte[] bytes;
@@ -101,13 +101,13 @@ internal static class Mutator
     /// </summary>
     public static FuzzInput GenerateStorm(int seed, int iteration, int maxBytes)
     {
-        var random = new Random(unchecked(seed * 31 + iteration));
+        Random random = new(unchecked(seed * 31 + iteration));
         var length = maxBytes < 64
             ? maxBytes
             : random.Next(2) == 0
                 ? random.Next(64, maxBytes + 1)
                 : random.Next(1, 64);
-        var buf = new List<byte>();
+        List<byte> buf = [];
         while (buf.Count < length)
         {
             buf.AddRange(random.Next(10) switch
@@ -129,11 +129,11 @@ internal static class Mutator
     /// </summary>
     public static FuzzInput GenerateRepl(int seed, int iteration, int maxBytes)
     {
-        var random = new Random(unchecked(seed * 31 + iteration));
+        Random random = new(unchecked(seed * 31 + iteration));
         var length = random.Next(5) < 2
             ? random.Next(1, Math.Min(32, maxBytes) + 1)
             : random.Next(1, maxBytes + 1);
-        var buf = new List<byte>();
+        List<byte> buf = [];
         if (random.Next(3) == 0)
         {
             buf.AddRange(FillTargeted(random, Math.Min(64, maxBytes)));
@@ -166,7 +166,7 @@ internal static class Mutator
     /// </summary>
     public static FuzzInput Generate(int seed, int iteration, int maxBytes)
     {
-        var random = new Random(unchecked(seed * 31 + iteration));
+        Random random = new(unchecked(seed * 31 + iteration));
         // Tiny-biased lengths: most states are reachable in a few bytes, and
         // short inputs minimize faster. Two in five inputs stay at or under
         // 32 bytes; the rest span the full range.
@@ -300,7 +300,7 @@ internal static class Mutator
             plain[i] = random.Next(4) == 0 ? (byte)random.Next(256) : (byte)random.Next(32, 127);
         }
 
-        using var output = new System.IO.MemoryStream();
+        using System.IO.MemoryStream output = new();
         var header = random.Next(3);
         System.IO.Stream compressor = header switch
         {
@@ -330,7 +330,7 @@ internal static class Mutator
     /// </summary>
     private static byte[] FillMultibyte(Random random, int maxBytes)
     {
-        var buf = new List<byte>();
+        List<byte> buf = [];
         while (buf.Count < maxBytes)
         {
             switch (random.Next(8))
@@ -405,7 +405,7 @@ internal static class Mutator
         }
 
         var chunks = random.Next(2, Math.Min(9, length + 1));
-        var points = new SortedSet<int>();
+        SortedSet<int> points = [];
         while (points.Count < chunks - 1)
         {
             points.Add(random.Next(1, length));
@@ -427,7 +427,7 @@ internal static class Mutator
     {
         var external = s_external;
         ArgumentNullException.ThrowIfNull(external);
-        var buf = new List<byte>();
+        List<byte> buf = [];
         var picks = random.Next(1, 3);
         for (var p = 0; p < picks; p++)
         {
@@ -446,7 +446,7 @@ internal static class Mutator
     /// </summary>
     private static byte[] FillCorpus(Random random, int maxBytes)
     {
-        var segments = new List<byte[]>();
+        List<byte[]> segments = [];
         var picks = random.Next(1, 4);
         for (var p = 0; p < picks; p++)
         {
@@ -462,7 +462,7 @@ internal static class Mutator
             segments.Add([.. a[..random.Next(a.Length + 1)], .. b[random.Next(b.Length + 1)..]]);
         }
 
-        var buf = new List<byte>();
+        List<byte> buf = [];
         foreach (var segment in segments)
         {
             buf.AddRange(segment);
@@ -478,7 +478,7 @@ internal static class Mutator
     /// </summary>
     private static byte[] FillTargeted(Random random, int maxBytes)
     {
-        var buf = new List<byte>();
+        List<byte> buf = [];
         var frames = random.Next(1, 5);
         for (var f = 0; f < frames; f++)
         {
@@ -584,7 +584,7 @@ internal static class Mutator
 
     private static byte[] StormBurst(Random random, int count)
     {
-        var buf = new List<byte>();
+        List<byte> buf = [];
         for (var i = 0; i < count; i++)
         {
             buf.Add(Iac);
@@ -631,7 +631,7 @@ internal static class Mutator
     private static byte[] EnvironFrame(Random random)
     {
         byte option = random.Next(2) == 0 ? (byte)36 : (byte)39;
-        var body = new List<byte> { (byte)random.Next(0, 5) };
+        List<byte> body = [(byte)random.Next(0, 5)];
         string[] names = ["TERM", "LANG", "COLUMNS", "USER", "SYSTEMTYPE", "DISPLAY", "LINES", "TERMINAL-TYPE", "", "A B"];
         string[] values = ["xterm", "en_US.UTF-8", "80", "MTTS 137", "xterm-256color", ":0", "", "v\x1balue"];
         var entries = random.Next(0, 4);
@@ -685,7 +685,7 @@ internal static class Mutator
 
     private static byte[] SlcFrame(Random random)
     {
-        var body = new List<byte> { 3 };
+        List<byte> body = [3];
         var triplets = random.Next(0, 5);
         for (var i = 0; i < triplets; i++)
         {
@@ -736,7 +736,7 @@ internal static class Mutator
 
     private static byte[] MsdpFrame(Random random)
     {
-        var body = new List<byte>();
+        List<byte> body = [];
         var vars = random.Next(1, 4);
         for (var i = 0; i < vars; i++)
         {
@@ -757,7 +757,7 @@ internal static class Mutator
             return Ascii(atoms[random.Next(atoms.Length)]);
         }
 
-        var buf = new List<byte>();
+        List<byte> buf = [];
         if (random.Next(2) == 0)
         {
             buf.Add(3);
@@ -790,7 +790,7 @@ internal static class Mutator
 
     private static byte[] MsspFrame(Random random)
     {
-        var body = new List<byte>();
+        List<byte> body = [];
         var vars = random.Next(1, 5);
         for (var i = 0; i < vars; i++)
         {
@@ -814,7 +814,7 @@ internal static class Mutator
     private static byte[] ZmpFrame(Random random)
     {
         string[] commands = ["zmp.ident", "zmp.check", "zmp.ping", "", "no-nuls-here"];
-        var parts = new List<string> { commands[random.Next(commands.Length)] };
+        List<string> parts = [commands[random.Next(commands.Length)]];
         string[] argPool = ["mud", "1.0", "", "a b"];
         var args = random.Next(0, 4);
         for (var i = 0; i < args; i++)
@@ -896,12 +896,12 @@ internal static class Mutator
             };
         }
 
-        var body = new List<byte> { 0x01, 0x00, 0x00, 0x2A, 0x03, 0x03 };
+        List<byte> body = [0x01, 0x00, 0x00, 0x2A, 0x03, 0x03];
         var session = new byte[random.Next(0, 33)];
         random.NextBytes(session);
         body.AddRange(session);
         body.AddRange(RandomBytes(random, random.Next(0, 24)));
-        var record = new List<byte> { 0x16, 0x03, 0x01, 0x00, (byte)(body.Count % 256) };
+        List<byte> record = [0x16, 0x03, 0x01, 0x00, (byte)(body.Count % 256)];
         record.AddRange(body);
         if (random.Next(3) == 0 && record.Count > 2)
         {
@@ -920,7 +920,7 @@ internal static class Mutator
         var text = string.Concat(
             System.Linq.Enumerable.Range(0, random.Next(1, 5))
                 .Select(_ => words[random.Next(words.Length)] + ends[random.Next(ends.Length)]));
-        var buf = new List<byte>(Ascii(text));
+        List<byte> buf = [.. Ascii(text)];
         if (random.Next(4) == 0)
         {
             buf.InsertRange(random.Next(buf.Count + 1), [Iac, Iac]);

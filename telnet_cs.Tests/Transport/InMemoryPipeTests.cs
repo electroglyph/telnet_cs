@@ -43,8 +43,8 @@ namespace telnet_cs.Tests
             // Both ends are full IByteStream implementations: two live
             // sessions read and write across the public pair.
             var (clientStream, serverStream) = InMemoryPipe.Create();
-            using var writer = new ServerSession(serverStream, new TelnetServerOptions(), CancellationToken.None);
-            using var reader = new ServerSession(clientStream, new TelnetServerOptions(), CancellationToken.None);
+            using ServerSession writer = new(serverStream, new TelnetServerOptions(), CancellationToken.None);
+            using ServerSession reader = new(clientStream, new TelnetServerOptions(), CancellationToken.None);
             await writer.WriteAsync("hello", CancellationToken.None);
             (await reader.ReadAsync(TimeSpan.FromSeconds(5))).Should().Be("hello");
         }
@@ -59,7 +59,7 @@ namespace telnet_cs.Tests
             using (GlobalStateGuard.SkipProactive(true))
             {
                 var (clientStream, serverStream) = InMemoryPipe.Create();
-                using var session = new ServerSession(serverStream, new TelnetServerOptions(), CancellationToken.None);
+                using ServerSession session = new(serverStream, new TelnetServerOptions(), CancellationToken.None);
                 using var client = await Client.CreateAsync(clientStream, TimeSpan.FromSeconds(30), CancellationToken.None);
                 await session.SendOpeningPresetAsync(CancellationToken.None);
 

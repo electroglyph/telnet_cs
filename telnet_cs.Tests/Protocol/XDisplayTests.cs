@@ -23,9 +23,9 @@ namespace telnet_cs.Tests
         private static async Task<(string Output, ScriptedStream Stream)> ReadHandlerOnceAsync(
           Action<ByteStreamHandler> configure, params int[] reads)
         {
-            var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             configure(sut);
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             return (output, stream);
@@ -34,7 +34,7 @@ namespace telnet_cs.Tests
         private static ServerSession NewSession(ScriptedStream stream)
         {
             // Peer agreement for XDisplay + OldEnvironment collectors (state-only).
-            var s = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            ServerSession s = new(stream, new TelnetServerOptions(), CancellationToken.None);
             s.Negotiation.ReceivedWill((int)Options.XDisplay, agree: true);
             s.Negotiation.ReceivedWill((int)Options.OldEnvironment, agree: true);
             return s;
@@ -100,7 +100,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestXDisplayAsync_CollectsAnswer()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             stream.Enqueue([.. XDisplayIsFrame("sri-nic.arpa:0.0")]);
             using var session = NewSession(stream);
             var value = await session.RequestXDisplayAsync(TimeSpan.FromSeconds(5));
@@ -116,9 +116,9 @@ namespace telnet_cs.Tests
         {
             // A stray XDISPLAY IS is stored even with no request outstanding
             // (reference stores unsolicited answers); no WONT is synthesized.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             stream.Enqueue([.. XDisplayIsFrame("x:0")]);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientXDisplay.Should().Be("x:0");
             session.ClientEffectiveDisplay.Should().Be("x:0");
@@ -128,7 +128,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task EffectiveDisplay_XDisplayThenEnviron_PicksLastArrived()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             stream.Enqueue([.. XDisplayIsFrame("x:0")]);
             using var session = NewSession(stream);
             (await session.RequestXDisplayAsync(TimeSpan.FromSeconds(5))).Should().Be("x:0");
@@ -145,7 +145,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task EffectiveDisplay_EnvironThenXDisplay_PicksLastArrived()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             stream.Enqueue([255, 250, 36, 0,
         0, (byte)'D', (byte)'I', (byte)'S', (byte)'P', (byte)'L', (byte)'A', (byte)'Y', 1, (byte)'y', (byte)':', (byte)'0',
         255, 240]);
@@ -160,7 +160,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task EffectiveDisplay_SpontaneousInfo_UpdatesRecency()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             stream.Enqueue([.. XDisplayIsFrame("x:0")]);
             using var session = NewSession(stream);
             (await session.RequestXDisplayAsync(TimeSpan.FromSeconds(5))).Should().Be("x:0");

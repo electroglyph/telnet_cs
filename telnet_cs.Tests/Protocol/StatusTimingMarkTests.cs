@@ -14,9 +14,9 @@
         private static async Task<(string Output, ScriptedStream Stream)> ReadHandlerOnceAsync(
           Action<ByteStreamHandler> configure, params int[] reads)
         {
-            var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             configure(sut);
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             return (output, stream);
@@ -175,9 +175,9 @@
         [Fact]
         public async Task WillTimingMark_Solicited_PersistsAgreementWithoutReply()
         {
-            var stream = new ScriptedStream([255, 251, 6]);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            ScriptedStream stream = new([255, 251, 6]);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.Negotiation.RequestTimingMark().Should().Be(Commands.Do);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
@@ -187,9 +187,9 @@
         [Fact]
         public async Task WillTimingMark_WhileAgreedWithoutOutstanding_IgnoredSilently()
         {
-            var stream = new ScriptedStream([255, 251, 6]);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            ScriptedStream stream = new([255, 251, 6]);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.Negotiation.RequestTimingMark();
             sut.Negotiation.ReceivedWill((int)Options.TimingMark, agree: true);
             sut.Negotiation.IsEnabledByPeer((int)Options.TimingMark).Should().BeTrue();
@@ -201,9 +201,9 @@
         [Fact]
         public async Task WontTimingMark_Solicited_ClearsOutstandingWithoutReply()
         {
-            var stream = new ScriptedStream([255, 252, 6]);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            ScriptedStream stream = new([255, 252, 6]);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.Negotiation.RequestTimingMark().Should().Be(Commands.Do);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
@@ -225,7 +225,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 await client.SendTimingMarkAsync();
                 stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 253, 6 });
@@ -237,7 +237,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 await client.SendTimingMarkAsync();
                 await client.SendTimingMarkAsync();
@@ -250,7 +250,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 await client.SendTimingMarkAsync();
                 stream.Enqueue(255, 251, 6);
@@ -267,7 +267,7 @@
             // again instead of being suppressed as already-negotiated.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 await client.SendTimingMarkAsync();
                 stream.Enqueue(255, 251, 6);
@@ -285,7 +285,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 await client.SendTimingMarkAsync();
                 stream.Enqueue(255, 251, 6);
@@ -299,7 +299,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 await client.SendTimingMarkAsync();
                 stream.Enqueue(255, 253, 5, 255, 250, 5, 1, 255, 240);
@@ -316,7 +316,7 @@
         {
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(
                   stream,
                   TimeSpan.FromSeconds(30),
@@ -339,7 +339,7 @@
             // and the frame ends IAC SE.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 await client.RequestEnableAsync((Options)240);
                 stream.Enqueue(255, 253, 5, 255, 250, 5, 1, 255, 240);

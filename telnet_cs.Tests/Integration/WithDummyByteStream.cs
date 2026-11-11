@@ -15,7 +15,7 @@
         [Fact]
         public async Task Ctor_ConnectedStream_IsConnected()
         {
-            using (var stream = new DummyByteStream())
+            using (DummyByteStream stream = new())
             {
                 using (var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken()))
                 {
@@ -29,7 +29,7 @@
         {
             using (GlobalStateGuard.SkipProactive(false))
             {
-                using (var stream = new DummyByteStream())
+                using (DummyByteStream stream = new())
                 {
                     using (var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
                     {
@@ -46,7 +46,7 @@
         {
             using (GlobalStateGuard.SkipProactive(false))
             {
-                using (var stream = new DummyByteStream())
+                using (DummyByteStream stream = new())
                 {
                     using (var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
                     {
@@ -64,7 +64,7 @@
         {
             using (GlobalStateGuard.SkipProactive(false))
             {
-                using (var stream = new DummyByteStream())
+                using (DummyByteStream stream = new())
                 {
                     using (var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
                     {
@@ -83,7 +83,7 @@
         {
             using (GlobalStateGuard.SkipProactive(false))
             {
-                using (var stream = new DummyByteStream())
+                using (DummyByteStream stream = new())
                 {
                     using (var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
                     {
@@ -103,7 +103,7 @@
         {
             using (GlobalStateGuard.SkipProactive(false))
             {
-                using (var stream = new DummyByteStream())
+                using (DummyByteStream stream = new())
                 {
                     using (var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
                     {
@@ -130,7 +130,7 @@
         {
             using (GlobalStateGuard.SkipProactive(false))
             {
-                using (var stream = new DummyByteStream())
+                using (DummyByteStream stream = new())
                 {
                     using (var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
                     {
@@ -150,7 +150,7 @@
         {
             using (GlobalStateGuard.SkipProactive(false))
             {
-                using (var stream = new DummyByteStream())
+                using (DummyByteStream stream = new())
                 {
                     using (var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), [], skipProactiveNegotiation: false))
                     {

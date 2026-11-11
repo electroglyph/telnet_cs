@@ -21,9 +21,9 @@ namespace telnet_cs.Tests
     {
         private static async Task<(string Output, byte[] Writes)> ReadScriptedAsync(params int[] reads)
         {
-            using var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             return (output, stream.ByteWrites.SelectMany(w => w).ToArray());
         }
@@ -166,9 +166,9 @@ namespace telnet_cs.Tests
             // Proof: SEND-all must contain COLORTERM and "en_US.utf8" and must not
             // contain "utf-8"; any other spelling proves the divergence. This test is
             // correct.
-            using var stream = new ScriptedStream(255, 253, 39, 255, 250, 39, 1, 255, 240);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1) { TextEncoding = Encoding.UTF8 };
+            using ScriptedStream stream = new(255, 253, 39, 255, 250, 39, 1, 255, 240);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1) { TextEncoding = Encoding.UTF8 };
             await sut.ReadAsync(TimeSpan.FromMilliseconds(200));
             string reply = Encoding.ASCII.GetString(stream.ByteWrites.SelectMany(w => w).ToArray());
             reply.Should().Contain("COLORTERM");
@@ -205,8 +205,8 @@ namespace telnet_cs.Tests
             // Proof: [IS "xterm", IS ""] with a 3 s budget must return ["xterm"] in
             // well under 2 s; taking the full timeout proves the stop is missing. This
             // test is correct.
-            using var stream = new ScriptedStream([.. TtypeIsFrame("xterm"), .. TtypeIsFrame(string.Empty)]);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new([.. TtypeIsFrame("xterm"), .. TtypeIsFrame(string.Empty)]);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             _ = session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
             var sw = Stopwatch.StartNew();
             var result = await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(3));
@@ -231,8 +231,8 @@ namespace telnet_cs.Tests
             // FF FD 27 within 800 ms of a 3 s poll; absence proves the arming gap.
             // This test is correct, as is the known-then-empty sibling.
             var options = new TelnetServerOptions { RequestNewEnvironment = true };
-            using var stream = new ScriptedStream([.. TtypeIsFrame("ANSI"), .. TtypeIsFrame(string.Empty)]);
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ScriptedStream stream = new([.. TtypeIsFrame("ANSI"), .. TtypeIsFrame(string.Empty)]);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             _ = session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
             var task = session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(3));
             await Task.Delay(800);
@@ -247,8 +247,8 @@ namespace telnet_cs.Tests
             // Like the ANSI case, a known first answer followed by an
             // empty second answer releases DO NEW_ENVIRON immediately.
             var options = new TelnetServerOptions { RequestNewEnvironment = true };
-            using var stream = new ScriptedStream([.. TtypeIsFrame("xterm"), .. TtypeIsFrame(string.Empty)]);
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ScriptedStream stream = new([.. TtypeIsFrame("xterm"), .. TtypeIsFrame(string.Empty)]);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             _ = session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
             var task = session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(3));
             await Task.Delay(800);
@@ -271,8 +271,8 @@ namespace telnet_cs.Tests
             // Proof: SB TSPEED IS "1,2,3" must resolve to "1,2" via
             // RequestTerminalSpeedAsync; null proves the strictness gap. This test is
             // correct.
-            using var stream = new ScriptedStream(255, 250, 32, 0, 49, 44, 50, 44, 51, 255, 240);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new(255, 250, 32, 0, 49, 44, 50, 44, 51, 255, 240);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             _ = session.Negotiation.ReceivedWill((int)Options.TerminalSpeed, agree: true);
             (await session.RequestTerminalSpeedAsync(TimeSpan.FromSeconds(2))).Should().Be("1,2");
         }
@@ -290,8 +290,8 @@ namespace telnet_cs.Tests
             // Proof: after opening preset (WILL SGA) plus peer DO SGA, SendCommand(GA)
             // must emit no FF F9; observing it proves the missing send gate. This test
             // is correct.
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.SendOpeningPresetAsync(CancellationToken.None);
             stream.Enqueue(255, 253, 3);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
@@ -321,9 +321,9 @@ namespace telnet_cs.Tests
             // RFC 1073 carries no verb inside NAWS: a 5-byte IS-first
             // frame is not a size report, so it is ignored (no stored
             // size) instead of parsed.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             stream.Enqueue([255, 250, 31, 0, 0, 80, 0, 24, 255, 240]);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             session.ClientWindowSize.Should().BeNull();
         }
@@ -335,6 +335,20 @@ namespace telnet_cs.Tests
             // space separator; names with spaces pick ';'/','/'/'.
             CharsetProtocol.BuildRequest(["US-ASCII", "LATIN-1"])[1].Should().Be((byte)' ');
             CharsetProtocol.BuildRequest(["A B", "C"])[1].Should().NotBe((byte)' ');
+        }
+
+        [Fact]
+        public void CharsetSeparator_AllFallbacksCollide_PicksUnusedByte()
+        {
+            // Every documented separator appears in the offers: the
+            // sender must still pick an absent byte so the REQUEST
+            // round-trips instead of splitting on a colliding separator.
+            string[] offers = ["a b", "a;b", "a,b", "a/b"];
+            byte[] request = CharsetProtocol.BuildRequest(offers);
+            char separator = (char)request[1];
+            separator.Should().NotBe(' ');
+            offers.Should().OnlyContain(o => !o.Contains(separator));
+            CharsetProtocol.ParseRequest(request).Should().Equal(offers);
         }
 
         [Fact]

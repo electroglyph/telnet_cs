@@ -19,7 +19,7 @@ namespace telnet_cs.Tests
     {
         private static ServerSession NewSession(ScriptedStream stream, TelnetServerOptions? options = null)
         {
-            var s = new ServerSession(stream, options ?? new TelnetServerOptions(), CancellationToken.None);
+            ServerSession s = new(stream, options ?? new TelnetServerOptions(), CancellationToken.None);
             s.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
             s.Negotiation.ReceivedWill((int)Options.TerminalSpeed, agree: true);
             s.Negotiation.ReceivedWill((int)Options.XDisplay, agree: true);
@@ -78,7 +78,7 @@ namespace telnet_cs.Tests
         {
             var options = LowFrictionOptions();
             options.MaxConcurrentSessions = 1;
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             using var raw1 = new TcpClient();
@@ -100,7 +100,7 @@ namespace telnet_cs.Tests
             var options = LowFrictionOptions();
             options.MaxConcurrentSessions = 0;
             options.MaxConnectionsPerIp = 1;
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             using var raw1 = new TcpClient();
@@ -137,11 +137,11 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Start_HandshakeTimeout_IdleClient_SessionClosedWithNotice()
         {
-            var logs = new List<string>();
+            List<string> logs = [];
             var options = LowFrictionOptions();
             options.HandshakeTimeout = TimeSpan.FromMilliseconds(300);
             options.Log = m => { lock (logs) { logs.Add(m); } };
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             using var raw = new TcpClient();
@@ -179,7 +179,7 @@ namespace telnet_cs.Tests
                 LoginAttemptDelay = TimeSpan.Zero,
                 DisconnectOnExhaustion = true,
             };
-            using var stream = new ScriptedStream("bad\nwrong\n");
+            using ScriptedStream stream = new("bad\nwrong\n");
             using var session = NewSession(stream, options);
             (await session.AuthenticateAsync(
                 (u, p) => Task.FromResult(false), TimeSpan.FromSeconds(5))).Should().BeFalse();
@@ -190,14 +190,14 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Authenticate_Failure_LogsAuthExhaustedWithoutPassword()
         {
-            var logs = new List<string>();
+            List<string> logs = [];
             var options = new TelnetServerOptions
             {
                 MaxLoginAttempts = 1,
                 LoginAttemptDelay = TimeSpan.Zero,
                 Log = m => logs.Add(m),
             };
-            using var stream = new ScriptedStream("alice\ns3cret-pw\n");
+            using ScriptedStream stream = new("alice\ns3cret-pw\n");
             using var session = NewSession(stream, options);
             (await session.AuthenticateAsync(
                 (u, p) => Task.FromResult(false), TimeSpan.FromSeconds(5))).Should().BeFalse();
@@ -215,7 +215,7 @@ namespace telnet_cs.Tests
                 MaxLoginAttempts = 3,
                 LoginAttemptDelay = TimeSpan.FromSeconds(30),
             };
-            using var stream = new ScriptedStream("u\np\n");
+            using ScriptedStream stream = new("u\np\n");
             using var session = NewSession(stream, options);
             var start = Environment.TickCount64;
             var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => session.AuthenticateAsync(
@@ -228,13 +228,13 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Repl_LineTooLong_ClosesWithNotice()
         {
-            var logs = new List<string>();
+            List<string> logs = [];
             var options = new TelnetServerOptions
             {
                 MaxReplLineLength = 8,
                 Log = m => { lock (logs) { logs.Add(m); } },
             };
-            using var stream = new ScriptedStream("123456789\n");
+            using ScriptedStream stream = new("123456789\n");
             using var session = NewSession(stream, options);
             await ServerShells.RunReplAsync(session, CancellationToken.None);
             OutboundText(stream).Should().Contain("Line too long.");
@@ -248,13 +248,13 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Pump_BufferedTextOverCap_ClosesSession()
         {
-            var logs = new List<string>();
+            List<string> logs = [];
             var options = new TelnetServerOptions
             {
                 MaxBufferedTextChars = 16,
                 Log = m => { lock (logs) { logs.Add(m); } },
             };
-            using var stream = new ScriptedStream(new string('x', 64));
+            using ScriptedStream stream = new(new string('x', 64));
             using var session = NewSession(stream, options);
             for (int i = 0; i < 30 && stream.Connected; i++)
             {
@@ -271,7 +271,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestTerminalSpeed_OversizedAnswer_DroppedToNull()
         {
-            var logs = new List<string>();
+            List<string> logs = [];
             var options = new TelnetServerOptions
             {
                 MaxEnvironValueChars = 4,
@@ -280,7 +280,7 @@ namespace telnet_cs.Tests
             var response = new List<int> { 255, 250, 32, 0 };
             response.AddRange(Encoding.Latin1.GetBytes("1234567890").Select(b => (int)b));
             response.AddRange([255, 240]);
-            using var stream = new ScriptedStream([.. response]);
+            using ScriptedStream stream = new([.. response]);
             using var session = NewSession(stream, options);
             (await session.RequestTerminalSpeedAsync(TimeSpan.FromSeconds(2))).Should().BeNull();
             lock (logs)
@@ -293,7 +293,7 @@ namespace telnet_cs.Tests
         public void Start_NegativeMaxConcurrentSessions_Throws()
         {
             var options = new TelnetServerOptions { MaxConcurrentSessions = -1 };
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             Assert.Throws<ArgumentOutOfRangeException>(() => server.Start());
         }
 
@@ -301,14 +301,14 @@ namespace telnet_cs.Tests
         public void Start_ZeroMaxLoginAttempts_Throws()
         {
             var options = new TelnetServerOptions { MaxLoginAttempts = 0 };
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             Assert.Throws<ArgumentOutOfRangeException>(() => server.Start());
         }
 
         [Fact]
         public async Task AcceptSession_PresetDeadlineAlreadyBlown_ThrowsTimeoutWithHandshakeLog()
         {
-            var logs = new List<string>();
+            List<string> logs = [];
             var options = LowFrictionOptions();
             options.HandshakeTimeout = TimeSpan.FromMilliseconds(200);
             // A slow accept filter burns the whole handshake budget before
@@ -316,7 +316,7 @@ namespace telnet_cs.Tests
             // fails by deadline without sending a byte.
             options.AcceptFilter = _ => { Thread.Sleep(1000); return new AcceptDecision(true); };
             options.Log = m => { lock (logs) { logs.Add(m); } };
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             using var raw = new TcpClient();
@@ -333,7 +333,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Session_ZmpTinyArgsOverKeyCap_RefusedWithCapLog()
         {
-            var logs = new List<string>();
+            List<string> logs = [];
             var options = new TelnetServerOptions
             {
                 MaxMudKeys = 2,
@@ -347,7 +347,7 @@ namespace telnet_cs.Tests
             var reads = new List<int> { 255, 251, 93, 255, 250, 93 };
             reads.AddRange(Encoding.Latin1.GetBytes("c\0a\0b\0c\0").Select(b => (int)b));
             reads.AddRange([255, 240]);
-            using var stream = new ScriptedStream([.. reads]);
+            using ScriptedStream stream = new([.. reads]);
             using var session = NewSession(stream, options);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             session.ZmpData.Should().BeEmpty();
@@ -364,13 +364,13 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Repl_PipelinedOverflow_LogsStashedCount()
         {
-            var logs = new List<string>();
+            List<string> logs = [];
             var options = new TelnetServerOptions
             {
                 MaxReplLineLength = 8,
                 Log = m => { lock (logs) { logs.Add(m); } },
             };
-            using var stream = new ScriptedStream("ok\n" + new string('x', 20));
+            using ScriptedStream stream = new("ok\n" + new string('x', 20));
             using var session = NewSession(stream, options);
             await ServerShells.RunReplAsync(session, CancellationToken.None);
             OutboundText(stream).Should().Contain("Line too long.");
@@ -397,7 +397,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task PendingText_ConcurrentAppendAndDrain_ConservesEveryChar()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var harness = new PendingTextHarness(stream);
             const int writers = 4;
             const int perWriter = 500;

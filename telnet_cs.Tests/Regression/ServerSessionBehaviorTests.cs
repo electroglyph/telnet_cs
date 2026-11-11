@@ -17,7 +17,7 @@ namespace telnet_cs.Tests
 
         private static ServerSession NewSession(ScriptedStream stream)
         {
-            var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             _ = session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
             _ = session.Negotiation.ReceivedWill((int)Options.TerminalSpeed, agree: true);
             _ = session.Negotiation.ReceivedWill((int)Options.XDisplay, agree: true);
@@ -34,7 +34,7 @@ namespace telnet_cs.Tests
             // readuntil (which consumes through the separator): pipelined
             // "hi\nrest" must yield "hi\n", not swallow the next line into
             // this one (which would desync credential reads).
-            using var stream = new ScriptedStream("hi\nrest");
+            using ScriptedStream stream = new("hi\nrest");
             using var session = NewSession(stream);
             (await session.TerminatedReadAsync("\n", TimeSpan.FromSeconds(2))).Should().Be("hi\n");
         }
@@ -45,7 +45,7 @@ namespace telnet_cs.Tests
             // The tail past the terminator stays buffered for the next read —
             // but a tail with no terminator of its own still ends in
             // TimeoutException rather than a partial return.
-            using var stream = new ScriptedStream("hi\nrest");
+            using ScriptedStream stream = new("hi\nrest");
             using var session = NewSession(stream);
             (await session.TerminatedReadAsync("\n", TimeSpan.FromSeconds(2))).Should().Be("hi\n");
             Func<Task> act = () => session.TerminatedReadAsync("\n", TimeSpan.FromMilliseconds(200));
@@ -58,7 +58,7 @@ namespace telnet_cs.Tests
             // Accounting must cover every send path: the string path notes
             // the write on the session context, so the byte path must too,
             // or binary-heavy sessions undercount and look idle.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var session = NewSession(stream);
             await session.WriteAsync(new byte[] { 65, 66, 67 });
             session.Context.CharsSent.Should().BeGreaterThan(0);
@@ -72,7 +72,7 @@ namespace telnet_cs.Tests
             // variants are tracked separately, so the OLD wait still times
             // out empty — but the unsolicited NEW frame is now stored in
             // ClientNewEnvironment (reference delivers IS even unsolicited).
-            using var stream = new ScriptedStream(Iac, Sb, 39, 0, 0, 65, 1, 98, Iac, Se);
+            using ScriptedStream stream = new(Iac, Sb, 39, 0, 0, 65, 1, 98, Iac, Se);
             using var session = NewSession(stream);
             (await session.RequestEnvironmentAsync(TimeSpan.FromMilliseconds(400))).Should().BeEmpty();
             session.ClientNewEnvironment.Should().ContainSingle(kv => kv.Key == "A" && kv.Value == "b");
@@ -85,7 +85,7 @@ namespace telnet_cs.Tests
             // one of the character sets in the REQUEST" — an empty name
             // matches nothing and would poison later decoding, so the
             // outcome must be the rejection path (null), not "".
-            using var stream = new ScriptedStream(Iac, Sb, 42, 2, Iac, Se);
+            using ScriptedStream stream = new(Iac, Sb, 42, 2, Iac, Se);
             using var session = NewSession(stream);
             (await session.RequestCharsetAsync(TimeSpan.FromSeconds(2))).Should().BeNull();
             session.ClientCharset.Should().BeNull();
@@ -100,7 +100,7 @@ namespace telnet_cs.Tests
             // outstanding. Overlapping calls must therefore share the one
             // in-flight SEND; this does not forbid a retry after the first
             // request completes or times out.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var session = NewSession(stream);
             var first = session.RequestXDisplayAsync(TimeSpan.FromMilliseconds(500));
             await Task.Delay(100);
@@ -121,9 +121,9 @@ namespace telnet_cs.Tests
             // accepted sessions only. Live-follow would couple sessions
             // sharing one options instance and fight SetTimeout, so the
             // documented contract is pinned instead.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             var options = new TelnetServerOptions { IdleTimeout = TimeSpan.FromMinutes(7) };
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             session.Timeout.Should().Be(TimeSpan.FromMinutes(7));
             session.Timeout = TimeSpan.FromMinutes(9);
             session.Timeout.Should().Be(TimeSpan.FromMinutes(9));
@@ -138,7 +138,7 @@ namespace telnet_cs.Tests
             // listening stops rather than report a stale bound port.
             // Keeping this requires clearing in Stop/Dispose and re-setting
             // in Start, plus a doc line.
-            using var server = new TelnetServer(0);
+            using TelnetServer server = new(0);
             server.Start();
             server.Port.Should().BeGreaterThan(0);
             server.Stop();

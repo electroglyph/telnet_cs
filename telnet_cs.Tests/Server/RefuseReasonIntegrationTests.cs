@@ -74,7 +74,7 @@ namespace telnet_cs.Tests
             var options = LowFrictionOptions();
             options.AcceptFilter = _ => new AcceptDecision(false);
             options.Log = m => { lock (logs) { logs.Add(m); } };
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             using var raw = new TcpClient();
@@ -99,7 +99,7 @@ namespace telnet_cs.Tests
         {
             var options = LowFrictionOptions();
             options.AcceptFilter = _ => throw new InvalidOperationException("boom");
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             using var raw = new TcpClient();
@@ -118,7 +118,7 @@ namespace telnet_cs.Tests
         {
             var options = LowFrictionOptions();
             options.MaxConcurrentSessions = 1;
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             using var raw1 = new TcpClient();
@@ -145,7 +145,7 @@ namespace telnet_cs.Tests
             var options = LowFrictionOptions();
             options.MaxConcurrentSessions = 0;
             options.MaxConnectionsPerIp = 1;
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             using var raw1 = new TcpClient();
@@ -172,7 +172,7 @@ namespace telnet_cs.Tests
             var options = LowFrictionOptions();
             options.AcceptFilter = _ => new AcceptDecision(false, "banned-asn");
             options.Log = m => { lock (logs) { logs.Add(m); } };
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             using var raw = new TcpClient();
@@ -195,7 +195,7 @@ namespace telnet_cs.Tests
         {
             var options = LowFrictionOptions();
             options.AcceptFilter = _ => new AcceptDecision(true);
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             using var raw = new TcpClient();
@@ -213,7 +213,7 @@ namespace telnet_cs.Tests
             var options = LowFrictionOptions();
             options.AcceptFilter = _ => new AcceptDecision(false, string.Empty);
             options.Log = m => { lock (logs) { logs.Add(m); } };
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             using var raw = new TcpClient();
@@ -236,7 +236,7 @@ namespace telnet_cs.Tests
             var options = LowFrictionOptions();
             EndPoint? seen = null;
             options.AcceptFilter = endPoint => { seen = endPoint; return new AcceptDecision(true); };
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             using var raw = new TcpClient();
@@ -257,7 +257,7 @@ namespace telnet_cs.Tests
             var options = LowFrictionOptions();
             options.Log = m => { lock (logs) { logs.Add(m); } };
             options.StatusInterval = TimeSpan.FromMilliseconds(50);
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             using var raw = new TcpClient();

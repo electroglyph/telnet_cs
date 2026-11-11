@@ -87,7 +87,7 @@ public partial class ByteStreamHandler
     private void DispatchMud(int inputOption, byte[] body)
     {
         if (MaxMudListBytes > 0 && body.Length > MaxMudListBytes
-            && (inputOption == (int)Options.Gmcp || inputOption == (int)Options.Msdp))
+            && (inputOption == (int)Options.Gmcp || inputOption == (int)Options.Msdp || inputOption == (int)Options.Mssp))
         {
             WriteLog($"mud-cap: option={inputOption} len={body.Length} cap={MaxMudListBytes}");
             return;
@@ -123,18 +123,31 @@ public partial class ByteStreamHandler
                 if (MaxMudKeys > 0 && status.Count > MaxMudKeys)
                 {
                     WriteLog($"mud-cap: option=mssp vars={status.Count} cap={MaxMudKeys}");
-                    status = status.Take(MaxMudKeys).ToDictionary(kv => kv.Key, kv => kv.Value);
+                    status = status.Take(MaxMudKeys).ToDictionary(static kv => kv.Key, static kv => kv.Value);
                 }
 
                 if (MaxMudValueChars > 0)
                 {
                     bool dropped = false;
-                    var filtered = new Dictionary<string, object>(status.Count);
+                    Dictionary<string, object> filtered = [with(capacity: status.Count)];
                     foreach (var kv in status)
                     {
                         if (kv.Value is string s && s.Length > MaxMudValueChars)
                         {
                             dropped = true;
+                            continue;
+                        }
+
+                        if (kv.Value is List<string> items && items.Any(item => item.Length > MaxMudValueChars))
+                        {
+                            dropped = true;
+                            List<string> kept = [.. items.Where(item => item.Length <= MaxMudValueChars)];
+                            if (kept.Count is 0)
+                            {
+                                continue;
+                            }
+
+                            filtered[kv.Key] = kept.Count is 1 ? kept[0] : kept;
                             continue;
                         }
 
@@ -391,7 +404,7 @@ public partial class ByteStreamHandler
     {
         if (MccpStream is null || !MccpStream.IsActive)
         {
-            MccpStream = new MccpDecompressor();
+            MccpStream = new();
         }
 
         MccpStream.StrictZlib = IsServerRole && inputOption == (int)Options.Mccp3;

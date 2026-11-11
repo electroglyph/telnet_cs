@@ -51,7 +51,7 @@ public sealed class TlsSocket : ISocket
         ArgumentNullException.ThrowIfNull(options);
 
 #pragma warning disable CA2000 // Ownership of the stream transfers to the TlsSocket on success; the catch releases it otherwise.
-        var ssl = new SslStream(inner.RawStream, leaveInnerStreamOpen: false);
+        SslStream ssl = new(inner.RawStream, leaveInnerStreamOpen: false);
         try
         {
             await ssl.AuthenticateAsClientAsync(options, cancellationToken).ConfigureAwait(false);
@@ -83,7 +83,7 @@ public sealed class TlsSocket : ISocket
         ArgumentNullException.ThrowIfNull(options);
 
 #pragma warning disable CA2000 // Ownership of the stream transfers to the TlsSocket on success; the catch releases it otherwise.
-        var ssl = new SslStream(inner.RawStream, leaveInnerStreamOpen: false);
+        SslStream ssl = new(inner.RawStream, leaveInnerStreamOpen: false);
         try
         {
             await ssl.AuthenticateAsServerAsync(options, cancellationToken).ConfigureAwait(false);
@@ -109,10 +109,7 @@ public sealed class TlsSocket : ISocket
     /// gate would never attempt the read that observes it.
     /// </summary>
     /// <returns><c>true</c> when the peer has definitely closed.</returns>
-    internal bool PeerGone()
-    {
-        return inner.PeerGone();
-    }
+    internal bool PeerGone() => inner.PeerGone();
 
     /// <inheritdoc/>
     /// <remarks>
@@ -157,11 +154,7 @@ public sealed class TlsSocket : ISocket
     /// stages decrypted bytes in a visible queue (see its remarks).
     /// </summary>
     /// <returns>Stream socket connected to, over TLS.</returns>
-    public INetworkStream GetStream()
-    {
-        bufferedStream ??= new BufferedStream(ssl);
-        return bufferedStream;
-    }
+    public INetworkStream GetStream() => bufferedStream ??= new(ssl);
 
     /// <summary>
     /// Sends a single byte with TCP urgent (out-of-band) semantics on the
@@ -172,16 +165,12 @@ public sealed class TlsSocket : ISocket
     /// <param name="value">The urgent byte to send.</param>
     /// <param name="cancellationToken">The token to monitor for cancellation requests.</param>
     /// <returns>A task that represents the asynchronous send operation.</returns>
-    public Task SendUrgentAsync(byte value, CancellationToken cancellationToken)
-    {
-        return inner.SendUrgentAsync(value, cancellationToken);
-    }
+    public Task SendUrgentAsync(byte value, CancellationToken cancellationToken) =>
+        inner.SendUrgentAsync(value, cancellationToken);
 
     /// <inheritdoc/>
-    public Task<byte> ReceiveUrgentAsync(CancellationToken cancellationToken)
-    {
-        return inner.ReceiveUrgentAsync(cancellationToken);
-    }
+    public Task<byte> ReceiveUrgentAsync(CancellationToken cancellationToken) =>
+        inner.ReceiveUrgentAsync(cancellationToken);
 
     /// <summary>
     /// Poll-gated urgent probe mirroring <see cref="TcpClient.TryConsumeUrgent"/>:
@@ -189,10 +178,7 @@ public sealed class TlsSocket : ISocket
     /// auto-discard trigger stays alive over TLS.
     /// </summary>
     /// <returns>The urgent byte, or null when none is pending.</returns>
-    public byte? TryConsumeUrgent()
-    {
-        return inner.TryConsumeUrgent();
-    }
+    public byte? TryConsumeUrgent() => inner.TryConsumeUrgent();
 
     /// <inheritdoc/>
     public void Close()
@@ -246,16 +232,10 @@ public sealed class TlsSocket : ISocket
     /// multiples of the drain size can block up to the receive timeout, the
     /// same bound as any dry read.
     /// </remarks>
-    private sealed class BufferedStream : INetworkStream
+    private sealed class BufferedStream(SslStream ssl) : INetworkStream
     {
         private const int DrainSize = 32768;
-        private readonly SslStream ssl;
-        private readonly Queue<byte> queued = new();
-
-        internal BufferedStream(SslStream ssl)
-        {
-            this.ssl = ssl;
-        }
+        private readonly Queue<byte> queued = [];
 
         internal int BufferedCount => queued.Count;
 
@@ -272,7 +252,7 @@ public sealed class TlsSocket : ISocket
         /// <inheritdoc/>
         public Task WriteByteAsync(byte value, CancellationToken cancellationToken)
         {
-            return ssl.WriteAsync(new byte[] { value }, 0, 1, cancellationToken);
+            return ssl.WriteAsync([value], 0, 1, cancellationToken);
         }
 
         /// <inheritdoc/>

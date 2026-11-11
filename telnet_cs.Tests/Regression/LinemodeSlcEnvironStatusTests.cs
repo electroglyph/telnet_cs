@@ -29,9 +29,9 @@ namespace telnet_cs.Tests
         private static async Task<(string Output, ScriptedStream Stream)> ReadHandlerOnceAsync(
           Action<ByteStreamHandler> configure, params int[] reads)
         {
-            var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             configure(sut);
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             return (output, stream);
@@ -44,7 +44,7 @@ namespace telnet_cs.Tests
 
         private static ServerSession NewSession(ScriptedStream stream, TelnetServerOptions? options = null)
         {
-            var session = new ServerSession(stream, options ?? new TelnetServerOptions(), CancellationToken.None);
+            ServerSession session = new(stream, options ?? new TelnetServerOptions(), CancellationToken.None);
             _ = session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
             _ = session.Negotiation.ReceivedWill((int)Options.TerminalSpeed, agree: true);
             _ = session.Negotiation.ReceivedWill((int)Options.XDisplay, agree: true);
@@ -132,7 +132,7 @@ namespace telnet_cs.Tests
             // first); ~/telnetlib3/telnetlib3/stream_writer.py unpacks rx first
             // instead (self-consistent but inverted). Decided: this library
             // keeps the RFC order, so asymmetric rates round-trip positionally.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             stream.Enqueue([255, 250, 32, 0, .. L("9600,4800"), 255, 240]);
             using var session = NewSession(stream);
             var speed = await session.RequestTerminalSpeedAsync(TimeSpan.FromSeconds(5));
@@ -162,7 +162,7 @@ namespace telnet_cs.Tests
             // below mirrors the pinned OLD-path frame, only the option differs.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 39);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -192,7 +192,7 @@ namespace telnet_cs.Tests
             // superset shape.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 36);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -274,7 +274,7 @@ namespace telnet_cs.Tests
             // proceed to MODE.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 34);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -293,7 +293,7 @@ namespace telnet_cs.Tests
             // special characters. Cs-shaped expectation: the configured-rows
             // export (PublishSpecialCharactersAsync semantics), here the BSD
             // defaults with the one row set above overridden.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var session = NewSession(stream);
             session.SetLinemodeEntry(3, 2, 5);
             await AgreeLinemodeAsync(session, stream);
@@ -316,7 +316,7 @@ namespace telnet_cs.Tests
             // Source of truth: ~/telnetlib3/telnetlib3/stream_writer.py calls
             // request_forwardmask after every server-side SLC block; a
             // manual-only forwardmask leaves character-mode servers without one.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var session = NewSession(stream);
             await AgreeLinemodeAsync(session, stream);
             stream.Enqueue(255, 250, 34, 3, 3, 2, 5, 255, 240);
@@ -370,9 +370,9 @@ namespace telnet_cs.Tests
             // Source of truth: ~/telnetlib3/telnetlib3/stream_reader.py keeps
             // a persistent incremental decoder, so a Big5 pair split across
             // segments buffers the lead instead of emitting art immediately.
-            using var stream = new ScriptedStream(0xA4);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(0xA4);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.TextEncoding = new Big5BbsEncoding();
             var first = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             stream.Enqueue(0xA4);
@@ -386,9 +386,9 @@ namespace telnet_cs.Tests
             // Source of truth: ~/telnetlib3/telnetlib3/client_base.py sets
             // force_binary on a SyncTERM font switch; without the latch the
             // new 8-bit font still decodes under 7-bit gating.
-            using var stream = new ScriptedStream(27, 91, 48, 59, 51, 54, 32, 68);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(27, 91, 48, 59, 51, 54, 32, 68);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             sut.TextEncoding.Should().BeOfType<AtasciiEncoding>();
             sut.ForceBinaryDecoding.Should().BeTrue();
@@ -404,8 +404,8 @@ namespace telnet_cs.Tests
             // inflate when the peer offers) — the opening is DO TTYPE only.
             // Bypass NewSession helper (which pre-enables peer WILLs and would
             // suppress the DO): the preset must be observed from a fresh state.
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions { EnableMccp = true }, CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions { EnableMccp = true }, CancellationToken.None);
             await session.SendOpeningPresetAsync();
             var outbound = OutboundBytes(stream);
             outbound.Should().Equal(255, 253, 24);

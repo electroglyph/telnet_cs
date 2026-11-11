@@ -54,7 +54,7 @@ namespace telnet_cs.Tests
             using (endA)
             using (endB)
             {
-                using var cts = new CancellationTokenSource();
+                using CancellationTokenSource cts = new();
                 cts.Cancel();
                 Action act = () => endA.WaitForData(TimeSpan.FromSeconds(5), cts.Token);
                 act.Should().Throw<OperationCanceledException>();

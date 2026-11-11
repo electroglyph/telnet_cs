@@ -55,7 +55,7 @@ public partial class Client
         Settings = options with
         {
             TerminalTypes = [.. options.TerminalTypes],
-            EnvironmentUserVars = new Dictionary<string, string>(options.EnvironmentUserVars, StringComparer.Ordinal),
+            EnvironmentUserVars = new(options.EnvironmentUserVars, StringComparer.Ordinal),
             CharsetOffers = [.. options.CharsetOffers],
             ZmpSupportedCommands = [.. options.ZmpSupportedCommands],
             TlsClientCertificates = options.TlsClientCertificates is null ? null : new X509CertificateCollection(options.TlsClientCertificates),

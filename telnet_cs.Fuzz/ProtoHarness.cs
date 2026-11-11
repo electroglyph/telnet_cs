@@ -13,8 +13,8 @@ using telnet_cs.Protocol;
 /// byte/string converter) with fuzz-derived shapes. None of these allocate
 /// sessions or touch the wire, so this is the cheapest harness per
 /// iteration. Oracle: no throw, except the documented caller-error paths
-/// consumed inline (blank codec names, unrepresentable characters under a
-/// strict fallback, out-of-range SLC rows).
+/// consumed inline (blank codec names, empty ACCEPTED names,
+/// unrepresentable characters under a strict fallback, out-of-range SLC rows).
 /// </summary>
 internal static class ProtoHarness
 {
@@ -63,7 +63,7 @@ internal static class ProtoHarness
 
     private static long DriveCharset(byte[] bytes, CancellationToken cancellationToken)
     {
-        var offers = new List<string>();
+        List<string> offers = [];
         var count = bytes.Length == 0 ? 0 : bytes[0] % 4;
         for (var i = 0; i < count; i++)
         {
@@ -73,7 +73,15 @@ internal static class ProtoHarness
         _ = CharsetProtocol.BuildRequest(offers);
         _ = CharsetProtocol.ParseRequest(bytes);
         var name = FuzzText.Latin1(bytes, 24);
-        _ = CharsetProtocol.BuildAccepted(name);
+        try
+        {
+            // Empty names are caller error (documented validation).
+            _ = CharsetProtocol.BuildAccepted(name);
+        }
+        catch (ArgumentException)
+        {
+        }
+
         _ = CharsetProtocol.ParseAccepted(bytes);
         cancellationToken.ThrowIfCancellationRequested();
         _ = CharsetProtocol.SelectSupported(offers);
@@ -87,7 +95,7 @@ internal static class ProtoHarness
     private static long DriveEnvironment(byte[] bytes, CancellationToken cancellationToken)
     {
         string? field = bytes.Length > 0 && bytes[0] % 2 == 0 ? FuzzText.Latin1(bytes, 24) : null;
-        var userVars = new Dictionary<string, string>(StringComparer.Ordinal);
+        Dictionary<string, string> userVars = new(StringComparer.Ordinal);
         if (bytes.Length > 1 && bytes[1] % 2 == 0)
         {
             userVars["U"] = FuzzText.Latin1(bytes, 16);
@@ -139,7 +147,7 @@ internal static class ProtoHarness
         _ = TelnetAccessories.EncodingFromLang(FuzzText.Latin1(bytes, 32));
         _ = TelnetAccessories.EncodingFromLang(null);
         _ = TelnetAccessories.Hexdump(bytes, FuzzText.Latin1(bytes, 8));
-        var types = new List<string> { FuzzText.Latin1(bytes, 12) };
+        List<string> types = [FuzzText.Latin1(bytes, 12)];
         if (bytes.Length > 0 && bytes[0] % 2 == 0)
         {
             types.Add(FuzzText.Latin1(bytes, 4, bytes.Length, 12));

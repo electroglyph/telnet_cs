@@ -29,7 +29,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SendGaAsync_WithoutSga_SendsGaAndReturnsTrue()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var session = NewSession(stream);
             (await session.SendGaAsync()).Should().BeTrue();
             stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 249 });
@@ -38,7 +38,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SendGaAsync_WithSgaAgreed_SendsNothingAndReturnsFalse()
         {
-            using var stream = new ScriptedStream(255, 253, 3);
+            using ScriptedStream stream = new(255, 253, 3);
             using var session = NewSession(stream);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
             (await session.SendGaAsync()).Should().BeFalse();
@@ -56,7 +56,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task ClientSendGaAsync_WithoutSga_SendsGa()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), CancellationToken.None);
             (await client.SendGaAsync()).Should().BeTrue();
             // The constructor proactively offers SGA, so the GA pair joins it.
@@ -66,7 +66,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task WaitForOptionEnabledAsync_PeerWillArrives_ReturnsTrue()
         {
-            using var stream = new ScriptedStream(255, 251, 24);
+            using ScriptedStream stream = new(255, 251, 24);
             using var session = NewSession(stream);
             (await session.WaitForOptionEnabledAsync(Options.TerminalType, local: false, TimeSpan.FromSeconds(5))).Should().BeTrue();
         }
@@ -77,7 +77,7 @@ namespace telnet_cs.Tests
             // Port of test_wait_for_immediate_return: once the peer's WILL
             // is processed, the waiter is already satisfied (a short deadline
             // proves no further wire wait is needed).
-            using var stream = new ScriptedStream(255, 251, 24);
+            using ScriptedStream stream = new(255, 251, 24);
             using var session = NewSession(stream);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
             (await session.WaitForOptionEnabledAsync(Options.TerminalType, local: false, TimeSpan.FromMilliseconds(50))).Should().BeTrue();
@@ -88,7 +88,7 @@ namespace telnet_cs.Tests
         {
             // Port of test_wait_for_remote_option (delayed half): the waiter
             // observes a remotely-granted option set outside the wire pump.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var session = NewSession(stream);
             session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
             (await session.WaitForOptionEnabledAsync(Options.TerminalType, local: false, TimeSpan.FromSeconds(5))).Should().BeTrue();
@@ -99,7 +99,7 @@ namespace telnet_cs.Tests
         {
             // Port of test_wait_for_local_option: our preset WILL SGA plus
             // the peer's DO SGA enables our side.
-            using var stream = new ScriptedStream(255, 253, 3);
+            using ScriptedStream stream = new(255, 253, 3);
             using var session = NewSession(stream);
             await session.SendOpeningPresetAsync();
             (await session.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
@@ -111,7 +111,7 @@ namespace telnet_cs.Tests
         {
             // Port of test_wait_for_condition_waits: the predicate form of
             // the remote-option wait.
-            using var stream = new ScriptedStream(255, 251, 24);
+            using ScriptedStream stream = new(255, 251, 24);
             using var session = NewSession(stream);
             (await session.WaitForNegotiationAsync(
                 n => n.IsEnabledByPeer((int)Options.TerminalType),
@@ -123,7 +123,7 @@ namespace telnet_cs.Tests
         {
             // Port of test_wait_for_combined_conditions: one waiter observes
             // two peer grants before succeeding.
-            using var stream = new ScriptedStream(255, 251, 24, 255, 251, 32);
+            using ScriptedStream stream = new(255, 251, 24, 255, 251, 32);
             using var session = NewSession(stream);
             (await session.WaitForNegotiationAsync(
                 n => n.IsEnabledByPeer((int)Options.TerminalType) &&
@@ -137,7 +137,7 @@ namespace telnet_cs.Tests
             // Polling contract: text pumped while waiting is restored to
             // PendingText in arrival order, so the next read sees it first.
             var reads = Encoding.ASCII.GetBytes("hello").Select(b => (int)b).Concat([255, 251, 24]).ToArray();
-            using var stream = new ScriptedStream(reads);
+            using ScriptedStream stream = new(reads);
             using var session = NewSession(stream);
             (await session.WaitForOptionEnabledAsync(Options.TerminalType, local: false, TimeSpan.FromSeconds(5))).Should().BeTrue();
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("hello");
@@ -148,7 +148,7 @@ namespace telnet_cs.Tests
         {
             // Port of test_wait_for_invalid_option (KeyError): an
             // out-of-range option fails validation instead of waiting.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var session = NewSession(stream);
             Func<Task> act = () => session.WaitForOptionEnabledAsync((Options)999, local: false, TimeSpan.FromMilliseconds(100));
             await act.Should().ThrowAsync<ArgumentOutOfRangeException>();
@@ -159,7 +159,7 @@ namespace telnet_cs.Tests
         {
             // The waiter signals a missed deadline with TimeoutException so a
             // silent false cannot be mistaken for a satisfied condition.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var session = NewSession(stream);
             Func<Task> act = () => session.WaitForNegotiationAsync(_ => false, TimeSpan.FromMilliseconds(100));
             await act.Should().ThrowAsync<TimeoutException>();
@@ -168,7 +168,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task WaitForNegotiationAsync_AlreadyTrue_ReturnsWithoutReads()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var session = NewSession(stream);
             (await session.WaitForNegotiationAsync(_ => true, TimeSpan.FromSeconds(5))).Should().BeTrue();
             stream.ByteWrites.Should().BeEmpty();
@@ -179,9 +179,9 @@ namespace telnet_cs.Tests
         {
             // A cancelled wait surfaces OperationCanceledException from the
             // caller's token rather than masking the cancel as a timeout.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var session = NewSession(stream);
-            using var cts = new CancellationTokenSource();
+            using CancellationTokenSource cts = new();
             cts.Cancel();
             Func<Task> act = () => session.WaitForNegotiationAsync(_ => false, TimeSpan.FromSeconds(5), cts.Token);
             await act.Should().ThrowAsync<OperationCanceledException>();
@@ -190,7 +190,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Context_TracksReadsAndWrites()
         {
-            using var stream = new ScriptedStream(104, 105);
+            using ScriptedStream stream = new(104, 105);
             using var session = NewSession(stream);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("hi");
             await session.WriteAsync("yo");
@@ -207,9 +207,9 @@ namespace telnet_cs.Tests
         {
             // The typescript records text read from the peer only; writes are
             // counted but never written to the transcript.
-            using var stream = new ScriptedStream(105, 110);
+            using ScriptedStream stream = new(105, 110);
             using var session = NewSession(stream);
-            var tape = new StringWriter();
+            StringWriter tape = new();
             session.Context.Typescript = tape;
             await session.WriteAsync("out");
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("in");
@@ -219,9 +219,9 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task IdleTimeout_ClosesQuietSessionWithNotice()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             var options = new TelnetServerOptions { IdleTimeout = TimeSpan.FromMilliseconds(150) };
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             bool closed = false;
             for (int i = 0; i < 60 && !closed; i++)
             {
@@ -238,18 +238,18 @@ namespace telnet_cs.Tests
         [Fact]
         public void Timeout_DefaultsToIdleTimeout()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             var options = new TelnetServerOptions { IdleTimeout = TimeSpan.FromMilliseconds(150) };
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             session.Timeout.Should().Be(TimeSpan.FromMilliseconds(150));
         }
 
         [Fact]
         public async Task SetTimeout_Shorter_ClosesQuietSessionWithNotice()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             var options = new TelnetServerOptions { IdleTimeout = Timeout.InfiniteTimeSpan };
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             session.Timeout = TimeSpan.FromMilliseconds(150);
             session.Timeout.Should().Be(TimeSpan.FromMilliseconds(150));
             bool closed = false;
@@ -268,9 +268,9 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SetTimeout_Infinite_DisablesPendingTimeout()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             var options = new TelnetServerOptions { IdleTimeout = TimeSpan.FromMilliseconds(150) };
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             session.Timeout = Timeout.InfiniteTimeSpan;
             await Task.Delay(300);
             session.IsConnected.Should().BeTrue();
@@ -281,9 +281,9 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task IdleTimeout_Infinite_NeverFires()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             var options = new TelnetServerOptions { IdleTimeout = Timeout.InfiniteTimeSpan };
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             await Task.Delay(150);
             session.IsConnected.Should().BeTrue();
             session.IsIdleTimedOut.Should().BeFalse();
@@ -304,7 +304,7 @@ namespace telnet_cs.Tests
                     }
                 },
             };
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
             using var session = await server.AcceptSessionAsync(CancellationToken.None);
@@ -340,7 +340,7 @@ namespace telnet_cs.Tests
                 ServerCertificate = cert,
                 TlsAutoDetect = TimeSpan.FromSeconds(2),
             };
-            using var server = new TelnetServer(0, serverOptions);
+            using TelnetServer server = new(0, serverOptions);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
@@ -358,7 +358,7 @@ namespace telnet_cs.Tests
                 ServerCertificate = cert,
                 TlsAutoDetect = TimeSpan.FromSeconds(5),
             };
-            using var server = new TelnetServer(0, serverOptions);
+            using TelnetServer server = new(0, serverOptions);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             var clientOptions = new TelnetClientOptions
@@ -377,7 +377,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task TlsAutoDetect_DisabledWithoutCert_StaysPlaintext()
         {
-            using var server = new TelnetServer(0, new TelnetServerOptions { TlsAutoDetect = TimeSpan.FromSeconds(1) });
+            using TelnetServer server = new(0, new TelnetServerOptions { TlsAutoDetect = TimeSpan.FromSeconds(1) });
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
@@ -397,7 +397,7 @@ namespace telnet_cs.Tests
                 ServerCertificate = cert,
                 TlsAutoDetect = TimeSpan.FromMilliseconds(300),
             };
-            using var server = new TelnetServer(0, serverOptions);
+            using TelnetServer server = new(0, serverOptions);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             // A skip-proactive client sends nothing on connect, so the peek
@@ -415,7 +415,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Context_Properties_Bag_RoundTrips_And_Duration_Grows()
         {
-            using var server = new TelnetServer(0, new TelnetServerOptions());
+            using TelnetServer server = new(0, new TelnetServerOptions());
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
@@ -433,7 +433,7 @@ namespace telnet_cs.Tests
         {
             // Reference idle/duration window: right after traffic both the
             // idle gap and the total connected span are sub-second.
-            using var server = new TelnetServer(0, new TelnetServerOptions());
+            using TelnetServer server = new(0, new TelnetServerOptions());
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);
@@ -449,7 +449,7 @@ namespace telnet_cs.Tests
             // The reference wait_for(remote={OPT: True}) dict form: our
             // WaitForOptionEnabledAsync(option, local: false) is the same
             // predicate (remote direction = peer enables).
-            using var server = new TelnetServer(0, new TelnetServerOptions());
+            using TelnetServer server = new(0, new TelnetServerOptions());
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var client = await Client.ConnectAsync("127.0.0.1", server.Port);

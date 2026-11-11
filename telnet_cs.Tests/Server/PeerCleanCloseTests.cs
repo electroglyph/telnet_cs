@@ -26,7 +26,7 @@ namespace telnet_cs.Tests
                 HandshakeTimeout = Timeout.InfiniteTimeSpan,
             };
             var (peer, wire) = InMemoryPipe.Create();
-            using var session = new ServerSession(wire, options, CancellationToken.None);
+            using ServerSession session = new(wire, options, CancellationToken.None);
 
             // Clean close with nothing in flight: the duplex peer will
             // never send again, exactly like a socket after FIN.
@@ -46,7 +46,7 @@ namespace telnet_cs.Tests
             {
                 HandshakeTimeout = Timeout.InfiniteTimeSpan,
             };
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var client = new System.Net.Sockets.TcpClient();
@@ -102,7 +102,7 @@ namespace telnet_cs.Tests
                 // close_notify may end the session (no timeout before it).
                 HandshakeTimeout = Timeout.InfiniteTimeSpan,
             };
-            using var server = new TelnetServer(0, serverOptions);
+            using TelnetServer server = new(0, serverOptions);
             server.Start();
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
             using var tls = new System.Net.Sockets.TcpClient();
@@ -161,7 +161,7 @@ namespace telnet_cs.Tests
                 HandshakeTimeout = Timeout.InfiniteTimeSpan,
             };
             var (peer, wire) = InMemoryPipe.Create();
-            using var session = new ServerSession(wire, options, CancellationToken.None);
+            using ServerSession session = new(wire, options, CancellationToken.None);
             byte[] payload = [0x68, 0x65, 0x6C, 0x6C, 0x6F, 0x0D, 0x0A];
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             await peer.WriteAsync(payload, 0, payload.Length, cts.Token);
@@ -179,7 +179,7 @@ namespace telnet_cs.Tests
                 HandshakeTimeout = Timeout.InfiniteTimeSpan,
             };
             var (peer, wire) = InMemoryPipe.Create();
-            using var session = new ServerSession(wire, options, CancellationToken.None);
+            using ServerSession session = new(wire, options, CancellationToken.None);
             byte[] payload = System.Text.Encoding.UTF8.GetBytes("hello\n");
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             await peer.WriteAsync(payload, 0, payload.Length, cts.Token);
@@ -197,7 +197,7 @@ namespace telnet_cs.Tests
                 HandshakeTimeout = Timeout.InfiniteTimeSpan,
             };
             var (peer, wire) = InMemoryPipe.Create();
-            using var session = new ServerSession(wire, options, CancellationToken.None);
+            using ServerSession session = new(wire, options, CancellationToken.None);
             byte[] payload = System.Text.Encoding.UTF8.GetBytes("A\r\nB");
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             await peer.WriteAsync(payload, 0, payload.Length, cts.Token);
@@ -215,7 +215,7 @@ namespace telnet_cs.Tests
                 HandshakeTimeout = Timeout.InfiniteTimeSpan,
             };
             var (peer, wire) = InMemoryPipe.Create();
-            using var session = new ServerSession(wire, options, CancellationToken.None);
+            using ServerSession session = new(wire, options, CancellationToken.None);
             byte[] payload = [0x41, 0x0D, 0x00];
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             await peer.WriteAsync(payload, 0, payload.Length, cts.Token);
@@ -233,7 +233,7 @@ namespace telnet_cs.Tests
                 HandshakeTimeout = Timeout.InfiniteTimeSpan,
             };
             var (peer, wire) = InMemoryPipe.Create();
-            using var session = new ServerSession(wire, options, CancellationToken.None);
+            using ServerSession session = new(wire, options, CancellationToken.None);
             byte[] payload = System.Text.Encoding.UTF8.GetBytes("A\r");
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             await peer.WriteAsync(payload, 0, payload.Length, cts.Token);

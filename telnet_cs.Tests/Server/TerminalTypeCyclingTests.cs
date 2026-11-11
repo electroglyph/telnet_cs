@@ -20,7 +20,7 @@ namespace telnet_cs.Tests
         private static ServerSession NewSession(ScriptedStream stream, TelnetServerOptions? options = null)
         {
             // Peer agreement for TTYPE collection (state-only).
-            var s = new ServerSession(stream, options ?? new TelnetServerOptions(), CancellationToken.None);
+            ServerSession s = new(stream, options ?? new TelnetServerOptions(), CancellationToken.None);
             s.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
             return s;
         }
@@ -75,7 +75,7 @@ namespace telnet_cs.Tests
             // driven): WILL TTYPE -> FF FA 18 01 FF F0; IS vt100 ->
             // FF FA 18 01 FF F0 (ttype1=vt100); IS xterm -> FF FA 18 01 FF
             // F0 (ttype2=xterm). 3 SENDs total, >=2 after answers.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             stream.Enqueue([.. TtypeIsFrame("vt100"), .. TtypeIsFrame("xterm")]);
             using var session = NewSession(stream);
             await session.RequestTerminalTypesAsync(TimeSpan.FromMilliseconds(300));
@@ -98,7 +98,7 @@ namespace telnet_cs.Tests
             // SB+TTYPE=None): feed FF FA 18 00 "vt100" FF F0 -> TERM=vt100,
             // ttype1=vt100, outbound empty (no SEND since request_ttype
             // needs remote_option[TTYPE], but the value is stored).
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             stream.Enqueue(TtypeIsFrame("vt100"));
             using var session = NewSession(stream);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(300))).Should().BeEmpty();
@@ -115,7 +115,7 @@ namespace telnet_cs.Tests
             // (ttype1=XTERM); IS xterm -> FF FA 18 01 FF F0 (ttype2=xterm).
             // The second SEND proves xterm != XTERM is a new answer.
             // (This also needs the per-answer SEND continuation; both must hold.)
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             stream.Enqueue([.. TtypeIsFrame("XTERM"), .. TtypeIsFrame("xterm")]);
             using var session = NewSession(stream);
             await session.RequestTerminalTypesAsync(TimeSpan.FromMilliseconds(300));

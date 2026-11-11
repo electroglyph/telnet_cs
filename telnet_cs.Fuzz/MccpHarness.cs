@@ -68,7 +68,7 @@ internal static class MccpHarness
     private static void RoundTrip(FuzzInput input, CancellationToken cancellationToken)
     {
         using var compressor = new MccpCompressor();
-        var wire = new List<byte>();
+        List<byte> wire = [];
         foreach (var (start, length) in Feed.Chunks(input))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -85,7 +85,7 @@ internal static class MccpHarness
             decompressor.Feed(b);
         }
 
-        var plain = new List<byte>();
+        List<byte> plain = [];
         while (decompressor.TryTakeReady(out var b))
         {
             plain.Add(b);

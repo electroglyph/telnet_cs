@@ -111,7 +111,7 @@ namespace telnet_cs.Tests
             // Proof: writing the lead with flush:false must not throw and must return
             // 0; throwing or returning fallback bytes proves the missing buffer. This
             // test is correct.
-            var encoding = new AtasciiEncoding();
+            AtasciiEncoding encoding = new();
             encoding.GetBytes("\U0001FB82").Should().Equal(0x0D);
             var encoder = encoding.GetEncoder();
             var bytes = new byte[16];

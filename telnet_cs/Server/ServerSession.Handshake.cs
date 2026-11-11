@@ -46,7 +46,7 @@ public partial class ServerSession
     internal void ResetHandshakeDeadline(DateTime deadlineUtc, string endpoint)
     {
         handshakeDeadlineUtc = deadlineUtc;
-        handshakeEndpoint = string.IsNullOrEmpty(endpoint) ? "unknown" : endpoint;
+        handshakeEndpoint = endpoint is null or "" ? "unknown" : endpoint;
         if (Volatile.Read(ref handshakeCompleted) == 1)
         {
             return;
@@ -74,7 +74,7 @@ public partial class ServerSession
             remaining = TimeSpan.FromMilliseconds(1);
         }
 
-        handshakeTimer = new Timer(static state =>
+        handshakeTimer = new(static state =>
         {
             if (state is ServerSession session)
             {
@@ -140,7 +140,7 @@ public partial class ServerSession
         {
         }
 
-        if (string.IsNullOrEmpty(endpoint))
+        if (endpoint is null or "")
         {
             endpoint = "unknown";
         }
@@ -148,7 +148,7 @@ public partial class ServerSession
         WriteLog($"handshake-timeout: endpoint={endpoint}");
         try
         {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            using CancellationTokenSource cts = new(TimeSpan.FromSeconds(1));
             // Best effort: the stream spells this exactly like the
             // converter with a null encoding, so pre-encode and send the
             // frame raw through the shared throttle choke point.

@@ -111,7 +111,7 @@ internal static class Program
         Dictionary<string, int> kinds;
         lock (SeenGate)
         {
-            kinds = new Dictionary<string, int>(SeenKinds, StringComparer.Ordinal);
+            kinds = new(SeenKinds, StringComparer.Ordinal);
         }
 
         foreach (var (kind, count) in kinds.OrderByDescending(static kv => kv.Value))
@@ -182,8 +182,8 @@ internal static class Program
         var crashes = 0;
         foreach (var target in TargetsFor(options.Mode))
         {
-            var input = new FuzzInput(bytes, []);
-            using var guard = new CancellationTokenSource(TimeSpan.FromMilliseconds(options.PerIterTimeoutMs));
+            FuzzInput input = new(bytes, []);
+            using CancellationTokenSource guard = new(TimeSpan.FromMilliseconds(options.PerIterTimeoutMs));
             try
             {
                 var (outbound, hash) = await DriveAsync(target, [input], guard.Token).ConfigureAwait(false);
@@ -251,7 +251,7 @@ internal static class Program
             return [Mutator.GenerateForTarget(target, options.Seed, iteration, options.MaxBytes)];
         }
 
-        var seq = new List<FuzzInput>(options.Rounds);
+        List<FuzzInput> seq = [with(capacity: options.Rounds)];
         for (var r = 0; r < options.Rounds; r++)
         {
             seq.Add(Mutator.GenerateForTarget(target, unchecked(options.Seed + iteration), r, options.MaxBytes));
@@ -379,7 +379,7 @@ internal static class Program
             var inbound = seq.Sum(static s => (long)s.Bytes.Length);
             if (outbound > AbsoluteOutboundCap)
             {
-                var blowup = new InvalidDataException(
+                InvalidDataException blowup = new(
                     $"Reply blowup: {inbound} inbound bytes produced {outbound} outbound bytes (cap {AbsoluteOutboundCap}).");
                 await SaveUniqueAsync(options, $"{target}-blowup", iteration, seq[0], blowup, null, target).ConfigureAwait(false);
                 Console.WriteLine($"[iter {iteration}] {target}: BLOWUP {inbound}->{outbound}");
@@ -388,7 +388,7 @@ internal static class Program
 
             if (outbound > Math.Max(AmplificationFloor, AmplificationFactor * inbound))
             {
-                var amplification = new InvalidDataException(
+                InvalidDataException amplification = new(
                     $"Reply amplification: {inbound} inbound bytes produced {outbound} outbound bytes.");
                 await SaveUniqueAsync(options, $"{target}-amplified", iteration, seq[0], amplification, null, target).ConfigureAwait(false);
                 Console.WriteLine($"[iter {iteration}] {target}: AMPLIFIED {inbound}->{outbound}");
@@ -408,14 +408,14 @@ internal static class Program
         }
         catch (Exception ex) when (guard.IsCancellationRequested && ex is not OperationCanceledException)
         {
-            var timeout = new TimeoutException($"No result within {options.PerIterTimeoutMs} ms: {ex.GetType().Name}.");
+            TimeoutException timeout = new($"No result within {options.PerIterTimeoutMs} ms: {ex.GetType().Name}.");
             await SaveUniqueAsync(options, $"{target}-timeout", iteration, seq[0], timeout, null, target).ConfigureAwait(false);
             Console.WriteLine($"[iter {iteration}] {target}: TIMEOUT ({ex.GetType().Name})");
             return 1;
         }
         catch (OperationCanceledException) when (guard.IsCancellationRequested)
         {
-            var timeout = new TimeoutException($"No result within {options.PerIterTimeoutMs} ms.");
+            TimeoutException timeout = new($"No result within {options.PerIterTimeoutMs} ms.");
             await SaveUniqueAsync(options, $"{target}-timeout", iteration, seq[0], timeout, null, target).ConfigureAwait(false);
             Console.WriteLine($"[iter {iteration}] {target}: TIMEOUT");
             return 1;

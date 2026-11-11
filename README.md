@@ -18,7 +18,7 @@ Thanks and respect to jquast and all the other contributors of telnetlib3.
 
 Mostly AI generated text follows:
 
-A Telnet client **and** server library for .NET 10 (C# 14), implemented
+A Telnet client **and** server library for .NET 11 (C# 15), implemented
 directly from the protocol specifications: RFC 854 (base protocol, NVT,
 commands, Synch), RFC 855 (option negotiation framework), RFC 1143
 (negotiation state machine), plus the option RFCs 856 (binary), 857 (echo),
@@ -77,7 +77,7 @@ speed), 1091 (terminal type), 1096 (X display), 1184 (linemode), 1372
     close_notify end the session after queued bytes drain), and opt-in
     `TlsAutoDetect` peek.
 - Full suite green with warnings-as-errors (see `dotnet test` output for the current count). Requires the
-  .NET 10 SDK and runtime; build with
+  .NET 11 SDK and runtime; build with
   `dotnet build telnet_cs.sln -c Release`.
 - Usage guides: [client](docs/client.md), [server](docs/server.md).
 

@@ -18,21 +18,21 @@ internal static class ReplHarness
     public static async Task<(long Outbound, long Hash)> RunAsync(FuzzInput input, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(input);
-        var options = new TelnetServerOptions
+        TelnetServerOptions options = new()
         {
             IdleTimeout = Timeout.InfiniteTimeSpan,
             StatusInterval = null,
             IsWriteConsole = false,
             LoginAttemptDelay = TimeSpan.Zero,
         };
-        using var stream = new FuzzStream();
-        using var session = new ServerSession(stream, options, CancellationToken.None)
+        using FuzzStream stream = new();
+        using ServerSession session = new(stream, options, CancellationToken.None)
         {
             MillisecondReadDelay = 1,
         };
         // Belt and braces: a REPL path that stops consuming (a command that
         // blocks on a live peer) must still terminate under the hang guard.
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
         try
         {

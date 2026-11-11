@@ -18,7 +18,7 @@ internal static class StormHarness
     public static async Task<(long Outbound, long Hash)> RunAsync(FuzzInput input, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(input);
-        var guard = new NegotiationStormGuard();
+        NegotiationStormGuard guard = new();
         if (guard.IsOverThreshold)
         {
             throw new InvalidDataException("Fresh storm guard reports over-threshold with no frames noted.");
@@ -34,14 +34,14 @@ internal static class StormHarness
             throw new InvalidDataException("Storm guard stayed quiet after a 150-frame burst.");
         }
 
-        var options = new TelnetServerOptions
+        TelnetServerOptions options = new()
         {
             IdleTimeout = Timeout.InfiniteTimeSpan,
             StatusInterval = null,
             IsWriteConsole = false,
         };
-        using var stream = new FuzzStream();
-        using var session = new ServerSession(stream, options, CancellationToken.None)
+        using FuzzStream stream = new();
+        using ServerSession session = new(stream, options, CancellationToken.None)
         {
             MillisecondReadDelay = 1,
         };

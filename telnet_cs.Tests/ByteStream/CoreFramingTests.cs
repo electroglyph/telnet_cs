@@ -14,9 +14,9 @@ namespace telnet_cs.Tests
     {
         private static async Task<(string Output, byte[] Writes)> ReadScriptedAsync(params int[] reads)
         {
-            using var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             return (output, stream.ByteWrites.SelectMany(w => w).ToArray());
         }
@@ -154,9 +154,9 @@ namespace telnet_cs.Tests
         public async Task SplitCrNul_LeaksNulAsData()
         {
             // Raw reads preserve: CR arrives first, NUL arrives next as data.
-            using var stream = new ScriptedStream(65, 13);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(65, 13);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("A\r");
             stream.Enqueue(0);
             var second = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
@@ -166,10 +166,10 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task ReadAfterClose_ReturnsEmpty()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             stream.Close();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
         }
 
@@ -178,10 +178,10 @@ namespace telnet_cs.Tests
         {
             // Peer-close after data (not pre-closed): the first read drains
             // the queued text, the post-close read is empty.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             stream.Enqueue(72, 105);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("Hi");
             stream.Close();
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
@@ -194,7 +194,7 @@ namespace telnet_cs.Tests
             // stream is closed the GA send is skipped (no ByteWrites).
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var sut = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), default);
                 stream.Close();
                 await sut.SendGaAsync();
@@ -217,7 +217,7 @@ namespace telnet_cs.Tests
         {
             // Reference readuntil parity: never returns a partial — a missed
             // deadline throws TimeoutException (never ""), EOF or not.
-            using var stream = new ScriptedStream("partial-no-terminator");
+            using ScriptedStream stream = new("partial-no-terminator");
             using var client = await telnet_cs.Client.Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             Func<Task> act = () => client.TerminatedReadAsync(":", TimeSpan.FromMilliseconds(300));
             await act.Should().ThrowAsync<TimeoutException>();
@@ -226,9 +226,9 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task EorSend_GatedUntilDoReceived()
         {
-            using var stream = new ScriptedStream(255, 253, 25);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(255, 253, 25);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.SendEorAsync()).Should().BeFalse();
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             (await sut.SendEorAsync()).Should().BeTrue();

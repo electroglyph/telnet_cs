@@ -18,7 +18,7 @@
         [Fact]
         public async Task UnconnectedByteStreamShouldReturnEmptyResponse()
         {
-            using var sut = new ByteStreamHandler(A.Fake<IByteStream>());
+            using ByteStreamHandler sut = new(A.Fake<IByteStream>());
             (await sut.ReadAsync(new TimeSpan())).Should().Be(string.Empty);
         }
 
@@ -40,10 +40,10 @@
                     }
                     return 0;
                 });
-                using var tcpByteStream = new TcpByteStream(socket);
+                using TcpByteStream tcpByteStream = new(socket);
                 A.CallTo(() => networkStream.ReadByte()).ReturnsNextFromSequence(-1);
                 tcpByteStream.Connected.Should().BeTrue();
-                using var sut = new ByteStreamHandler(tcpByteStream);
+                using ByteStreamHandler sut = new(tcpByteStream);
 
                 var response = await sut.ReadAsync(TimeSpan.FromMilliseconds(10));
 
@@ -69,10 +69,10 @@
                     }
                     return 0;
                 });
-                using var tcpByteStream = new TcpByteStream(socket);
+                using TcpByteStream tcpByteStream = new(socket);
                 A.CallTo(() => networkStream.ReadByte()).ReturnsNextFromSequence(65);
                 tcpByteStream.Connected.Should().BeTrue();
-                using var sut = new ByteStreamHandler(tcpByteStream);
+                using ByteStreamHandler sut = new(tcpByteStream);
 
                 var response = await sut.ReadAsync(TimeSpan.FromMilliseconds(10));
 
@@ -98,10 +98,10 @@
                     }
                     return 0;
                 });
-                using var tcpByteStream = new TcpByteStream(socket);
+                using TcpByteStream tcpByteStream = new(socket);
                 A.CallTo(() => networkStream.ReadByte()).ReturnsNextFromSequence(new int[] { (int)Commands.InterpretAsCommand, (int)Commands.InterpretAsCommand });
                 tcpByteStream.Connected.Should().BeTrue();
-                using var sut = new ByteStreamHandler(tcpByteStream);
+                using ByteStreamHandler sut = new(tcpByteStream);
 
                 var response = await sut.ReadAsync(TimeSpan.FromMilliseconds(10));
                 response.Should().Be("\u00ff");
@@ -126,10 +126,10 @@
                     }
                     return 0;
                 });
-                using var tcpByteStream = new TcpByteStream(socket);
+                using TcpByteStream tcpByteStream = new(socket);
                 A.CallTo(() => networkStream.ReadByte()).ReturnsNextFromSequence(new int[] { (int)Commands.InterpretAsCommand, -1 });
                 tcpByteStream.Connected.Should().BeTrue();
-                using var sut = new ByteStreamHandler(tcpByteStream);
+                using ByteStreamHandler sut = new(tcpByteStream);
 
                 var response = await sut.ReadAsync(TimeSpan.FromMilliseconds(10));
 
@@ -155,10 +155,10 @@
                     }
                     return 0;
                 });
-                using var tcpByteStream = new TcpByteStream(socket);
+                using TcpByteStream tcpByteStream = new(socket);
                 A.CallTo(() => networkStream.ReadByte()).ReturnsNextFromSequence(new int[] { (int)Commands.InterpretAsCommand, (int)Commands.Do, (int)Options.SuppressGoAhead });
                 tcpByteStream.Connected.Should().BeTrue();
-                using var sut = new ByteStreamHandler(tcpByteStream);
+                using ByteStreamHandler sut = new(tcpByteStream);
 
                 var response = await sut.ReadAsync(TimeSpan.FromMilliseconds(10));
                 A.CallTo(() => networkStream.WriteAsync(A<byte[]>.Ignored, 0, 3, A<CancellationToken>.Ignored))
@@ -187,11 +187,11 @@
                     }
                     return 0;
                 });
-                using (var tcpByteStream = new TcpByteStream(socket))
+                using (TcpByteStream tcpByteStream = new(socket))
                 {
                     A.CallTo(() => networkStream.ReadByte()).ReturnsNextFromSequence(new int[] { (int)Commands.InterpretAsCommand, (int)Commands.Do, 1 });
                     tcpByteStream.Connected.Should().BeTrue();
-                    using (var sut = new ByteStreamHandler(tcpByteStream))
+                    using (ByteStreamHandler sut = new(tcpByteStream))
                     {
                         var response = await sut.ReadAsync(TimeSpan.FromMilliseconds(10));
                         A.CallTo(() => networkStream.WriteAsync(A<byte[]>.Ignored, 0, 3, A<CancellationToken>.Ignored))
@@ -225,11 +225,11 @@
                     }
                     return 0;
                 });
-                using (var tcpByteStream = new TcpByteStream(socket))
+                using (TcpByteStream tcpByteStream = new(socket))
                 {
                     A.CallTo(() => networkStream.ReadByte()).ReturnsNextFromSequence(new int[] { (int)Commands.InterpretAsCommand, 2 });
                     tcpByteStream.Connected.Should().BeTrue();
-                    using (var sut = new ByteStreamHandler(tcpByteStream))
+                    using (ByteStreamHandler sut = new(tcpByteStream))
                     {
                         var response = await sut.ReadAsync(TimeSpan.FromMilliseconds(10));
 
@@ -260,11 +260,11 @@
                     }
                     return 0;
                 });
-                using (var tcpByteStream = new TcpByteStream(socket))
+                using (TcpByteStream tcpByteStream = new(socket))
                 {
                     A.CallTo(() => networkStream.ReadByte()).ReturnsNextFromSequence(new int[] { (int)Commands.InterpretAsCommand, (int)Commands.Dont, 1 });
                     tcpByteStream.Connected.Should().BeTrue();
-                    using (var sut = new ByteStreamHandler(tcpByteStream))
+                    using (ByteStreamHandler sut = new(tcpByteStream))
                     {
                         var response = await sut.ReadAsync(TimeSpan.FromMilliseconds(10));
 
@@ -295,11 +295,11 @@
                     }
                     return 0;
                 });
-                using (var tcpByteStream = new TcpByteStream(socket))
+                using (TcpByteStream tcpByteStream = new(socket))
                 {
                     A.CallTo(() => networkStream.ReadByte()).ReturnsNextFromSequence(new int[] { (int)Commands.InterpretAsCommand, (int)Commands.Dont, (int)Options.SuppressGoAhead });
                     tcpByteStream.Connected.Should().BeTrue();
-                    using (var sut = new ByteStreamHandler(tcpByteStream))
+                    using (ByteStreamHandler sut = new(tcpByteStream))
                     {
                         var response = await sut.ReadAsync(TimeSpan.FromMilliseconds(10));
                         response.Should().BeEmpty();
@@ -320,14 +320,14 @@
                 A.CallTo(() => socket.GetStream()).Returns(networkStream);
                 A.CallTo(() => socket.Connected).Returns(true);
                 A.CallTo(() => socket.Available).Returns(1);
-                using (var tcpByteStream = new TcpByteStream(socket))
+                using (TcpByteStream tcpByteStream = new(socket))
                 {
                     A.CallTo(() => networkStream.ReadByte()).Returns(142);
                     tcpByteStream.Connected.Should().BeTrue();
                     using (var cancellationToken = new CancellationTokenSource())
                     {
-                        var stopwatch = new Stopwatch();
-                        using (var sut = new ByteStreamHandler(tcpByteStream, cancellationToken))
+                        Stopwatch stopwatch = new();
+                        using (ByteStreamHandler sut = new(tcpByteStream, cancellationToken))
                         {
 
                             cancellationToken.CancelAfter(100);

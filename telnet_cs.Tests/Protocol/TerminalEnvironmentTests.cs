@@ -66,7 +66,7 @@ namespace telnet_cs.Tests
             // SB TTYPE IS frame FF FA 18 00 + 41*50 len 56, contains 41*50.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.ApplyOptions(new TelnetClientOptions { TerminalType = new string('A', 50) });
                 stream.Enqueue(255, 251, 24, 255, 250, 24, 1, 255, 240);
@@ -88,7 +88,7 @@ namespace telnet_cs.Tests
             // FF FA 20 00 "57600,38400" FF F0 (rx,tx order).
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 32, 255, 250, 32, 1, 255, 240);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -106,8 +106,8 @@ namespace telnet_cs.Tests
             // Repro: local ECHO=False,SGA=True; remote ECHO=False ->
             // FF FA 05 00 FC 01 FB 03 FE 01 FF F0 — contains FC 01
             // (WONT ECHO) and FE 01 (DONT ECHO).
-            using var stream = new ScriptedStream(255, 253, 1, 255, 253, 5);
-            using var cts = new CancellationTokenSource();
+            using ScriptedStream stream = new(255, 253, 1, 255, 253, 5);
+            using CancellationTokenSource cts = new();
             using var sut = new telnet_cs.IO.ByteStreamHandler(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             var outbound = OutboundBytes(stream);
@@ -134,7 +134,7 @@ namespace telnet_cs.Tests
             // sends it, INFO builder drops it), not a direct wire divergence.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 39);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -170,7 +170,7 @@ namespace telnet_cs.Tests
             // this pins C# SB-vs-INFO agreement, not a wire divergence.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 client.ApplyOptions(new TelnetClientOptions { TextEncoding = Encoding.UTF8 });
                 stream.Enqueue(255, 253, 39, 255, 250, 39, 1, 255, 240);
@@ -195,8 +195,8 @@ namespace telnet_cs.Tests
             // Repro: 300 names -> 7 batches, payloads <=240 (e.g. 237);
             // frames len 241<=245, e.g. FF FA 27 01 00 "K0000"...; queued 6,
             // second frame sent after IS.
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             _ = session.Negotiation.ReceivedWill((int)Options.OldEnvironment, agree: true);
             var types = Enumerable.Repeat((byte)0, 300).ToArray();
             await session.RequestEnvironmentAsync(TimeSpan.FromMilliseconds(300), types);

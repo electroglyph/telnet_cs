@@ -20,9 +20,9 @@ namespace telnet_cs.Tests
     {
         private static async Task<(string Output, byte[] Writes)> ReadScriptedAsync(params int[] reads)
         {
-            using var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             return (output, stream.ByteWrites.SelectMany(w => w).ToArray());
         }
@@ -184,8 +184,8 @@ namespace telnet_cs.Tests
             // FF FC 18 with no FF FB 18. Asserting ContainsFrame(WONT) plus
             // NotContains(WILL) fails only while the symmetric agree remains. This
             // test is correct.
-            using var stream = new ScriptedStream(255, 253, 24);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new(255, 253, 24);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             byte[] writes = stream.ByteWrites.SelectMany(w => w).ToArray();
             ContainsFrame(writes, new byte[] { 255, 252, 24 }).Should().BeTrue();
@@ -203,7 +203,7 @@ namespace telnet_cs.Tests
             // so a Client answers DO 31 and then treats peer SBs as stray.
             // Proof: feed a Client FF FB 1F; the reference bytes contain FF FE 1F.
             // Missing DONT proves the symmetric agree. This test is correct.
-            using var stream = new ScriptedStream(255, 251, 31);
+            using ScriptedStream stream = new(255, 251, 31);
             using var client = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None);
             await client.ReadAsync(TimeSpan.FromMilliseconds(300));
             byte[] writes = stream.ByteWrites.SelectMany(w => w).ToArray();
@@ -230,8 +230,8 @@ namespace telnet_cs.Tests
             // FF FC <opt> and never FF FB <opt>. Each InlineData case is independently
             // repro-able. These tests are correct.
             // (TTYPE pinned separately by Server_DoTtype_RefusedWithWont.)
-            using var stream = new ScriptedStream(255, 253, option);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new(255, 253, option);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             byte[] writes = stream.ByteWrites.SelectMany(w => w).ToArray();
             ContainsFrame(writes, new byte[] { 255, 252, (byte)option }).Should().BeTrue();
@@ -252,7 +252,7 @@ namespace telnet_cs.Tests
             // and never FF FD <opt>. Both cases fail only while the agree stays
             // role-blind. These tests are correct.
             // (NAWS pinned separately by Client_WillNaws_RefusedWithDont.)
-            using var stream = new ScriptedStream(255, 251, option);
+            using ScriptedStream stream = new(255, 251, option);
             using var client = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None);
             await client.ReadAsync(TimeSpan.FromMilliseconds(300));
             byte[] writes = stream.ByteWrites.SelectMany(w => w).ToArray();
@@ -273,7 +273,7 @@ namespace telnet_cs.Tests
             // Proof: ApplyOptions(AllowRemoteEcho=true) then feed FF FD 01; reference
             // bytes contain FF FC 01 and never FF FB 01. Asserting both directions
             // fails only while the opt-in overrides the role gate. This test is correct.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             client.ApplyOptions(new TelnetClientOptions { AllowRemoteEcho = true });
             stream.Enqueue(255, 253, 1);
@@ -289,8 +289,8 @@ namespace telnet_cs.Tests
             // Server-role WILL ECHO is benign (MUD clients send it): it is
             // swallowed without reply and without negotiation state change,
             // instead of tearing down the connection.
-            using var stream = new ScriptedStream(255, 251, 1);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new(255, 251, 1);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
             byte[] writes = stream.ByteWrites.SelectMany(w => w).ToArray();
             ContainsFrame(writes, new byte[] { 255, 253, 1 }).Should().BeFalse();
@@ -316,8 +316,8 @@ namespace telnet_cs.Tests
             // at 1. Observing 2 proves the automatic path ignored refusal memory. This
             // test is correct; only automatic paths must be gated, explicit requests
             // still clear the flag.
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.SendOpeningPresetAsync(CancellationToken.None);
             stream.Enqueue(255, 253, 0);
             await session.ReadAsync(TimeSpan.FromMilliseconds(500));
@@ -334,7 +334,7 @@ namespace telnet_cs.Tests
             // Him-side disables go out immediately even with a DO outstanding
             // (reference iac() never gates DONT): the toggle sends DO then
             // DONT at once, and the re-enable queues silently behind the DONT.
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.RequestEnable(31).Should().Be(Commands.Do);
             state.RequestDisable(31).Should().Be(Commands.Dont);
             state.RequestEnable(31).Should().BeNull("re-enable queues behind the outstanding DONT");
@@ -345,7 +345,7 @@ namespace telnet_cs.Tests
         {
             // WANTNO EMPTY + WILL resolves to NO
             // with no reply ("DONT answered by WILL").
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedWill(1, agree: true).Should().Be(Commands.Do);
             state.RequestDisable(1).Should().Be(Commands.Dont);
             state.ReceivedWill(1, agree: true).Should().BeNull("DONT answered by WILL resolves to NO");
@@ -356,7 +356,7 @@ namespace telnet_cs.Tests
         public void DuplicateWill_NoReplyNoSideEffects()
         {
             // Redundant WILL in YES is ignored.
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedWill(31, agree: true).Should().Be(Commands.Do);
             state.ReceivedWill(31, agree: true).Should().BeNull();
         }
@@ -365,7 +365,7 @@ namespace telnet_cs.Tests
         public void FreshDisable_Silent()
         {
             // Never initiate DONT/WONT for disabled.
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.OfferDisable(3).Should().BeNull();
             state.RequestDisable(3).Should().BeNull();
         }
@@ -376,7 +376,7 @@ namespace telnet_cs.Tests
             // Every refused WILL is answered, including repeats: duplicate
             // refusals are idempotent, and a re-sent request still earns
             // its own reply.
-            var state = new NegotiationState();
+            NegotiationState state = new();
             state.ReceivedWill(7, agree: false).Should().Be(Commands.Dont);
             state.ReceivedWill(7, agree: false).Should().Be(Commands.Dont);
         }

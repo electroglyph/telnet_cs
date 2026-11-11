@@ -71,11 +71,11 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestTerminalTypesAsync_WithoutWill_ReturnsEmptyAndSendsNothing()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             var logs = new List<string>();
-            var options = new TelnetServerOptions();
+            TelnetServerOptions options = new();
             CaptureLog(options, logs);
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             (await session.RequestTerminalTypesAsync(TimeSpan.FromMilliseconds(200))).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
             lock (logs) logs.Should().ContainSingle(m => m.Contains("TTYPE", StringComparison.Ordinal));
@@ -84,11 +84,11 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestTerminalSpeedAsync_WithoutWill_ReturnsNullAndSendsNothing()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             var logs = new List<string>();
-            var options = new TelnetServerOptions();
+            TelnetServerOptions options = new();
             CaptureLog(options, logs);
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             (await session.RequestTerminalSpeedAsync(TimeSpan.FromMilliseconds(200))).Should().BeNull();
             stream.ByteWrites.Should().BeEmpty();
             lock (logs) logs.Should().ContainSingle(m => m.Contains("TSPEED", StringComparison.Ordinal));
@@ -97,11 +97,11 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestXDisplayAsync_WithoutWill_ReturnsNullAndSendsNothing()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             var logs = new List<string>();
-            var options = new TelnetServerOptions();
+            TelnetServerOptions options = new();
             CaptureLog(options, logs);
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             (await session.RequestXDisplayAsync(TimeSpan.FromMilliseconds(200))).Should().BeNull();
             stream.ByteWrites.Should().BeEmpty();
             lock (logs) logs.Should().ContainSingle(m => m.Contains("XDISPLOC", StringComparison.Ordinal));
@@ -110,11 +110,11 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestEnvironmentAsync_WithoutWill_ReturnsEmptyAndSendsNothing()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             var logs = new List<string>();
-            var options = new TelnetServerOptions();
+            TelnetServerOptions options = new();
             CaptureLog(options, logs);
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             (await session.RequestEnvironmentAsync(TimeSpan.FromMilliseconds(200))).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
             lock (logs) logs.Should().ContainSingle(m => m.Contains("OLD_ENVIRON", StringComparison.Ordinal));
@@ -123,11 +123,11 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestNewEnvironmentAsync_WithoutWill_ReturnsEmptyAndSendsNothing()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             var logs = new List<string>();
-            var options = new TelnetServerOptions();
+            TelnetServerOptions options = new();
             CaptureLog(options, logs);
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             (await session.RequestNewEnvironmentAsync(TimeSpan.FromMilliseconds(200))).Should().BeEmpty();
             stream.ByteWrites.Should().BeEmpty();
             lock (logs) logs.Should().ContainSingle(m => m.Contains("NEW_ENVIRON", StringComparison.Ordinal));
@@ -136,11 +136,11 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestCharsetAsync_WithoutAgreement_ReturnsNullAndSendsNothing()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             var logs = new List<string>();
-            var options = new TelnetServerOptions();
+            TelnetServerOptions options = new();
             CaptureLog(options, logs);
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             (await session.RequestCharsetAsync(TimeSpan.FromMilliseconds(200))).Should().BeNull();
             stream.ByteWrites.Should().BeEmpty();
             lock (logs) logs.Should().ContainSingle(m => m.Contains("CHARSET", StringComparison.Ordinal));
@@ -149,8 +149,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestCharsetAsync_WithPeerWill_SendsSingleRequestAndResolves()
         {
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             session.Negotiation.ReceivedWill((int)Options.CharacterSet, agree: true);
             stream.Enqueue(255, 250, 42, 2, 85, 84, 70, 45, 56, 255, 240);
             (await session.RequestCharsetAsync(TimeSpan.FromSeconds(5))).Should().Be("UTF-8");
@@ -162,8 +162,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestCharsetAsync_WithUsSideAgreement_SendsSingleRequestAndResolves()
         {
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             session.Negotiation.ReceivedDo((int)Options.CharacterSet, agree: true);
             stream.Enqueue(255, 250, 42, 2, 85, 84, 70, 45, 56, 255, 240);
             (await session.RequestCharsetAsync(TimeSpan.FromSeconds(5))).Should().Be("UTF-8");
@@ -175,8 +175,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestTerminalTypesAsync_WithWill_SendsSendAndResolvesPrequeuedChain()
         {
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
             stream.Enqueue([.. TtypeIsFrame("XTERM"), .. TtypeIsFrame("XTERM")]);
             (await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5))).Should().Equal("XTERM");
@@ -188,8 +188,8 @@ namespace telnet_cs.Tests
         public async Task RequestTerminalSpeedAsync_WithWill_SendsSingleSendAndResolves()
         {
             var options = new TelnetServerOptions { RequestTerminalSpeed = false };
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, options, CancellationToken.None);
             session.Negotiation.ReceivedWill((int)Options.TerminalSpeed, agree: true);
             stream.Enqueue([.. TspeedIsFrame("9600,9600")]);
             (await session.RequestTerminalSpeedAsync(TimeSpan.FromSeconds(5))).Should().Be("9600,9600");
@@ -199,8 +199,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestXDisplayAsync_WithWill_SendsSingleSendAndResolves()
         {
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             session.Negotiation.ReceivedWill((int)Options.XDisplay, agree: true);
             stream.Enqueue([.. XDisplayIsFrame("host:0")]);
             (await session.RequestXDisplayAsync(TimeSpan.FromSeconds(5))).Should().Be("host:0");
@@ -210,8 +210,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestEnvironmentAsync_WithWill_SendsSingleSendAndResolves()
         {
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             session.Negotiation.ReceivedWill((int)Options.OldEnvironment, agree: true);
             stream.Enqueue(255, 250, 36, 0, 0, 65, 1, 66, 255, 240);
             var env = await session.RequestEnvironmentAsync(TimeSpan.FromSeconds(5));
@@ -222,8 +222,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestNewEnvironmentAsync_WithWill_SendsSingleSendAndResolves()
         {
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             session.Negotiation.ReceivedWill((int)Options.NewEnvironment, agree: true);
             stream.Enqueue(255, 250, 39, 0, 0, 65, 1, 66, 255, 240);
             var env = await session.RequestNewEnvironmentAsync(TimeSpan.FromSeconds(5));
@@ -234,8 +234,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task RequestXDisplayAsync_OverlappingWithAgreement_SharesSingleSend()
         {
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             session.Negotiation.ReceivedWill((int)Options.XDisplay, agree: true);
             var first = session.RequestXDisplayAsync(TimeSpan.FromMilliseconds(500));
             await Task.Delay(100);

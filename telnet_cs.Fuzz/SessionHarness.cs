@@ -45,7 +45,7 @@ internal static class SessionHarness
 
     private static ServerSession CreateSession(out FuzzStream stream)
     {
-        var options = new TelnetServerOptions
+        TelnetServerOptions options = new()
         {
             IdleTimeout = Timeout.InfiniteTimeSpan,
             StatusInterval = null,

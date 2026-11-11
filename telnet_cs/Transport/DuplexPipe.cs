@@ -24,8 +24,8 @@ internal static class DuplexPipe
     /// <returns>The linked <c>(A, B)</c> ends.</returns>
     public static (DuplexEnd A, DuplexEnd B) Create()
     {
-        var endA = new DuplexEnd();
-        var endB = new DuplexEnd();
+        DuplexEnd endA = new();
+        DuplexEnd endB = new();
         endA.Peer = endB;
         endB.Peer = endA;
         return (endA, endB);

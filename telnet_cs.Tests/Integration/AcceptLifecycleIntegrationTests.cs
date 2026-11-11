@@ -18,7 +18,7 @@ namespace telnet_cs.Tests
         public async Task AcceptSessionAsync_Restart_RebindsSamePort()
         {
             int port;
-            using (var first = new TelnetServer(0))
+            using (TelnetServer first = new(0))
             {
                 first.Start();
                 port = first.Port;
@@ -28,7 +28,7 @@ namespace telnet_cs.Tests
 
             // An explicit port rebinds after stop: the restart serves the
             // same port and accepts again.
-            using var server = new TelnetServer(port);
+            using TelnetServer server = new(port);
             server.Start();
             server.Port.Should().Be(port);
             var acceptTask = server.AcceptSessionAsync(CancellationToken.None);
@@ -42,7 +42,7 @@ namespace telnet_cs.Tests
         public async Task AcceptSessionAsync_ConcurrentClients_EachGetsASession()
         {
             const int clients = 3;
-            using var server = new TelnetServer(0);
+            using TelnetServer server = new(0);
             server.Start();
             var acceptTasks = Enumerable.Range(0, clients)
                 .Select(_ => server.AcceptSessionAsync(CancellationToken.None))

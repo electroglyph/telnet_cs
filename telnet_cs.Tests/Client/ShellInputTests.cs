@@ -94,7 +94,7 @@ namespace telnet_cs.Tests
         {
             // The reference filter_without_eol_xlat: sequences only, no
             // single-byte map — CR/LF pass through verbatim.
-            var filter = new InputFilter(InputFilter.AtasciiSequences, null);
+            InputFilter filter = new(InputFilter.AtasciiSequences, null);
             filter.Feed([0x0D, 0x0A, 0x41]).Should().Equal(0x0D, 0x0A, 0x41);
         }
 
@@ -104,7 +104,7 @@ namespace telnet_cs.Tests
             // The reference filter_ansi_passthrough_with_empty_seq_xlat: with
             // no sequence map, CSI bytes pass through (single-byte map still
             // applies to mapped bytes only).
-            var filter = new InputFilter(null, InputFilter.AtasciiSingleBytes);
+            InputFilter filter = new(null, InputFilter.AtasciiSingleBytes);
             filter.Feed([0x1B, 0x5B, 0x41]).Should().Equal(0x1B, 0x5B, 0x41);
             filter.HasPending.Should().BeFalse();
         }
@@ -114,7 +114,7 @@ namespace telnet_cs.Tests
         {
             // The reference filter_esc_not_buffered_without_seq_xlat: a lone
             // ESC is not held back when there is nothing it could grow into.
-            var filter = new InputFilter(null, InputFilter.AtasciiSingleBytes);
+            InputFilter filter = new(null, InputFilter.AtasciiSingleBytes);
             filter.Feed([0x1B]).Should().Equal(0x1B);
             filter.HasPending.Should().BeFalse();
         }
@@ -133,7 +133,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void Linemode_NormalChars_BufferAndEcho()
         {
-            var buffer = new LinemodeBuffer();
+            LinemodeBuffer buffer = new();
             buffer.Feed('a').Should().Be(new LinemodeEdit("a", null));
             buffer.Feed('b').Should().Be(new LinemodeEdit("b", null));
             buffer.Length.Should().Be(2);
@@ -142,7 +142,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void Linemode_Cr_SendsBufferedLine()
         {
-            var buffer = new LinemodeBuffer();
+            LinemodeBuffer buffer = new();
             buffer.Feed('a');
             buffer.Feed('b');
             var edit = buffer.Feed('\r');
@@ -154,7 +154,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void Linemode_EraseChar_PopsWithEraseEcho()
         {
-            var buffer = new LinemodeBuffer();
+            LinemodeBuffer buffer = new();
             buffer.Feed('a');
             buffer.Feed('b');
             buffer.Feed((char)0x7F).Should().Be(new LinemodeEdit("\b \b", null));
@@ -170,7 +170,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void Linemode_EraseLine_ClearsWithRepeatedEraseEcho()
         {
-            var buffer = new LinemodeBuffer();
+            LinemodeBuffer buffer = new();
             buffer.Feed('a');
             buffer.Feed('b');
             var edit = buffer.Feed((char)0x15);
@@ -182,7 +182,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void Linemode_EraseWord_VweraseSemantics()
         {
-            var buffer = new LinemodeBuffer();
+            LinemodeBuffer buffer = new();
             foreach (char c in "ab cd ")
             {
                 buffer.Feed(c);
@@ -198,7 +198,7 @@ namespace telnet_cs.Tests
         public void Linemode_TrapsigCtrlC_SendsIacIp()
         {
             var slc = new Dictionary<int, int> { [3] = 3 };
-            var buffer = new LinemodeBuffer(slc, trapSignal: true);
+            LinemodeBuffer buffer = new(slc, trapSignal: true);
             var edit = buffer.Feed((char)0x03);
             edit.Echo.Should().BeEmpty();
             edit.Data.Should().Equal(255, 244);
@@ -209,7 +209,7 @@ namespace telnet_cs.Tests
         public void Linemode_WithoutTrapsig_CtrlCBuffers()
         {
             var slc = new Dictionary<int, int> { [3] = 3 };
-            var buffer = new LinemodeBuffer(slc);
+            LinemodeBuffer buffer = new(slc);
             var edit = buffer.Feed((char)0x03);
             edit.Echo.Should().Be("\x03");
             edit.Data.Should().BeNull();
@@ -219,7 +219,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void Linemode_ForwardMask_FlushesWithTrigger()
         {
-            var buffer = new LinemodeBuffer(forwardMask: [(int)'x']);
+            LinemodeBuffer buffer = new(forwardMask: [(int)'x']);
             buffer.Feed('a');
             var edit = buffer.Feed('x');
             edit.Echo.Should().Be("x");
@@ -231,7 +231,7 @@ namespace telnet_cs.Tests
         public void Linemode_CustomEraseCharValue_Honored()
         {
             var slc = new Dictionary<int, int> { [10] = 8 };
-            var buffer = new LinemodeBuffer(slc);
+            LinemodeBuffer buffer = new(slc);
             buffer.Feed('a');
             buffer.Feed((char)0x08).Should().Be(new LinemodeEdit("\b \b", null));
             buffer.Length.Should().Be(0);
@@ -240,7 +240,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void Linemode_UnsupportedFunction_NeverMatches()
         {
-            var buffer = new LinemodeBuffer(new Dictionary<int, int>());
+            LinemodeBuffer buffer = new(new Dictionary<int, int>());
             var edit = buffer.Feed((char)0x7F);
             edit.Data.Should().BeNull();
             buffer.Length.Should().Be(1);
@@ -249,7 +249,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void Linemode_Flush_ReturnsPendingAndClears()
         {
-            var buffer = new LinemodeBuffer();
+            LinemodeBuffer buffer = new();
             buffer.Feed('a');
             buffer.Feed('b');
             buffer.Flush().Should().Equal((byte)'a', (byte)'b');

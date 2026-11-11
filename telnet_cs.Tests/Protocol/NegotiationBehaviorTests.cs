@@ -23,18 +23,18 @@ namespace telnet_cs.Tests
 
         private static async Task<(string Output, byte[] Writes)> ReadScriptedAsync(params int[] reads)
         {
-            using var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             return (output, stream.ByteWrites.SelectMany(w => w).ToArray());
         }
 
         private static async Task<(string Output, ScriptedStream Stream)> ReadConfiguredAsync(Action<ByteStreamHandler> configure, params int[] reads)
         {
-            var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             configure(sut);
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             return (output, stream);
@@ -125,7 +125,7 @@ namespace telnet_cs.Tests
             // transport_closing=False.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
                 stream.Enqueue(255, 253, 18);
                 (await ReadClientOnceAsync(client)).Should().BeEmpty();
@@ -158,7 +158,7 @@ namespace telnet_cs.Tests
             // Repro (client writer): iac(DO,SGA) -> True sent=FF FD 03
             // pending={FD 03}; iac(DONT,SGA) -> True sent=FF FD 03 FF FE 03
             // (immediate second send).
-            var negotiation = new NegotiationState();
+            NegotiationState negotiation = new();
             negotiation.RequestEnable(3).Should().Be(Commands.Do);
             negotiation.RequestDisable(3).Should().Be(Commands.Dont);
         }

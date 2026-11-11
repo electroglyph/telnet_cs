@@ -13,6 +13,13 @@ using telnet_cs.Transport;
 
 // Referencing https://support.microsoft.com/kb/231866?wa=wsignin1.0 and http://www.codeproject.com/Articles/19071/Quick-tool-A-minimalistic-Telnet-library got me started
 
+/// <summary>
+/// Basic Telnet client: connect, negotiate (RFC 1143 state machine),
+/// read/write, login, NAWS, terminal type/speed, environment, linemode,
+/// charset negotiation, status/timing-mark, echo, and Synch. Construct with
+/// <c>Client.CreateAsync</c> (the only path; see <c>Client.Connect.cs</c>
+/// for the connection lifecycle and automation-scope notes).
+/// </summary>
 public partial class Client : TelnetSessionBase, IClient
 {
     /// <summary>
@@ -169,7 +176,7 @@ public partial class Client : TelnetSessionBase, IClient
         // stashed in PendingText for the next read.
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(count);
         var deadline = DateTime.UtcNow.Add(timeout);
-        var sb = new StringBuilder();
+        StringBuilder sb = new();
         while (sb.Length < count)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -196,8 +203,8 @@ public partial class Client : TelnetSessionBase, IClient
         string result = sb.ToString();
         if (result.Length > count)
         {
-            PrependPendingText(result.Substring(count));
-            result = result.Substring(0, count);
+            PrependPendingText(result[count..]);
+            result = result[..count];
         }
 
         return result;
@@ -298,8 +305,8 @@ public partial class Client : TelnetSessionBase, IClient
         if (match.Success)
         {
             int end = match.Index + match.Length;
-            PrependPendingText(s.Substring(end));
-            s = s.Substring(0, end);
+            PrependPendingText(s[end..]);
+            s = s[..end];
         }
 
         if (!isTerminated(s))
@@ -324,8 +331,8 @@ public partial class Client : TelnetSessionBase, IClient
 
         if (cut >= 0)
         {
-            PrependPendingText(s.Substring(cut));
-            s = s.Substring(0, cut);
+            PrependPendingText(s[cut..]);
+            s = s[..cut];
         }
 
         if (!isTerminated(s))
@@ -350,8 +357,8 @@ public partial class Client : TelnetSessionBase, IClient
 
         if (cut >= 0)
         {
-            PrependPendingText(s.Substring(cut));
-            s = s.Substring(0, cut);
+            PrependPendingText(s[cut..]);
+            s = s[..cut];
         }
 
         if (!isTerminated(s))
@@ -404,7 +411,7 @@ public partial class Client : TelnetSessionBase, IClient
             // the handler no longer disposes (or cancels) anything it
             // does not own.
             using (var linked = CancellationTokenSource.CreateLinkedTokenSource(InternalCancellation.Token, cancellationToken))
-            using (var handler = new ByteStreamHandler(WriteStream, linked, MillisecondReadDelay))
+            using (ByteStreamHandler handler = new(WriteStream, linked, MillisecondReadDelay))
             {
                 FeedHandler(handler);
                 await MaybeSendEnvironmentInfoAsync().ConfigureAwait(false);

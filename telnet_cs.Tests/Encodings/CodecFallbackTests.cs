@@ -143,7 +143,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void Big5Bbs_StreamReader_DecodesPairAndArt()
         {
-            using var stream = new MemoryStream([0xA4, 0xA4, 0xB0], writable: false);
+            using MemoryStream stream = new([0xA4, 0xA4, 0xB0], writable: false);
             using var reader = new StreamReader(stream, new Big5BbsEncoding());
             reader.ReadToEnd().Should().Be("中░");
         }
@@ -151,7 +151,7 @@ namespace telnet_cs.Tests
         [Fact]
         public void Atascii_StreamWriter_FoldsLineEndings()
         {
-            using var stream = new MemoryStream();
+            using MemoryStream stream = new();
             using (var writer = new StreamWriter(stream, new AtasciiEncoding(), leaveOpen: true))
             {
                 writer.Write("a\r\nb");

@@ -68,19 +68,38 @@ public static class CharsetProtocol
     internal static char SelectCharsetSeparator(IReadOnlyList<string> offers)
     {
         ArgumentNullException.ThrowIfNull(offers);
-        if (offers.Any(static name => name.Contains(' ')))
+        char[] fallbacks = [';', ',', '/'];
+        if (!offers.Any(static name => name.Contains(' ')))
         {
-            char[] fallbacks = [';', ',', '/'];
-            foreach (char candidate in fallbacks)
+            return ' ';
+        }
+
+        foreach (var candidate in fallbacks)
+        {
+            if (offers.All(name => !name.Contains(candidate)))
             {
-                if (offers.All(name => !name.Contains(candidate)))
-                {
-                    return candidate;
-                }
+                return candidate;
             }
         }
 
-        return ' ';
+        // All documented fallbacks collide: scan printable ASCII for an
+        // unused byte so the REQUEST stays unambiguous. Charset names are
+        // ASCII (RFC 2066 sends them as ASCII), so any printable byte not
+        // present in any offer works as a separator.
+        for (char candidate = '!'; candidate <= '~'; candidate++)
+        {
+            if (candidate is ' ' or ';' or ',' or '/')
+            {
+                continue;
+            }
+
+            if (offers.All(name => !name.Contains(candidate)))
+            {
+                return candidate;
+            }
+        }
+
+        throw new ArgumentException("No usable CHARSET separator: every printable ASCII byte appears in the offered names.", nameof(offers));
     }
 
     /// <summary>
@@ -89,7 +108,10 @@ public static class CharsetProtocol
     /// <param name="charset">The accepted character-set name.</param>
     public static byte[] BuildAccepted(string charset)
     {
-        ArgumentNullException.ThrowIfNull(charset);
+        // An empty name would emit a verb-only ACCEPTED frame (RFC 2066
+        // requires a name after the verb); fail fast instead. The reply
+        // path only passes trimmed non-empty selections here.
+        ArgumentException.ThrowIfNullOrEmpty(charset);
         return FrameVerb(Accepted, Encoding.ASCII.GetBytes(charset));
     }
 
@@ -118,7 +140,7 @@ public static class CharsetProtocol
     public static IReadOnlyList<string> ParseRequest(IReadOnlyList<byte> payload)
     {
         ArgumentNullException.ThrowIfNull(payload);
-        if (payload.Count < 2)
+        if (payload.Count is < 2)
         {
             return [];
         }
@@ -209,7 +231,7 @@ public static class CharsetProtocol
     public static string ParseAccepted(IReadOnlyList<byte> payload)
     {
         ArgumentNullException.ThrowIfNull(payload);
-        if (payload.Count < 2)
+        if (payload.Count is < 2)
         {
             return string.Empty;
         }

@@ -112,7 +112,7 @@ public abstract partial class TelnetSessionBase
                 try
                 {
                     var pumped = await ReadAsync(remaining < NegotiationPollSlice ? remaining : NegotiationPollSlice, cancellationToken).ConfigureAwait(false);
-                    if (!string.IsNullOrEmpty(pumped))
+                    if (pumped is not "")
                     {
                         buffered += pumped;
                     }
@@ -129,7 +129,7 @@ public abstract partial class TelnetSessionBase
         }
         finally
         {
-            if (!string.IsNullOrEmpty(buffered))
+            if (buffered is not "")
             {
                 PrependPendingText(buffered);
             }

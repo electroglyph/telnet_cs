@@ -37,9 +37,9 @@ namespace telnet_cs.Tests
         private static async Task<(string Output, List<byte[]> Writes, ByteStreamHandler Handler)> ReadOnceAsync(
           Action<ByteStreamHandler> configure, params int[] reads)
         {
-            using var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             configure(sut);
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             return (output, [.. stream.ByteWrites], sut);
@@ -529,9 +529,9 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SendGmcp_NotNegotiated_ReturnsFalseWithoutWrites()
         {
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             var sent = await sut.SendGmcpAsync("Char.Vitals", new Dictionary<string, object> { ["hp"] = 100 });
             sent.Should().BeFalse();
             stream.ByteWrites.Should().BeEmpty();
@@ -542,9 +542,9 @@ namespace telnet_cs.Tests
         {
             // Port of test_send_mud_protocol_returns_early_without_negotiation
             // (MSDP half): no agreement means no bytes on the wire.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             var sent = await sut.SendMsdpAsync(new Dictionary<string, object?> { ["HEALTH"] = 100 });
             sent.Should().BeFalse();
             stream.ByteWrites.Should().BeEmpty();
@@ -555,9 +555,9 @@ namespace telnet_cs.Tests
         {
             // Port of test_send_mud_protocol_returns_early_without_negotiation
             // (MSSP half): no agreement means no bytes on the wire.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             var sent = await sut.SendMsspAsync(new Dictionary<string, object> { ["NAME"] = "test" });
             sent.Should().BeFalse();
             stream.ByteWrites.Should().BeEmpty();
@@ -566,9 +566,9 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SendGmcp_Negotiated_SendsJsonFrame()
         {
-            using var stream = new ScriptedStream(Iac, Will, Gmcp);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(Iac, Will, Gmcp);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             var sent = await sut.SendGmcpAsync("Char.Vitals", new Dictionary<string, object> { ["hp"] = 100 });
             sent.Should().BeTrue();
@@ -582,9 +582,9 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SendZmp_Negotiated_SendsNulSeparatedFrame()
         {
-            using var stream = new ScriptedStream(Iac, Will, Zmp);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(Iac, Will, Zmp);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             var sent = await sut.SendZmpAsync("zmp.ident", "MudName", "1.0");
             sent.Should().BeTrue();
@@ -598,9 +598,9 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SendMsdp_Negotiated_SendsFrame()
         {
-            using var stream = new ScriptedStream(Iac, Will, Msdp);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(Iac, Will, Msdp);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             var sent = await sut.SendMsdpAsync(new Dictionary<string, object?> { ["HEALTH"] = "100" });
             sent.Should().BeTrue();
@@ -614,9 +614,9 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SendMssp_Negotiated_SendsFrame()
         {
-            using var stream = new ScriptedStream(Iac, Will, Mssp);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new(Iac, Will, Mssp);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();
             var sent = await sut.SendMsspAsync(new Dictionary<string, object> { ["NAME"] = "TestMUD" });
             sent.Should().BeTrue();
@@ -631,8 +631,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Session_MxpAccumulatesAcrossReads()
         {
-            using var stream = new ScriptedStream(Iac, Will, Mxp, Iac, Sb, Mxp, Iac, Se);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new(Iac, Will, Mxp, Iac, Sb, Mxp, Iac, Se);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             stream.Enqueue(Iac, Sb, Mxp, 1, 2, Iac, Se);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
@@ -644,8 +644,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task Session_MspAccumulatesAcrossReads()
         {
-            using var stream = new ScriptedStream(Iac, Will, Msp, Iac, Sb, Msp, Iac, Se);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new(Iac, Will, Msp, Iac, Sb, Msp, Iac, Se);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             stream.Enqueue(Iac, Sb, Msp, 1, 2, Iac, Se);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
@@ -658,8 +658,8 @@ namespace telnet_cs.Tests
         public async Task Session_MsspReplacedAcrossReads()
         {
             int[] first = SbBody(Mssp, [1, .. Text("NAME"), 2, .. Text("One")]);
-            using var stream = new ScriptedStream([Iac, Will, Mssp, .. first]);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new([Iac, Will, Mssp, .. first]);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             session.MsspData.Should().ContainSingle().Which.Value.Should().Be("One");
             int[] second = SbBody(Mssp, [1, .. Text("NAME"), 2, .. Text("Two")]);
@@ -672,8 +672,8 @@ namespace telnet_cs.Tests
         public async Task Session_MalformedGmcpJson_IgnoredAndSessionSurvives()
         {
             int[] bad = SbBody(Gmcp, [.. Text("Char.Vitals {bad")]);
-            using var stream = new ScriptedStream([Iac, Will, Gmcp, .. bad]);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new([Iac, Will, Gmcp, .. bad]);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             stream.Connected.Should().BeTrue();
             stream.Enqueue([.. Text("hi")]);
@@ -684,8 +684,8 @@ namespace telnet_cs.Tests
         public async Task Session_MsdpHostileArray_Survives()
         {
             int[] bad = SbBody(Msdp, [1, .. Text("H"), 2, 5, 4]);
-            using var stream = new ScriptedStream([Iac, Will, Msdp, .. bad]);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new([Iac, Will, Msdp, .. bad]);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             stream.Connected.Should().BeTrue();
             stream.Enqueue([.. Text("hi")]);
@@ -701,8 +701,8 @@ namespace telnet_cs.Tests
                 .. SbBody(Atcp, [.. Text("Room.Exits ne")]),
                 .. SbBody(Aardwolf, [100, 3]),
             ];
-            using var stream = new ScriptedStream(reads);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new(reads);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             session.ZmpData["zmp.ident"].Should().Equal("Mud");
             session.AtcpData.Should().ContainSingle().Which.Should().Be(("Room.Exits", "ne"));

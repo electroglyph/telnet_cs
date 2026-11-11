@@ -26,7 +26,7 @@ namespace telnet_cs.Tests
         {
             var guard = GlobalStateGuard.SkipProactive(true);
             var (clientStream, serverStream) = InMemoryPipe.Create();
-            var session = new ServerSession(
+            ServerSession session = new(
                 serverStream, new TelnetServerOptions { TextEncoding = codec }, CancellationToken.None);
             var client = await Client.CreateAsync(clientStream, TimeSpan.FromSeconds(30), CancellationToken.None);
             client.Settings.TextEncoding = codec;
@@ -74,7 +74,7 @@ namespace telnet_cs.Tests
             // survives as ÿ both ways.
             var guard = GlobalStateGuard.SkipProactive(true);
             var (clientStream, serverStream) = InMemoryPipe.Create();
-            var session = new ServerSession(
+            ServerSession session = new(
                 serverStream,
                 new TelnetServerOptions { TextEncoding = null, RequestCharacterSet = false },
                 CancellationToken.None);

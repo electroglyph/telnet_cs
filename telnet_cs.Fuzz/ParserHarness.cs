@@ -14,9 +14,9 @@ internal static class ParserHarness
 {
     public static async Task<(long Outbound, long Hash)> RunAsync(FuzzInput input, CancellationToken cancellationToken)
     {
-        using var stream = new FuzzStream();
+        using FuzzStream stream = new();
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        using var handler = new ByteStreamHandler(stream, cts, millisecondReadDelay: 1);
+        using ByteStreamHandler handler = new(stream, cts, millisecondReadDelay: 1);
         foreach (var (start, length) in Feed.Chunks(input))
         {
             cancellationToken.ThrowIfCancellationRequested();

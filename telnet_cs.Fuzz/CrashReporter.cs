@@ -26,7 +26,7 @@ internal static class CrashReporter
             return "nostack";
         }
 
-        var frames = new List<string>();
+        List<string> frames = [];
         foreach (var line in trace.Split('\n'))
         {
             var at = line.IndexOf(" at ", StringComparison.Ordinal);

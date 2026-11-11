@@ -10,7 +10,12 @@ using telnet_cs.Protocol;
 using telnet_cs.Transport;
 
 /// <summary>
-/// Provides core functionality for interacting with the ByteStream.
+/// The negotiation engine both roles drive: parses the inbound byte stream
+/// (RFC 854 framing, RFC 1143 option state, and every subnegotiation codec)
+/// and emits the outbound replies. The surface stays minimal on purpose —
+/// see <see cref="IByteStreamHandler"/> for the rationale — with the role
+/// halves split across the <c>ByteStreamHandler.*.cs</c> parts (pump,
+/// parsing, negotiation, MUD, replies, linemode, storm guard, reading).
 /// </summary>
 public partial class ByteStreamHandler : IByteStreamHandler
 {
@@ -523,9 +528,7 @@ public partial class ByteStreamHandler : IByteStreamHandler
     /// nothing arrived yet. The server checks it for a TLS ClientHello
     /// lead byte (0x16) on plaintext listeners.
     /// </summary>
-    internal int FirstInboundByte => firstInboundByte;
-
-    private int firstInboundByte = -1;
+    internal int FirstInboundByte { get; private set; } = -1;
 
     /// <summary>
     /// Gets the count of raw wire bytes pulled from the stream by this
@@ -788,10 +791,7 @@ public partial class ByteStreamHandler : IByteStreamHandler
 
     private bool IsResponsePending
     {
-        get
-        {
-            return pushbackByte.HasValue || MccpHasOutput || byteStream.Available > 0;
-        }
+        get => pushbackByte.HasValue || MccpHasOutput || byteStream.Available > 0;
     }
 
     /// <summary>
@@ -801,10 +801,7 @@ public partial class ByteStreamHandler : IByteStreamHandler
     /// </summary>
     private bool MccpHasOutput
     {
-        get
-        {
-            return MccpStream is not null && (MccpStream.HasOutput || MccpStream.HasTrailing);
-        }
+        get => MccpStream is not null && (MccpStream.HasOutput || MccpStream.HasTrailing);
     }
 
     /// <summary>

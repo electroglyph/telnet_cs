@@ -110,7 +110,7 @@ namespace telnet_cs.Tests
         {
             var options = LowFrictionOptions();
             options.AcceptFilter = _ => new AcceptDecision(false);
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             using var raw = new TcpClient();
@@ -127,7 +127,7 @@ namespace telnet_cs.Tests
         {
             var options = LowFrictionOptions();
             options.MaxConcurrentSessions = 1;
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             using var raw1 = new TcpClient();
@@ -157,7 +157,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task SplitPath_SendsNothingUntilNegotiateThenPreset()
         {
-            using var server = new TelnetServer(0, LowFrictionOptions());
+            using TelnetServer server = new(0, LowFrictionOptions());
             server.Start();
 
             using var raw = new TcpClient();
@@ -174,7 +174,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task AcceptSessionAsync_CombinedPath_StillSendsPreset()
         {
-            using var server = new TelnetServer(0, LowFrictionOptions());
+            using TelnetServer server = new(0, LowFrictionOptions());
             server.Start();
 
             using var raw = new TcpClient();
@@ -188,8 +188,8 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task NegotiateAsync_ForeignSession_ThrowsAndOriginalServerStillNegotiates()
         {
-            using var serverA = new TelnetServer(0, LowFrictionOptions());
-            using var serverB = new TelnetServer(0, LowFrictionOptions());
+            using TelnetServer serverA = new(0, LowFrictionOptions());
+            using TelnetServer serverB = new(0, LowFrictionOptions());
             serverA.Start();
             serverB.Start();
 
@@ -210,7 +210,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task NegotiateAsync_Twice_ThrowsInvalidOperation()
         {
-            using var server = new TelnetServer(0, LowFrictionOptions());
+            using TelnetServer server = new(0, LowFrictionOptions());
             server.Start();
 
             using var raw = new TcpClient();
@@ -229,7 +229,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task NegotiateAsync_NullSession_ThrowsArgumentNull()
         {
-            using var server = new TelnetServer(0, LowFrictionOptions());
+            using TelnetServer server = new(0, LowFrictionOptions());
             server.Start();
 
             await Assert.ThrowsAsync<ArgumentNullException>(() => server.NegotiateAsync(null!, CancellationToken.None));
@@ -238,7 +238,7 @@ namespace telnet_cs.Tests
         [Fact]
         public async Task NegotiateAsync_DisposedServer_ThrowsObjectDisposed()
         {
-            var server = new TelnetServer(0, LowFrictionOptions());
+            TelnetServer server = new(0, LowFrictionOptions());
             server.Start();
 
             using var raw = new TcpClient();

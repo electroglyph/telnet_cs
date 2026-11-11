@@ -58,12 +58,12 @@ namespace telnet_cs.Tests
 
         private static byte[] ZlibCompress(string text)
         {
-            using var ms = new MemoryStream();
+            using MemoryStream ms = new();
             // Optimal: the 1 KiB payload compresses to a few bytes whose
             // output arrives as one burst past the cap. NoCompression would
             // stream out gradually while the session drains a byte per pass,
             // so the outstanding-bytes cap would legitimately never trip.
-            using (var zlib = new ZLibStream(ms, CompressionLevel.Optimal, leaveOpen: true))
+            using (ZLibStream zlib = new(ms, CompressionLevel.Optimal, leaveOpen: true))
             {
                 zlib.Write(Encoding.ASCII.GetBytes(text));
             }
@@ -77,7 +77,7 @@ namespace telnet_cs.Tests
             var logs = new List<string>();
             var options = LoggedOptions(logs);
             options.MaxConcurrentSessions = 1;
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             using var first = new System.Net.Sockets.TcpClient();
@@ -99,7 +99,7 @@ namespace telnet_cs.Tests
             var logs = new List<string>();
             var options = LoggedOptions(logs);
             options.HandshakeTimeout = TimeSpan.FromMilliseconds(300);
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             using var raw = new System.Net.Sockets.TcpClient();
@@ -123,7 +123,7 @@ namespace telnet_cs.Tests
             var logs = new List<string>();
             var options = LoggedOptions(logs);
             options.MaxBufferedTextChars = 8;
-            using var session = new ServerSession(new ScriptedStream(new string('A', 64)), options, CancellationToken.None);
+            using ServerSession session = new(new ScriptedStream(new string('A', 64)), options, CancellationToken.None);
 
             await WaitForLogAsync(logs, "buffer-cap:", TimeSpan.FromSeconds(5));
             session.IsConnected.Should().BeFalse("the cap still closes fail-closed");
@@ -140,9 +140,9 @@ namespace telnet_cs.Tests
                 frames.AddRange([255, i % 2 == 0 ? 253 : 254, 7]);
             }
 
-            using var stream = new ScriptedStream([.. frames]);
-            using var cts = new CancellationTokenSource();
-            using var handler = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new([.. frames]);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler handler = new(stream, cts, 1);
             handler.StormGuard = new NegotiationStormGuard();
             var logs = new List<string>();
             handler.Log = m => logs.Add(m);
@@ -163,7 +163,7 @@ namespace telnet_cs.Tests
             var logs = new List<string>();
             var options = LoggedOptions(logs);
             options.MaxLoginAttempts = 1;
-            using var session = new ServerSession(new ScriptedStream("alice\ns3cret-pw\n"), options, CancellationToken.None);
+            using ServerSession session = new(new ScriptedStream("alice\ns3cret-pw\n"), options, CancellationToken.None);
             (await session.AuthenticateAsync((u, p) => Task.FromResult(false), TimeSpan.FromSeconds(5))).Should().BeFalse();
 
             logs.Should().Contain(m => m.StartsWith("auth-exhausted:", StringComparison.Ordinal));
@@ -181,7 +181,7 @@ namespace telnet_cs.Tests
             var response = new List<int> { 255, 250, 32, 0 };
             response.AddRange(Encoding.Latin1.GetBytes("1234567890").Select(b => (int)b));
             response.AddRange([255, 240]);
-            using var session = new ServerSession(new ScriptedStream([.. response]), options, CancellationToken.None);
+            using ServerSession session = new(new ScriptedStream([.. response]), options, CancellationToken.None);
             // Explicit TSPEED requests are WILL-gated (no SEND without the
             // peer's WILL), so establish the peer agreement first — the
             // over-cap IS is then consumed and capped.
@@ -200,7 +200,7 @@ namespace telnet_cs.Tests
             var reads = new List<int> { 255, 251, 93, 255, 250, 93 };
             reads.AddRange(Encoding.Latin1.GetBytes("c\0a\0b\0c\0").Select(b => (int)b));
             reads.AddRange([255, 240]);
-            using var session = new ServerSession(new ScriptedStream([.. reads]), options, CancellationToken.None);
+            using ServerSession session = new(new ScriptedStream([.. reads]), options, CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
 
             logs.Should().Contain(
@@ -219,10 +219,10 @@ namespace telnet_cs.Tests
             var options = LoggedOptions(logs);
             options.EnableMccp = true;
             options.MaxDecompressedBytes = 64;
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             stream.Enqueue([255, 253, 87, 255, 250, 87, 255, 240]);
             stream.Enqueue(ZlibCompress(new string('a', 1024)).Select(b => (int)b).ToArray());
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             for (int i = 0; i < 5; i++)
             {
                 await session.ReadAsync(TimeSpan.FromMilliseconds(300));
@@ -241,7 +241,7 @@ namespace telnet_cs.Tests
             var logs = new List<string>();
             var options = LoggedOptions(logs);
             options.StatusInterval = TimeSpan.FromMilliseconds(200);
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             using var raw = new System.Net.Sockets.TcpClient();

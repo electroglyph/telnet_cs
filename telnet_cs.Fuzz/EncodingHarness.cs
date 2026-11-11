@@ -95,7 +95,7 @@ internal static class EncodingHarness
         var encoding = TelnetEncodingProvider.Instance.GetEncoding(codepage);
         ArgumentNullException.ThrowIfNull(encoding);
         var decoder = encoding.GetDecoder();
-        var incremental = new StringBuilder();
+        StringBuilder incremental = new();
         foreach (var (start, length) in Feed.Chunks(input))
         {
             if (length == 0)

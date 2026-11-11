@@ -21,18 +21,18 @@ internal static class TermHarness
     public static async Task<(long Outbound, long Hash)> RunAsync(FuzzInput input, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(input);
-        using var clientStream = new FuzzStream();
+        using FuzzStream clientStream = new();
         using var client = await Client.CreateAsync(clientStream, TimeSpan.FromSeconds(5), CancellationToken.None, [], skipProactiveNegotiation: true);
         client.MillisecondReadDelay = 1;
         await DriveClientAsync(client, clientStream, input, cancellationToken).ConfigureAwait(false);
 
-        var options = new TelnetServerOptions
+        TelnetServerOptions options = new()
         {
             IdleTimeout = Timeout.InfiniteTimeSpan,
             StatusInterval = null,
             IsWriteConsole = false,
         };
-        using var serverStream = new FuzzStream();
+        using FuzzStream serverStream = new();
         using var session = new ServerSession(serverStream, options, CancellationToken.None)
         {
             MillisecondReadDelay = 1,

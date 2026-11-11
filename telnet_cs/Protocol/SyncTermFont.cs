@@ -1,6 +1,7 @@
 namespace telnet_cs.Protocol;
 
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Text;
 
@@ -58,7 +59,7 @@ public static class SyncTermFont
         [40] = "cp437",
         [41] = "cp437",
         [42] = "cp437",
-    };
+    }.ToFrozenDictionary();
 
     /// <summary>
     /// Scans raw inbound bytes for <c>CSI Ps1 ; Ps2 SP D</c> and returns

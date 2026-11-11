@@ -12,7 +12,7 @@ public partial class ServerSession
 {
     private bool OnSubnegotiationResponse(int inputOption, List<byte> payload)
     {
-        if (payload.Count == 0)
+        if (payload.Count is 0)
         {
             return false;
         }
@@ -87,15 +87,13 @@ public partial class ServerSession
     {
         lock (collectorLock)
         {
-            if (payload.Count == 4)
-            {
-                // Strict RFC 1073 shape (no verb).
-                clientWindowSize = ((ushort)(payload[0] << 8 | payload[1]), (ushort)(payload[2] << 8 | payload[3]));
-            }
-            else
+            if (payload is not [var b0, var b1, var b2, var b3])
             {
                 return false;
             }
+
+            // Strict RFC 1073 shape (no verb).
+            clientWindowSize = ((ushort)(b0 << 8 | b1), (ushort)(b2 << 8 | b3));
 
             // A size report assumes the peer enabled NAWS even when no
             // WILL arrived first: latch remote agreement (no reply bytes
@@ -116,7 +114,7 @@ public partial class ServerSession
             return false;
         }
 
-        var items = new List<StatusReportItem>();
+        List<StatusReportItem> items = [];
         int i = 1;
         while (i < payload.Count)
         {
@@ -381,26 +379,26 @@ public partial class ServerSession
                     if (maxKey > 0 && key.Length > maxKey)
                     {
                         ignoredKeys++;
-                        firstIgnoredKey = firstIgnoredKey.Length == 0 ? key : firstIgnoredKey;
+                        firstIgnoredKey = firstIgnoredKey.Length is 0 ? key : firstIgnoredKey;
                         continue;
                     }
 
                     if (maxValue > 0 && entry.Value.Length > maxValue)
                     {
                         ignoredValues++;
-                        firstIgnoredKey = firstIgnoredKey.Length == 0 ? key : firstIgnoredKey;
+                        firstIgnoredKey = firstIgnoredKey.Length is 0 ? key : firstIgnoredKey;
                         continue;
                     }
 
                     if (!store.ContainsKey(key) && maxVars > 0 && store.Count >= maxVars)
                     {
                         ignoredVars++;
-                        firstIgnoredKey = firstIgnoredKey.Length == 0 ? key : firstIgnoredKey;
+                        firstIgnoredKey = firstIgnoredKey.Length is 0 ? key : firstIgnoredKey;
                         continue;
                     }
 
                     store[key] = entry.Value;
-                    (batch ??= new Dictionary<string, string>(StringComparer.Ordinal))[key] = entry.Value;
+                    (batch ??= [])[key] = entry.Value;
                     if (key == EnvironmentProtocol.DisplayVariableName)
                     {
                         environDisplaySeq = ++displayArrivalSeq;
@@ -553,7 +551,7 @@ public partial class ServerSession
         while (!isDone() && DateTime.UtcNow < end && !linked.Token.IsCancellationRequested)
         {
             var text = await ReadAsync(TimeSpan.FromMilliseconds(MillisecondReadDelay), linked.Token).ConfigureAwait(false);
-            if (!string.IsNullOrEmpty(text))
+            if (text is not null and not "")
             {
                 AppendPendingText(text);
                 if (CheckBufferedTextCap())

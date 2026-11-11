@@ -22,7 +22,7 @@ internal static class ClientHarness
     public static async Task<(long Outbound, long Hash)> RunAsync(FuzzInput input, CancellationToken cancellationToken)
     {
         var bytes = Truncate(input);
-        using var stream = new FuzzStream();
+        using FuzzStream stream = new();
         using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(5), CancellationToken.None, [], skipProactiveNegotiation: true);
         client.MillisecondReadDelay = 1;
         foreach (var (start, length) in Feed.Chunks(bytes))
@@ -57,7 +57,7 @@ internal static class ClientHarness
     public static async Task<(long Outbound, long Hash)> RunSequenceAsync(IReadOnlyList<FuzzInput> inputs, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(inputs);
-        using var stream = new FuzzStream();
+        using FuzzStream stream = new();
         using var client = await Client.CreateAsync(stream, TimeSpan.FromSeconds(5), CancellationToken.None, [], skipProactiveNegotiation: true);
         client.MillisecondReadDelay = 1;
         foreach (var input in inputs)

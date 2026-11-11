@@ -12,9 +12,9 @@ namespace telnet_cs.Tests
     {
         private static async Task<(string Output, ScriptedStream Stream)> ReadDiscardingAsync(params int[] reads)
         {
-            var stream = new ScriptedStream(reads);
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            ScriptedStream stream = new(reads);
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.EnterSynchDiscard();
             var output = await sut.ReadAsync(TimeSpan.FromMilliseconds(50));
             return (output, stream);
@@ -73,9 +73,9 @@ namespace telnet_cs.Tests
         public async Task ReenterAfterDm_DiscardsAgain()
         {
             // Post-DM data surfaces; a fresh Synch starts a fresh scan.
-            using var stream = new ScriptedStream();
-            using var cts = new CancellationTokenSource();
-            using var sut = new ByteStreamHandler(stream, cts, 1);
+            using ScriptedStream stream = new();
+            using CancellationTokenSource cts = new();
+            using ByteStreamHandler sut = new(stream, cts, 1);
             sut.EnterSynchDiscard();
             stream.Enqueue(65, 255, 242, 66);
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().Be("B");

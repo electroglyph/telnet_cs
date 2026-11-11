@@ -151,7 +151,7 @@ public partial class ServerSession
             {
                 // Answers the pump filed before this request started satisfy
                 // it (like every other requester): SEND anyway, skip the wait.
-                preSatisfied = clientEnvironment.Count > 0;
+                preSatisfied = clientEnvironment.Count is > 0;
                 expectingEnvironment = true;
             }
         }
@@ -194,7 +194,7 @@ public partial class ServerSession
         {
             lock (collectorLock)
             {
-                preSatisfied = clientNewEnvironment.Count > 0;
+                preSatisfied = clientNewEnvironment.Count is > 0;
                 expectingNewEnvironment = true;
             }
         }

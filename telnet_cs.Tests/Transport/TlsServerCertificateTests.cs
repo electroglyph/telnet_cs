@@ -53,7 +53,7 @@ namespace telnet_cs.Tests
                 HandshakeTimeout = TimeSpan.FromSeconds(30),
                 GetServerCertificate = () => current,
             };
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             var firstAccept = server.AcceptSessionAsync(CancellationToken.None);
@@ -87,7 +87,7 @@ namespace telnet_cs.Tests
                 ServerCertificate = cert,
                 GetServerCertificate = () => null,
             };
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             var accept = server.AcceptSessionAsync(CancellationToken.None);
@@ -116,7 +116,7 @@ namespace telnet_cs.Tests
                     ? throw new InvalidOperationException("boom")
                     : current,
             };
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             var badAccept = server.AcceptSessionAsync(CancellationToken.None);
@@ -155,7 +155,7 @@ namespace telnet_cs.Tests
                 HandshakeTimeout = TimeSpan.FromSeconds(30),
                 GetServerCertificate = () => null,
             };
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             var accept = server.AcceptSessionAsync(CancellationToken.None);
@@ -177,7 +177,7 @@ namespace telnet_cs.Tests
                 TlsAutoDetect = TimeSpan.FromSeconds(10),
                 GetServerCertificate = () => cert,
             };
-            using var server = new TelnetServer(0, options);
+            using TelnetServer server = new(0, options);
             server.Start();
 
             var firstAccept = server.AcceptSessionAsync(CancellationToken.None);

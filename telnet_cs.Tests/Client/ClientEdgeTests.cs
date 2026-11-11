@@ -200,7 +200,7 @@
         public async Task WriteAfterExternalCancelIsNoop()
         {
             var fake = ConnectedFake();
-            using var cts = new CancellationTokenSource();
+            using CancellationTokenSource cts = new();
             using var sut = await Client.CreateAsync(fake, TimeSpan.FromMilliseconds(10), cts.Token);
             cts.Cancel();
             await Task.Delay(20); // let Register(CancelPendingReads) propagate
@@ -258,7 +258,7 @@
             // negotiation, so opt into proactive for this login script.
             using (GlobalStateGuard.SkipProactive(false))
             {
-                using var stream = new DummyByteStream();
+                using DummyByteStream stream = new();
                 using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), Array.Empty<(Commands, Options)>(), skipProactiveNegotiation: false);
                 (await sut.TerminatedReadAsync(":")).Should().EndWith(":");
             }
@@ -271,7 +271,7 @@
             // opening negotiation.
             using (GlobalStateGuard.SkipProactive(false))
             {
-                using var stream = new DummyByteStream();
+                using DummyByteStream stream = new();
                 using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken(), Array.Empty<(Commands, Options)>(), skipProactiveNegotiation: false);
                 (await sut.ReadAsync()).Should().Contain("Account:");
             }
@@ -283,7 +283,7 @@
             // Client role: DO LOGOUT is swallowed with no reply and the stream
             // stays open (reference: the client end raises instead); only a
             // server-role handler closes on DO LOGOUT.
-            using var stream = new ScriptedStream(255, 253, 18);
+            using ScriptedStream stream = new(255, 253, 18);
             using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().BeEmpty();
             stream.Connected.Should().BeTrue();
@@ -297,7 +297,7 @@
             // yet the located-check never matches ""), so the reader fails
             // fast like telnetlib3's readuntil, which raises ValueError on
             // an empty separator.
-            using var stream = new DummyByteStream();
+            using DummyByteStream stream = new();
             using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             Func<Task<string>> read = () => sut.TerminatedReadAsync(string.Empty, TimeSpan.FromMilliseconds(500), 1);
             await read.Should().ThrowAsync<ArgumentException>();
@@ -306,7 +306,7 @@
         [Fact]
         public async Task TerminatedRead_PipelinedData_TruncatesAndStashesRemainder()
         {
-            using var stream = new ScriptedStream("AB:CD:");
+            using ScriptedStream stream = new("AB:CD:");
             using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             (await sut.TerminatedReadAsync(":", TimeSpan.FromMilliseconds(500), 1)).Should().Be("AB:");
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().Be("CD:");
@@ -315,7 +315,7 @@
         [Fact]
         public async Task TerminatedRead_MultipleTerminators_CutsAtEarliest()
         {
-            using var stream = new ScriptedStream("A;B:C");
+            using ScriptedStream stream = new("A;B:C");
             using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             var terminators = new List<string> { ":", ";" };
             (await sut.TerminatedReadAsync(terminators, TimeSpan.FromMilliseconds(500), 1)).Should().Be("A;");
@@ -325,7 +325,7 @@
         [Fact]
         public async Task TerminatedRead_Regex_CutsAtMatchEnd()
         {
-            using var stream = new ScriptedStream("AB12CD");
+            using ScriptedStream stream = new("AB12CD");
             using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             (await sut.TerminatedReadAsync(new Regex(@"\d+"), TimeSpan.FromMilliseconds(500), 1)).Should().Be("AB12");
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().Be("CD");
@@ -336,7 +336,7 @@
         {
             // Port of test_telnet_reader_readuntil_pattern_success: the
             // Router>/Router#/Router(config)# banner chain with re \S+[>#].
-            using var stream = new ScriptedStream("Router> enable\nRouter#");
+            using ScriptedStream stream = new("Router> enable\nRouter#");
             using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             var prompt = new Regex(@"\S+[>#]");
             (await sut.TerminatedReadAsync(prompt, TimeSpan.FromMilliseconds(500), 1)).Should().Be("Router>");
@@ -348,7 +348,7 @@
         {
             // Port of test_readuntil_pattern_success_and_eof_incomplete
             // (success half): "aaXYZbb" with pattern XYZ.
-            using var stream = new ScriptedStream("aaXYZbb");
+            using ScriptedStream stream = new("aaXYZbb");
             using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             (await sut.TerminatedReadAsync(new Regex("XYZ"), TimeSpan.FromMilliseconds(500), 1)).Should().Be("aaXYZ");
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().Be("bb");
@@ -359,7 +359,7 @@
         {
             // Port of test_readuntil_success_consumes_and_returns:
             // feed "abc\nrest", take "abc\n", buffer keeps "rest".
-            using var stream = new ScriptedStream("abc\nrest");
+            using ScriptedStream stream = new("abc\nrest");
             using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             (await sut.TerminatedReadAsync("\n", TimeSpan.FromMilliseconds(500), 1)).Should().Be("abc\n");
             (await sut.ReadAsync(TimeSpan.FromMilliseconds(100))).Should().Be("rest");
@@ -370,7 +370,7 @@
         {
             // Port of test_read_until_wait_path_then_data_arrives: a blocked
             // read resolves with bytes enqueued mid-wait.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             var pending = sut.ReadAsync(TimeSpan.FromSeconds(5));
             stream.Enqueue(120, 121, 122);
@@ -398,7 +398,7 @@
         {
             // Unterminated text is never returned: the wait throws
             // TimeoutException instead of yielding a partial.
-            using var stream = new ScriptedStream("AB");
+            using ScriptedStream stream = new("AB");
             using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             Func<Task> act = () => sut.TerminatedReadAsync(":", TimeSpan.FromMilliseconds(200), 1);
             await act.Should().ThrowAsync<TimeoutException>();
@@ -409,7 +409,7 @@
         {
             // A terminator ending in a space must match itself: the read
             // below would stall to timeout under a trimmed-only check.
-            using var stream = new ScriptedStream("Account: Password: > ");
+            using ScriptedStream stream = new("Account: Password: > ");
             using var sut = await Client.CreateAsync(stream, TimeSpan.FromSeconds(30), new CancellationToken());
             (await sut.TerminatedReadAsync("Account:", TimeSpan.FromMilliseconds(500))).Should().Be("Account:");
             (await sut.TerminatedReadAsync("Password:", TimeSpan.FromMilliseconds(500))).Should().Contain("Password:");
@@ -582,7 +582,7 @@
             // a literal IAC in outbound user data is escaped by doubling.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var sut = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), default);
                 await sut.WriteAsync(new byte[] { 65, 255, 66 });
                 stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 65, 255, 255, 66 });
@@ -611,7 +611,7 @@
             // stream serialises "abcd").
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var sut = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), default);
                 await sut.WriteAsync("a");
                 await sut.WriteAsync("b");
@@ -631,7 +631,7 @@
             // closed stream reads empty and IsConnected follows the stream.
             using (GlobalStateGuard.SkipProactive(true))
             {
-                using var stream = new ScriptedStream();
+                using ScriptedStream stream = new();
                 using var sut = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), default);
                 stream.Close();
                 (await sut.ReadAsync(TimeSpan.FromMilliseconds(50))).Should().BeEmpty();

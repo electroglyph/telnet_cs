@@ -1,15 +1,17 @@
-# C# 9 through C# 14 — New Features Reference
+# C# 9 through C# 15 — New Features Reference and Best Practices
 
-Researched from the official Microsoft Learn "What's new" docs (Nov 2020 – Nov 2025).
-Each section lists every language feature in that release with a description and a usage example.
+Researched from the official Microsoft Learn "What's new" docs (Nov 2020 – Nov 2026).
+Each version section lists every language feature in that release with a description and a usage example.
+The [Best practices](#best-practices-c-15) section at the end states which practices to apply when writing code.
 
 Sources:
+- https://learn.microsoft.com/en-us/dotnet/csharp/whats-new/csharp-15
 - https://learn.microsoft.com/en-us/dotnet/csharp/whats-new/csharp-14
 - https://learn.microsoft.com/en-us/dotnet/csharp/whats-new/csharp-13
 - https://learn.microsoft.com/en-us/dotnet/csharp/whats-new/csharp-12
 - https://learn.microsoft.com/en-us/dotnet/csharp/whats-new/csharp-version-history (covers 9, 10, 11)
 
-Version / SDK map: C# 9 = .NET 5 · C# 10 = .NET 6 · C# 11 = .NET 7 · C# 12 = .NET 8 · C# 13 = .NET 9 · C# 14 = .NET 10.
+Version / SDK map: C# 9 = .NET 5 · C# 10 = .NET 6 · C# 11 = .NET 7 · C# 12 = .NET 8 · C# 13 = .NET 9 · C# 14 = .NET 10 · C# 15 = .NET 11.
 
 ---
 
@@ -28,8 +30,7 @@ Console.WriteLine(p1 == p2);               // False (different values)
 ```
 
 Records can have methods, custom constructors, and inherit from other records — but a record can
-inherit only another record (never a class), and a class cannot inherit from a record either
-(`class Sub : SomeRecord` fails with CS8865: "Only records may inherit from records").
+inherit only another record (never a class). A plain class may inherit from a record.
 
 ### Init-only setters
 Properties (or indexers) that can only be set during construction or in an object/`with` initializer. Backs the `with` expression on records and immutable DTOs:
@@ -94,9 +95,7 @@ Person? p = flag ? new Person("A", "B") : null;  // C# 8 rejected this
 ```
 
 ### Covariant return types
-An `override` may return a more derived type than the base method (override-only — an
-interface implementation still requires an exact signature match; a differing return type
-fails with CS0738):
+An override (or interface implementation) may return a more derived type than the base method:
 
 ```csharp
 abstract class Animal { public abstract Animal Clone(); }
@@ -498,8 +497,7 @@ Fixed-size inline buffers in a struct (safe-code equivalent of `fixed` buffers),
 [System.Runtime.CompilerServices.InlineArray(10)]
 public struct Buffer
 {
-    private int _element0;   // single field; compiler synthesizes a bounds-checked indexer
-                             // (no Length member — get the length from the attribute or via Span)
+    private int _element0;   // single field; compiler synthesizes indexer/length
 }
 
 var b = new Buffer();
@@ -591,7 +589,7 @@ string clear = "\e[2J";   // ANSI clear-screen, no ambiguity
 ```
 
 ### Method-group natural type improvements
-Overload pruning per scope: inapplicable candidates (wrong arity, unsatisfied constraints) are discarded before natural-type inference, so method-group-to-delegate conversions resolve correctly more often.
+Overload pruning per scope: inapplicable candidates (wrong arg count, unsatisfied constraints) are discarded before natural-type inference, so method-group-to-delegate conversions resolve correctly more often.
 
 ### Implicit index (`^`) in object initializers
 `[^n]` ("from end") now works when initializing collections inside an object initializer:
@@ -806,13 +804,168 @@ See the [feature spec](https://learn.microsoft.com/en-us/dotnet/csharp/language-
 ### File-based apps directives (tooling)
 `dotnet run file.cs` supports `#:` directives that declare build settings inline in a single
 file — no .csproj needed. Supported directives: `#:package`, `#:sdk`, `#:property`,
-`#:project`, `#:include`:
+`#:project` (multi-file `#:include` arrives in .NET 11, see C# 15):
 
 ```csharp
 #:sdk Microsoft.NET.Sdk.Web
 #:package System.CommandLine@2.0.0-*
 #:property LangVersion=preview
 ```
+
+---
+
+## C# 15 (.NET 11, November 2026)
+
+### Union types
+A value that is exactly one of several *case types*, declared with the `union` keyword. The case
+types need not share a base type. The compiler supplies implicit conversions from each case type
+and checks `switch` expressions for exhaustiveness across all case types:
+
+```csharp
+public record class Cat(string Name);
+public record class Dog(string Name);
+public record class Bird(string Name);
+
+public union Pet(Cat, Dog, Bird);
+
+Pet pet = new Dog("Rex");
+
+string name = pet switch
+{
+    Dog d => d.Name,
+    Cat c => c.Name,
+    Bird b => b.Name,
+};
+```
+Use a union when one value must be one of several existing, possibly unrelated types (e.g. a
+lookup that returns either the item or a not-found report) — no `object` return or artificial
+common base class needed, and adding a case type produces a build warning (CS8509) at every
+`switch` expression that no longer handles all cases, instead of failing at runtime. A
+default-initialized union holds null contents, so add a `null` arm whenever a default value
+can reach the `switch` (otherwise it throws `SwitchExpressionException` at runtime).
+
+### Closed hierarchies
+The `closed` modifier (a contextual keyword) on a class fixes its set of direct descendants
+at compile time: only code in the declaring assembly may derive from it. A `switch` handling every direct descendant is
+then exhaustive with no `default` arm:
+
+```csharp
+public closed record class GateState;
+public record class Closed : GateState;
+public record class Open(float Percent) : GateState;
+
+string Describe(GateState state) => state switch
+{
+    Closed => "closed",
+    Open(var percent) => $"{percent}% open",
+    // No warning: every direct descendant of GateState is handled.
+};
+```
+A `closed` class is implicitly `abstract` and cannot combine with `sealed`, `static`, or an
+explicit `abstract` modifier. Derivation is not transitive: a non-closed descendant can still be
+derived from elsewhere, so mark intermediate descendants `closed` too when the exhaustiveness
+check must reach further down. Prefer a union when combining existing unrelated types; prefer
+`closed` when you own the inheritance relationship.
+
+### Collection expression arguments
+A `with(...)` element as the first element of a collection expression forwards arguments to the
+underlying collection's constructor or factory method — capacity, comparer, or other parameters
+without giving up `[...]` syntax:
+
+```csharp
+string[] values = ["one", "two", "three"];
+
+// Pass capacity to the List<T> constructor:
+List<string> names = [with(capacity: values.Length * 2), .. values];
+
+// Pass a comparer to the HashSet<T> constructor:
+HashSet<string> set = [with(StringComparer.OrdinalIgnoreCase), "Hello", "HELLO", "hello"];
+// set holds one element: the comparer makes all three equal.
+```
+
+### Extension indexers
+`extension` blocks (C# 14) can now declare indexers alongside properties, methods, and statics.
+Indexers are always instance members, so the block must name its receiver parameter:
+
+```csharp
+public static class SequenceIndexer
+{
+    extension(IEnumerable<int> sequence)
+    {
+        public int this[int index] => sequence.ElementAt(index);
+    }
+}
+
+IEnumerable<int> numbers = Enumerable.Range(1, 10);
+int third = numbers[2];
+```
+Same rule as other extension members: do not use an extension indexer to fake missing
+encapsulation — if it needs the type's privates, it belongs in the type.
+
+### Labeled `break` and `continue`
+`break` and `continue` can name a label on an enclosing loop or `switch` statement, replacing
+Boolean-flag or `goto` workarounds in nested loops:
+
+```csharp
+outer: for (int row = 0; row < grid.Height; row++)
+{
+    for (int column = 0; column < grid.Width; column++)
+    {
+        if (grid[row, column].IsBlocked)
+        {
+            continue outer;
+        }
+
+        if (grid[row, column].IsGoal)
+        {
+            break outer;
+        }
+    }
+}
+```
+Without a label both statements keep their original meaning (innermost applicable statement).
+Rule `IDE0410` flags the flag/`goto` patterns a labeled jump can replace.
+
+### Non-virtual static interface members on older runtimes
+An interface can provide a non-virtual static helper (e.g. a conversion or factory method) that
+callers use directly on the interface, even when the target runtime lacks
+default-interface-implementation support:
+
+```csharp
+public interface IMeasurement
+{
+    public static double ToMeters(double centimeters) => centimeters / 100;
+}
+
+double m = IMeasurement.ToMeters(250);
+```
+Instance default implementations, `static abstract`/`virtual` members, and protected interface
+members still require runtime support.
+
+### File-based apps: `#:include` (tooling)
+`dotnet run file.cs` apps are no longer limited to a single file: `#:include` pulls another
+source file (literal paths and glob patterns) or a compiled DLL into the compilation — still
+no .csproj:
+
+```csharp
+#:include "Helpers.cs"
+#:include "./lib/Contracts.dll"
+```
+
+Included `.cs` files can declare types, methods, and namespaces, but not top-level statements.
+Plain file inclusion also works on SDK 10.0.300+; referencing a compiled DLL requires .NET 11.
+
+### Memory safety (preview — do not adopt yet)
+A multi-release redesign tying the `unsafe` context to operations that actually touch unmanaged
+memory rather than to the mere existence of pointer types. In preview (requires
+`<LangVersion>preview</LangVersion>` plus the `updated-memory-safety-rules` feature flag):
+declaring a pointer type, taking an address with `&`, `fixed`, converting `stackalloc` to a
+pointer, and `sizeof` on an unmanaged type no longer need `unsafe`; dereferencing (`*p`,
+`p->member`, `p[i]`, function-pointer invocation) still does. `unsafe` on a member becomes
+*requires-unsafe* (callers must be `unsafe` or propagate it), a new `unsafe(expression)` form
+covers positions where a block cannot appear (field/constructor initializers, `catch` filters),
+and a `safe` contextual keyword marks `extern` members and fields in explicit- or extended-layout types. The design is
+not final — stay on the current `unsafe` rules until it ships.
 
 ---
 
@@ -826,3 +979,109 @@ file — no .csproj needed. Supported directives: `#:package`, `#:sdk`, `#:prope
 | Primary constructors (all types), collection expressions + spread, inline arrays, default lambda params, `ref readonly` params, alias-any-type, `[Experimental]` | 12 |
 | `params` collections (Span etc.), `System.Threading.Lock`, `\e`, `ref` in async/iterators, `allows ref struct`, ref-struct interfaces, partial properties/indexers, `OverloadResolutionPriority` | 13 |
 | `extension` members (properties + statics), `field`-backed properties, null-conditional assignment, `nameof(List<>)`, first-class span conversions, modifier-only lambda params, partial events/ctors, user-defined compound assignment | 14 |
+| Union types, closed hierarchies, collection expression `with(...)` args, extension indexers, labeled `break`/`continue`, non-virtual static interface members on older runtimes (memory safety stays preview) | 15 |
+
+---
+
+## Best practices (C# 15)
+
+Target the latest stable language: `<LangVersion>latest</LangVersion>` (C# 15 on the .NET 11 SDK).
+Keep preview features off: the C# 15 memory-safety redesign requires `preview` plus a feature
+flag and redefines `unsafe` semantics — do not adopt it until it ships.
+
+### Nullability and validation
+
+- Keep `<Nullable>enable</Nullable>` on. Never silence nullability with `!` to work around a design
+  problem — fix the types or add a real guard instead. `!` is acceptable only for cases the compiler
+  cannot see (e.g. initialized via reflection/serialization), with a comment.
+- Validate public API arguments with `ArgumentNullException.ThrowIfNull`,
+  `ArgumentOutOfRangeException.ThrowIf...`, `ArgumentException.ThrowIfNullOrEmpty/WhiteSpace`.
+- Prefer `required` members or constructor parameters over settable-then-validated state.
+- Use `is null` / `is not null` instead of `== null` (avoids overloaded-operator surprises).
+
+### Types and object design
+
+- Model immutable data as `record` / `readonly record struct` (value equality, `with` support).
+  Use a `class` when identity matters or the type has significant behavior/lifetime.
+- Model a value that is exactly one of several existing, possibly unrelated types as a `union`
+  (C# 15) — e.g. a result that is either the item or a not-found report — instead of an `object`
+  return or an artificial common base class. Model a hierarchy you own with a `closed` base
+  (C# 15) so the compiler fixes the set of descendants. Write the `switch` over union cases or
+  `closed` descendants with no `default` arm, so a new case is flagged at build time (an error
+  under this repo's warnings-as-errors gate) instead of slipping through at runtime. Never add
+  a `_` or `var` catch-all to such a switch — it accepts any future case silently and forfeits
+  the checking. Prefer an explicit `null` arm over `_`/`var` when null contents are possible;
+  it preserves the missing-case warnings. Both give compiler-checked dispatch without reflection.
+- Prefer `init` accessors for construction-time-only state; `required` for mandatory members.
+- Use primary constructors for simple dependency capture (services, DTOs). If the constructor needs
+  validation or logic, write an explicit constructor body instead of clever parameter tricks.
+- One type per file; file name matches type name. File-scoped namespaces; `global using` for
+  ubiquitous imports only.
+
+### Properties
+
+- Use the `field` keyword for validated/transformed/lazy properties instead of hand-written backing
+  fields (see above — C# 14 `field`-backed properties).
+- Expression-bodied members for single-expression getters/methods.
+- No redundant backing fields, no `GetX()`/`SetX()` method pairs where a property fits.
+
+### Control flow and expressions
+
+- Prefer `switch` expressions and pattern matching (`and`/`or`/`not`, relational, list patterns)
+  over `if`/`else` chains and manual type tests + casts. Keep union/`closed` switches exhaustive
+  with no `default` arm (see above).
+- Prefer labeled `break` / `continue` (C# 15) over Boolean-flag variables or `goto` to steer
+  nested loops (e.g. grid scans, pathfinding).
+- Use target-typed `new()`, collection expressions (`[..]` with spread, `[with(...), ...]` for
+  capacity/comparer args), and null-coalescing / null-conditional assignment (`?.`,
+  `customer?.Order = ...`) to cut ceremony.
+- Use raw string literals (`"""`) for embedded JSON/SQL/regex/XML; UTF-8 literals (`"..."u8`) for
+  byte-oriented protocols.
+- Prefer `foreach` + LINQ over hand-rolled index loops for in-memory collections; prefer
+  `for` over `foreach` only in measured hot paths.
+
+### Strings, collections, spans
+
+- String building: interpolation with handlers over `string.Format`/`+` in loops; `StringBuilder`
+  for loops; `const` interpolation for compile-time constants.
+- Accept the most general usable collection parameter type; offer `params ReadOnlySpan<T>` /
+  `params IEnumerable<T>` overloads for allocation-free variadic APIs.
+- Pass capacity/comparer arguments inline with collection expression `with(...)` (C# 15) instead
+  of separate constructor calls where the target type supports it.
+- Use `Span<T>` / `ReadOnlySpan<T>` for parsing and buffer manipulation (first-class conversions
+  make them cheap to pass around). Use `stackalloc` for small short-lived buffers.
+- `ref struct` only when pinning stack-only semantics; remember it can't box to interfaces —
+  expose functionality via `allows ref struct` generics where needed.
+
+### Concurrency
+
+- `async`/`await` end-to-end; never block on async code (`.Result`, `.Wait()`, `.GetAwaiter().GetResult()`
+  outside `Main`). Always flow a `CancellationToken`.
+- Prefer `ValueTask` over `Task` only for genuinely hot, often-synchronous paths.
+- Synchronize with `System.Threading.Lock` + `lock` statement — never `lock (this)`, strings, or `Type`s.
+- Prefer immutable messages / channels (`System.Threading.Channels`) over shared mutable state.
+- Dispose with `using` declarations; implement `IAsyncDisposable` when teardown is async.
+
+### Extension and generated code
+
+- New `extension(...)` blocks (C# 14) for extension properties, extension indexers (C# 15), and
+  static extensions; classic `this`-parameter syntax remains fine for plain extension methods.
+  Don't use extensions to fake missing encapsulation — if it needs privates, it belongs in the type.
+- Source-generated code (regex, JSON, logging, interceptors): prefer `[GeneratedRegex]`,
+  `JsonSerializerContext`, `LoggerMessage.Define` over runtime reflection/emitted code.
+
+### Errors and diagnostics
+
+- Throw specific exception types with actionable messages; include parameter names via `nameof`.
+  Don't catch `Exception` except at a true boundary (log + translate there).
+- Use `[Experimental("ID")]` for in-progress APIs instead of ad-hoc "DO NOT USE" comments.
+- Annotate with `[MemberNotNull]`, `[NotNullWhen]`, `[DoesNotReturn]` etc. where contracts help analysis.
+
+### Quality gates
+
+- Treat warnings as errors in CI (`<TreatWarningsAsErrors>true</TreatWarningsAsErrors>`) with a modern
+  `<AnalysisLevel>`; enable relevant warning waves. No `#pragma` suppressions without a justification comment.
+- Public APIs get XML doc comments. Tests live next to the code they cover; name tests
+  `MethodUnderTest_Scenario_ExpectedResult`.
+- Follow .NET naming conventions (PascalCase types/members, camelCase locals/params, `_camelCase`
+  private fields only when a hand-written backing field is genuinely needed).

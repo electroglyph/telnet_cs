@@ -50,13 +50,13 @@ internal sealed class LinemodeState
         // peer proposal for one still counts as a valued row.
         for (byte function = 1; function <= LinemodeProtocol.MaxFunction; function++)
         {
-            defaults[function] = new SlcEntry(LinemodeProtocol.LevelNoSupport, 255, 0);
-            table[function] = new SlcEntry(LinemodeProtocol.LevelNoSupport, 255, 0);
+            defaults[function] = new(LinemodeProtocol.LevelNoSupport, 255, 0);
+            table[function] = new(LinemodeProtocol.LevelNoSupport, 255, 0);
         }
 
         foreach (var (function, level, value, flags) in BsdDefaults)
         {
-            var entry = new SlcEntry(level, value, flags);
+            SlcEntry entry = new(level, value, flags);
             defaults[function] = entry;
             table[function] = entry;
         }
@@ -334,7 +334,7 @@ internal sealed class LinemodeState
             {
                 // The peer supports nothing here: store NOSUPPORT with the
                 // disable value and ACK it (the peer value is not echoed).
-                table[function] = new SlcEntry(LinemodeProtocol.LevelNoSupport, 255, LinemodeProtocol.FlagAck);
+                table[function] = new(LinemodeProtocol.LevelNoSupport, 255, LinemodeProtocol.FlagAck);
                 return (LinemodeProtocol.FlagAck, 255);
             }
 
@@ -358,14 +358,14 @@ internal sealed class LinemodeState
                 // Valued row: accept the peer value, storing the full
                 // modifier (level plus reserved bits) and replying it
                 // with ACK set.
-                table[function] = new SlcEntry(level, value, upper);
+                table[function] = new(level, value, upper);
                 return ((byte)(level | upper | LinemodeProtocol.FlagAck), value);
             }
 
             if (current.Level == LinemodeProtocol.LevelDefault)
             {
                 // Willing but valueless row: store and ACK whatever was sent.
-                table[function] = new SlcEntry(level, value, upper);
+                table[function] = new(level, value, upper);
                 return ((byte)(level | upper | LinemodeProtocol.FlagAck), value);
             }
 
@@ -373,7 +373,7 @@ internal sealed class LinemodeState
                 && current.Level == LinemodeProtocol.LevelCantChange)
             {
                 // Unchangeable on both ends: degenerate to NOSUPPORT.
-                table[function] = new SlcEntry(LinemodeProtocol.LevelNoSupport, current.Value, 0);
+                table[function] = new(LinemodeProtocol.LevelNoSupport, current.Value, 0);
                 return (LinemodeProtocol.LevelNoSupport, current.Value);
             }
 
@@ -383,7 +383,7 @@ internal sealed class LinemodeState
             byte refusedValue = current.Level == LinemodeProtocol.LevelCantChange
               ? defaults[function].Value
               : current.Value;
-            table[function] = new SlcEntry(current.Level, refusedValue, 0);
+            table[function] = new(current.Level, refusedValue, 0);
             return (current.Level, refusedValue);
         }
     }
@@ -415,7 +415,7 @@ internal sealed class LinemodeState
     {
         lock (sync)
         {
-            return function >= 1 && function <= LinemodeProtocol.MaxFunction ? table[function] : default;
+            return function is >= 1 and <= LinemodeProtocol.MaxFunction ? table[function] : default;
         }
     }
 
@@ -470,7 +470,7 @@ internal sealed class LinemodeState
         ArgumentOutOfRangeException.ThrowIfGreaterThan(level, LinemodeProtocol.LevelBits);
         lock (sync)
         {
-            var entry = new SlcEntry(
+            SlcEntry entry = new(
               level, value, (byte)(flags & (LinemodeProtocol.FlagFlushIn | LinemodeProtocol.FlagFlushOut)));
             defaults[function] = entry;
             table[function] = entry;

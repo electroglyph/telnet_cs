@@ -155,7 +155,7 @@ public partial class ServerSession
             // A fresh non-terminal answer owes its follow-up SEND, paid
             // by the read's flush (ttypeResendsOwed): nothing to send here.
             var text = await ReadAsync(TimeSpan.FromMilliseconds(MillisecondReadDelay), linked.Token).ConfigureAwait(false);
-            if (!string.IsNullOrEmpty(text))
+            if (text is not null and not "")
             {
                 AppendPendingText(text);
                 if (CheckBufferedTextCap())
@@ -169,7 +169,7 @@ public partial class ServerSession
                         ttypeResendsOwed = 0;
                         terminalTypesConsumedUpTo = terminalTypeChain.Count;
                         terminalTypesCycleComplete = false;
-                        var capped = new List<string>(terminalTypeChain);
+                        List<string> capped = [.. terminalTypeChain];
                         if (capped.Count >= 2 &&
                             (string.Equals(capped[^1], capped[^2], StringComparison.Ordinal) ||
                               string.Equals(capped[^1], capped[0], StringComparison.Ordinal)))
@@ -233,7 +233,7 @@ public partial class ServerSession
             // cycle-complete freeze so gap answers are kept.
             terminalTypesConsumedUpTo = terminalTypeChain.Count;
             terminalTypesCycleComplete = false;
-            var result = new List<string>(terminalTypeChain);
+            List<string> result = [.. terminalTypeChain];
             if (result.Count >= 2 &&
                 (string.Equals(result[^1], result[^2], StringComparison.Ordinal) ||
                   string.Equals(result[^1], result[0], StringComparison.Ordinal)))
@@ -517,7 +517,7 @@ public partial class ServerSession
                     return;
                 }
 
-                mccp2Filter = new MccpWriteFilter(ByteStream, new MccpCompressor());
+                mccp2Filter = new(ByteStream, new());
             }
         }
         finally

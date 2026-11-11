@@ -29,7 +29,7 @@
         [Fact]
         public void CtorNullTokenSourceThrows()
         {
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             Action act = () => new ByteStreamHandler(stream, null!);
             act.Should().Throw<ArgumentNullException>().WithParameterName("internalCancellation");
         }
@@ -37,7 +37,7 @@
         [Fact]
         public async Task NawsReplyIsBareRfc1073()
         {
-            using var stream = new ScriptedStream(255, 253, 31);
+            using ScriptedStream stream = new(255, 253, 31);
             using var handler = MakeHandler(stream, out var cts);
             using (cts)
             {
@@ -55,7 +55,7 @@
         public async Task DuplicateNegotiationIsSuppressed()
         {
             // RFC 1143-lite: the same (verb, option) twice in a row gets one reply.
-            using var stream = new ScriptedStream(255, 253, 3, 255, 253, 3);
+            using ScriptedStream stream = new(255, 253, 3, 255, 253, 3);
             using var handler = MakeHandler(stream, out var cts);
             using (cts)
             {
@@ -69,7 +69,7 @@
         [Fact]
         public async Task BinaryOptionIsAgreed()
         {
-            using var stream = new ScriptedStream(255, 253, 0); // DO TransmitBinary
+            using ScriptedStream stream = new(255, 253, 0); // DO TransmitBinary
             using var handler = MakeHandler(stream, out var cts);
             using (cts)
             {
@@ -83,7 +83,7 @@
         [Fact]
         public async Task IacInOptionPositionIsIgnored()
         {
-            using var stream = new ScriptedStream(255, 253, 255);
+            using ScriptedStream stream = new(255, 253, 255);
             using var handler = MakeHandler(stream, out var cts);
             using (cts)
             {
@@ -96,7 +96,7 @@
         [Fact]
         public async Task TruncatedOptionIsIgnored()
         {
-            using var stream = new ScriptedStream(255, 253);
+            using ScriptedStream stream = new(255, 253);
             using var handler = MakeHandler(stream, out var cts);
             using (cts)
             {
@@ -111,14 +111,14 @@
         {
             // 600-byte payload exceeds the 512 cap: consumed for resync, ignored,
             // and the trailing text still parses.
-            var script = new List<int> { 255, 250, 31, 1 };
+            List<int> script = [255, 250, 31, 1];
             for (var i = 0; i < 600; i++)
             {
                 script.Add(65);
             }
 
             script.AddRange(new[] { 255, 240, 72, 73 });
-            using var stream = new ScriptedStream(script.ToArray());
+            using ScriptedStream stream = new(script.ToArray());
             using var handler = MakeHandler(stream, out var cts);
             string result;
             using (cts)
@@ -133,7 +133,7 @@
         [Fact]
         public async Task EscapedIacInsideSubnegotiation()
         {
-            using var stream = new ScriptedStream(255, 250, 24, 1, 255, 255, 255, 240, 79, 75);
+            using ScriptedStream stream = new(255, 250, 24, 1, 255, 255, 255, 240, 79, 75);
             using var handler = MakeHandler(stream, out var cts);
             string result;
             using (cts)
@@ -154,7 +154,7 @@
         [Fact]
         public async Task TruncatedSubnegotiationAbortsSilently()
         {
-            using var stream = new ScriptedStream(255, 250, 24, 1);
+            using ScriptedStream stream = new(255, 250, 24, 1);
             using var handler = MakeHandler(stream, out var cts);
             using (cts)
             {
@@ -169,7 +169,7 @@
         {
             // Malformed subnegotiation (IS where SEND is expected) is ignored:
             // subnegotiation never synthesizes WONT, so nothing is written.
-            using var stream = new ScriptedStream(255, 250, 24, 0, 255, 240);
+            using ScriptedStream stream = new(255, 250, 24, 0, 255, 240);
             using var handler = MakeHandler(stream, out var cts);
             using (cts)
             {
@@ -183,7 +183,7 @@
         public async Task BackspaceArrivesAsData()
         {
             // Decided: BS is data, never destructive.
-            using var stream = new ScriptedStream(65, 66, 8, 67);
+            using ScriptedStream stream = new(65, 66, 8, 67);
             using var handler = MakeHandler(stream, out var cts);
             string result;
             using (cts)
@@ -197,7 +197,7 @@
         [Fact]
         public async Task BackspaceOnEmptyArrivesAsData()
         {
-            using var stream = new ScriptedStream(8, 65);
+            using ScriptedStream stream = new(8, 65);
             using var handler = MakeHandler(stream, out var cts);
             string result;
             using (cts)
@@ -211,7 +211,7 @@
         [Fact]
         public async Task CrNulMeansBareCr()
         {
-            using var stream = new ScriptedStream(65, 13, 0, 66);
+            using ScriptedStream stream = new(65, 13, 0, 66);
             using var handler = MakeHandler(stream, out var cts);
             string result;
             using (cts)
@@ -225,7 +225,7 @@
         [Fact]
         public async Task CrLfPassesThrough()
         {
-            using var stream = new ScriptedStream(65, 13, 10, 66);
+            using ScriptedStream stream = new(65, 13, 10, 66);
             using var handler = MakeHandler(stream, out var cts);
             string result;
             using (cts)
@@ -241,7 +241,7 @@
         {
             // Decided: BEL is data, never a beep — the EnableBell flag is
             // retained for compatibility but no longer affects the read path.
-            using var stream = new ScriptedStream(7);
+            using ScriptedStream stream = new(7);
             using var handler = MakeHandler(stream, out var cts);
             using (cts)
             {
@@ -254,7 +254,7 @@
         public async Task TerminalTypeIsLatin1Encoded()
         {
             // é must go out as single byte 0xE9 (Latin-1), not UTF-8 0xC3 0xA9.
-            using var stream = new ScriptedStream(255, 250, 24, 1, 255, 240);
+            using ScriptedStream stream = new(255, 250, 24, 1, 255, 240);
             using var handler = MakeHandler(stream, out var cts);
             using (cts)
             {
@@ -272,8 +272,8 @@
         {
             // Decided: NAK is data, never message text — the log hook observes
             // the read path but no protocol note is emitted for data bytes.
-            using var stream = new ScriptedStream(21);
-            var logged = new List<string>();
+            using ScriptedStream stream = new(21);
+            List<string> logged = [];
             using var handler = MakeHandler(stream, out var cts);
             string result;
             using (cts)
@@ -288,9 +288,9 @@
         [Fact]
         public async Task ReceiveTimeoutIsClampedToIntMax()
         {
-            using var stream = new ScriptedStream(88); // 'X'
+            using ScriptedStream stream = new(88); // 'X'
             using var cts = new CancellationTokenSource(50);
-            using var handler = new ByteStreamHandler(stream, cts, 1);
+            using ByteStreamHandler handler = new(stream, cts, 1);
             var result = await handler.ReadAsync(TimeSpan.FromMilliseconds((double)int.MaxValue + 1000));
             result.Should().Be("X");
             stream.LastReceiveTimeout.Should().Be(int.MaxValue);
@@ -302,10 +302,10 @@
             // A pre-cancelled handler read throws OperationCanceledException
             // (the Client/ServerSession wrappers still return "" on mid-read
             // cancel; only the raw handler surfaces the cancellation).
-            using var stream = new ScriptedStream("AB");
-            using var cts = new CancellationTokenSource();
+            using ScriptedStream stream = new("AB");
+            using CancellationTokenSource cts = new();
             cts.Cancel();
-            using var handler = new ByteStreamHandler(stream, cts, 1);
+            using ByteStreamHandler handler = new(stream, cts, 1);
             Func<Task> act = () => handler.ReadAsync(TimeSpan.FromMilliseconds(100));
             await act.Should().ThrowAsync<OperationCanceledException>();
         }

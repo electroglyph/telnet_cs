@@ -64,7 +64,7 @@ public partial class ServerSession
         // Short timeouts (tests, tight gates) need a tight period to fire
         // promptly; long ones get a lazy period to avoid wakeups.
         var period = timeout <= TimeSpan.FromSeconds(5) ? TimeSpan.FromMilliseconds(50) : TimeSpan.FromSeconds(5);
-        idleTimer = new Timer(static state =>
+        idleTimer = new(static state =>
         {
             if (state is ServerSession session)
             {

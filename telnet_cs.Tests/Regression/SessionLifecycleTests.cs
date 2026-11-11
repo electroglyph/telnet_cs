@@ -45,7 +45,7 @@ namespace telnet_cs.Tests
             // Proof: after peer WILL SGA with no local WILL, SendGaAsync must return
             // true and emit FF F9; false/empty proves the over-broad gate. This test is
             // correct.
-            using var stream = new ScriptedStream(255, 251, 3);
+            using ScriptedStream stream = new(255, 251, 3);
             using var client = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None);
             (await client.ReadAsync(TimeSpan.FromMilliseconds(300))).Should().BeEmpty();
             (await client.SendGaAsync(CancellationToken.None)).Should().BeTrue();
@@ -70,7 +70,7 @@ namespace telnet_cs.Tests
             // TimeoutException; returning false proves the silent contract. This test
             // is correct for the timeout half; wake-latency and no-consume are pinned
             // by the same fix.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var client = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None);
             Func<Task> act = () => client.WaitForNegotiationAsync(_ => false, TimeSpan.FromMilliseconds(200));
             await act.Should().ThrowAsync<TimeoutException>();
@@ -87,9 +87,9 @@ namespace telnet_cs.Tests
             // Proof: waiting with an already-cancelled token must throw
             // OperationCanceledException; returning false proves the swallow. This
             // test is correct.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var client = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None);
-            using var cts = new CancellationTokenSource();
+            using CancellationTokenSource cts = new();
             cts.Cancel();
             Func<Task> act = () => client.WaitForNegotiationAsync(_ => false, Timeout.InfiniteTimeSpan, cts.Token);
             await act.Should().ThrowAsync<OperationCanceledException>();
@@ -112,10 +112,10 @@ namespace telnet_cs.Tests
             // return the chain while the next ReadAsync still returns the typed line.
             // Empty there proves data loss. This test is correct; the fix is to
             // preserve like the client waiter.
-            using var stream = new ScriptedStream(
+            using ScriptedStream stream = new(
                 [.. Ascii("typed-line\r\n"), 255, 250, 24, 0, (byte)'x', 255, 240,
                  255, 250, 24, 0, (byte)'x', 255, 240]);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             _ = session.Negotiation.ReceivedWill((int)Options.TerminalType, agree: true);
             (await session.RequestTerminalTypesAsync(TimeSpan.FromSeconds(5))).Should().Equal("x");
             (await session.ReadAsync(TimeSpan.FromSeconds(2))).Should().Be("typed-line\r\n");
@@ -135,8 +135,8 @@ namespace telnet_cs.Tests
             // report IsIdleTimedOut; false proves transmit wrongly feeds idleness. The
             // documented "no text read or written" line goes with the fix. This test is
             // correct.
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             session.Timeout = TimeSpan.FromMilliseconds(300);
             for (int i = 0; i < 5; i++)
             {
@@ -159,8 +159,8 @@ namespace telnet_cs.Tests
             // so "é" (2 wire bytes C3 A9, 1 char) counts 2.
             // Proof: reading C3 A9 as "é" must leave CharsReceived at 2.
             var options = new TelnetServerOptions { TextEncoding = System.Text.Encoding.UTF8 };
-            using var stream = new ScriptedStream(195, 169);
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ScriptedStream stream = new(195, 169);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("é");
             session.Context.CharsReceived.Should().Be(2);
         }
@@ -172,8 +172,8 @@ namespace telnet_cs.Tests
             // bytes): the counter must see all 5 raw bytes, not the single
             // decoded char.
             var options = new TelnetServerOptions { TextEncoding = System.Text.Encoding.UTF8 };
-            using var stream = new ScriptedStream(255, 253, 24, 195, 169);
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ScriptedStream stream = new(255, 253, 24, 195, 169);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("é");
             session.Context.CharsReceived.Should().Be(5);
         }
@@ -185,8 +185,8 @@ namespace telnet_cs.Tests
             // decodes to "é" (one char) but is a single wire byte. A
             // UTF-8-hardcoded count would report 2.
             var options = new TelnetServerOptions { TextEncoding = System.Text.Encoding.Latin1 };
-            using var stream = new ScriptedStream(0xE9);
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ScriptedStream stream = new(0xE9);
+            using ServerSession session = new(stream, options, CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("é");
             session.Context.CharsReceived.Should().Be(1);
         }
@@ -197,8 +197,8 @@ namespace telnet_cs.Tests
             // "é" is one char but two UTF-8 wire bytes (C3 A9). A
             // char-counting write path would report 1.
             var options = new TelnetServerOptions { TextEncoding = System.Text.Encoding.UTF8 };
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, options, CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, options, CancellationToken.None);
             await session.WriteAsync("é", CancellationToken.None);
             session.Context.CharsSent.Should().Be(2);
             stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 195, 169 });
@@ -209,8 +209,8 @@ namespace telnet_cs.Tests
         {
             // One 0xFF data byte goes out IAC-doubled: two wire bytes, not
             // the one pre-escape input byte.
-            using var stream = new ScriptedStream();
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new();
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             await session.WriteAsync(new byte[] { 0xFF }, CancellationToken.None);
             session.Context.CharsSent.Should().Be(2);
             stream.ByteWrites.Should().ContainSingle().Which.Should().Equal(new byte[] { 255, 255 });
@@ -226,8 +226,8 @@ namespace telnet_cs.Tests
             // counter even though it never passes through a WriteAsync
             // overload. Observed: FF FA 18 01 FF F0 /
             // FF FB 03 FF FB 00 FF FD 1F FF FD 2A.
-            using var stream = new ScriptedStream(255, 251, 24);
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new(255, 251, 24);
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().BeEmpty();
             session.Context.CharsReceived.Should().Be(3);
             session.Context.CharsSent.Should().Be(18);
@@ -243,9 +243,9 @@ namespace telnet_cs.Tests
             // fix, so this test locks the kept read-recording behavior.)
             // Proof: WriteAsync("cmd") plus ReadAsync("reply") leaves the
             // transcript as exactly "reply".
-            using var stream = new ScriptedStream(Ascii("reply"));
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
-            var transcript = new StringWriter();
+            using ScriptedStream stream = new(Ascii("reply"));
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
+            StringWriter transcript = new();
             session.Context.Typescript = transcript;
             await session.WriteAsync("cmd", CancellationToken.None);
             (await session.ReadAsync(TimeSpan.FromMilliseconds(500))).Should().Be("reply");
@@ -266,7 +266,7 @@ namespace telnet_cs.Tests
             // This pins the default posture; the opt-out stays pinned passing
             // elsewhere. Deliberately outside any global skip guard. This test is
             // correct.
-            using var stream = new ScriptedStream();
+            using ScriptedStream stream = new();
             using var client = await Client.CreateAsync(stream, TimeSpan.FromMilliseconds(50), CancellationToken.None);
             stream.ByteWrites.Should().BeEmpty();
         }
@@ -284,7 +284,7 @@ namespace telnet_cs.Tests
             // Proof: new LinemodeBuffer(trapSignal:true).Feed('\x03').Data must equal
             // [255, 244] (IAC IP); buffered echo proves the subset default. This test
             // is correct; the fix defaults to the full reference table.
-            var buffer = new LinemodeBuffer(trapSignal: true);
+            LinemodeBuffer buffer = new(trapSignal: true);
             buffer.Feed('\x03').Data.Should().Equal(255, 244);
         }
 
@@ -303,8 +303,8 @@ namespace telnet_cs.Tests
             // the text gap. This test is correct for the wire-visible text half; the
             // introspection command set stays an explicit leftover until toggling and
             // byte-dump surfaces exist.
-            using var stream = new ScriptedStream(Ascii("quit\n"));
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new(Ascii("quit\n"));
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             await ServerShells.RunReplAsync(session, CancellationToken.None);
             OutboundText(stream).Should().Contain("tel:sh> \r\nGoodbye.");
         }
@@ -320,8 +320,8 @@ namespace telnet_cs.Tests
             // Proof: feeding "bogus\nquit\n" must produce a transcript containing
             // "no such command."; the longer sentence proves the mismatch. This test
             // is correct.
-            using var stream = new ScriptedStream(Ascii("bogus\nquit\n"));
-            using var session = new ServerSession(stream, new TelnetServerOptions(), CancellationToken.None);
+            using ScriptedStream stream = new(Ascii("bogus\nquit\n"));
+            using ServerSession session = new(stream, new TelnetServerOptions(), CancellationToken.None);
             await ServerShells.RunReplAsync(session, CancellationToken.None);
             OutboundText(stream).Should().Contain("no such command.");
         }

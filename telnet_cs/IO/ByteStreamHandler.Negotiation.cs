@@ -71,19 +71,13 @@ public partial class ByteStreamHandler
 
     private Task SendWont(int inputOption)
     {
-        var outBuffer = new byte[3];
-        outBuffer[0] = (byte)Commands.InterpretAsCommand;
-        outBuffer[1] = (byte)Commands.Wont;
-        outBuffer[2] = (byte)inputOption;
+        byte[] outBuffer = [(byte)Commands.InterpretAsCommand, (byte)Commands.Wont, (byte)inputOption];
         return WriteWireAsync(outBuffer, 0, outBuffer.Length, internalCancellation.Token);
     }
 
     private Task SendDont(int inputOption)
     {
-        var outBuffer = new byte[3];
-        outBuffer[0] = (byte)Commands.InterpretAsCommand;
-        outBuffer[1] = (byte)Commands.Dont;
-        outBuffer[2] = (byte)inputOption;
+        byte[] outBuffer = [(byte)Commands.InterpretAsCommand, (byte)Commands.Dont, (byte)inputOption];
         return WriteWireAsync(outBuffer, 0, outBuffer.Length, internalCancellation.Token);
     }
 
@@ -160,7 +154,7 @@ public partial class ByteStreamHandler
           EnvironmentUser,
           null,
           EnvironmentUserVars,
-          string.IsNullOrEmpty(TerminalType) ? null : TerminalType,
+          TerminalType is null or "" ? null : TerminalType,
           lang,
           width.ToString(System.Globalization.CultureInfo.InvariantCulture),
           height.ToString(System.Globalization.CultureInfo.InvariantCulture),
@@ -313,7 +307,7 @@ public partial class ByteStreamHandler
             // invite a subnegotiation the other side must request first,
             // and the follow-up SEND probes below run regardless.
         }
-        else if ((reply is Commands.Wont || reply is Commands.Dont) && ShouldSuppressStormRefusal())
+        else if (reply is Commands.Wont or Commands.Dont && ShouldSuppressStormRefusal())
         {
             // Storm shed: the refusal state is still recorded above, so
             // only the repeat reply bytes are dropped. Agreements
